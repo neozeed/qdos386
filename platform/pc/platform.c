@@ -9,6 +9,7 @@
 #include "platform.h"
 
 extern void outb(unsigned int port, unsigned int val);
+extern unsigned int inb(unsigned int port);
 
 #define PIT_CLOCK 1193182UL
 
@@ -90,6 +91,35 @@ unsigned int timer_device_count(void)
 void timer_ack(void)
 {
 	outb(0x20, 0x20);                       /* non-specific EOI, master */
+}
+
+int pic_present(void)
+{
+	return 1;
+}
+
+/* OCW3 0x0B selects the in-service register for the next read of the
+ * command port. */
+unsigned int pic_master_isr(void)
+{
+	outb(0x20, 0x0b);
+	return inb(0x20);
+}
+
+unsigned int pic_slave_isr(void)
+{
+	outb(0xa0, 0x0b);
+	return inb(0xa0);
+}
+
+void pic_eoi_master(void)
+{
+	outb(0x20, 0x20);
+}
+
+void pic_eoi_slave(void)
+{
+	outb(0xa0, 0x20);
 }
 
 void halt_with(int status)

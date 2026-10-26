@@ -1,5 +1,5 @@
 /*
- * QDOS/386 R3 - native job model, service traps and scheduler interface.
+ * QDOS/386 R4 - native job model, service traps and scheduler interface.
  *
  * R3 changes from R2:
  *   - job stacks come from the kernel heap (kernel/memory.c), not a static
@@ -23,7 +23,7 @@
 
 /* Service traps: int 0x30, EAX = function, EBX/ECX/EDX = arguments,
  * EAX = result on return.  R2 numbers follow the JS ROM trap names.
- * R3 memory functions use 0x10..0x13, which do not overlap R2's 0x08..0x0F. */
+ * R3 memory functions use 0x10..0x13, R4 channel services 0x14..0x17. */
 #define QT_SUSPEND    0x08        /* a = timeout ticks (<0 indefinite), b = hold byte ptr */
 #define QT_REACTIVATE 0x09        /* a = job id */
 #define QT_ACTIVATE   0x0A        /* a = job id, b = priority increment */
@@ -36,6 +36,11 @@
 #define QT_MEM_FREE   0x11        /* a = pointer -> 0, or negative MEM_ERR_* */
 #define QT_MEM_FREE_BYTES 0x12    /* -> free bytes in the heap */
 #define QT_MEM_VALIDATE   0x13    /* -> 0 if heap invariants hold, else MEM_ERR_CORRUPT */
+/* R4 channel services (kernel/channel.c).  EAX = code; ids are (tag<<16)|index. */
+#define QT_CH_OPEN    0x14        /* a = name pointer ("CON", NUL-terminated) -> channel id, or negative */
+#define QT_CH_CLOSE   0x15        /* a = channel id -> 0, or negative */
+#define QT_CH_WRITE   0x16        /* a = channel id, b = buffer, c = length -> bytes written */
+#define QT_CH_PUTC    0x17        /* a = channel id, b = byte -> 1, or negative */
 
 #define TRAP_VECTOR 0x30
 

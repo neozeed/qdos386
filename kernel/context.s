@@ -60,14 +60,36 @@ resume_ctx:
 	ret
 
 /*
- * Spurious IRQ7 (vectors 0x27 and 0x2F).  The 8259 returns IRQ7 when a
- * request has gone away before it is acknowledged, for example a tick that
- * was pending at boot when the PIC was reprogrammed.  A spurious interrupt
- * needs no EOI, so the handler only returns.
+ * IRQ7 (vector 0x27, master) and IRQ15 (vector 0x2F, slave).  The C
+ * dispatchers in kernel/irq.c read the in-service registers and send an EOI
+ * only for a genuine interrupt.  A spurious IRQ7 or IRQ15 returns by iret
+ * after the dispatcher has decided on the EOI.  These handlers never
+ * schedule, so they do not use resume_dispatch.
  */
-.globl _spurious_stub
-_spurious_stub:
+.globl _irq7_stub
+_irq7_stub:
+	pushal
+	call _irq7_dispatch
+	popal
 	iret
+
+.globl _irq15_stub
+_irq15_stub:
+	pushal
+	call _irq15_dispatch
+	popal
+	iret
+
+/* Software injection (guest tests only): int 0x27 and int 0x2F. */
+.globl _sw_int27
+_sw_int27:
+	int $0x27
+	ret
+
+.globl _sw_int2f
+_sw_int2f:
+	int $0x2f
+	ret
 
 /* IRQ0 (vector 0x20, interrupt gate) */
 .globl _irq0_stub

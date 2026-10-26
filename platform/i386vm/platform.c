@@ -61,6 +61,30 @@ void timer_ack(void)
 	/* no interrupt controller in the harness */
 }
 
+/* The harness has no PIC: classification treats every IRQ7 as spurious. */
+int pic_present(void)
+{
+	return 0;
+}
+
+unsigned int pic_master_isr(void)
+{
+	return 0;
+}
+
+unsigned int pic_slave_isr(void)
+{
+	return 0;
+}
+
+void pic_eoi_master(void)
+{
+}
+
+void pic_eoi_slave(void)
+{
+}
+
 void halt_with(int status)
 {
 	extern void halt_with_asm(int status);

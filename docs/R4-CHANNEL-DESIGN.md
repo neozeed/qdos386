@@ -1,8 +1,12 @@
 # QDOS/386 R4 - Channel Manager Design Note (not implemented)
 
-Status: design only. No R4 code exists in this archive. The R3 kernel is
-frozen. This note fixes the first R4 scope so that the firmware and memory
-questions can close before any kernel functionality is added.
+Status: the design in this note is implemented in R4. The implemented
+interface is authoritative in `docs/R4-CHANNEL-ABI.md`. Where that file and
+this note differ, the differences are listed in §10. This note records the
+design as it was before implementation.
+
+Implementation: `kernel/channel.c`, `kernel/channel.h`, `kernel/irq.c`,
+`tests/test_channels.c`. Source audit: `docs/JS-ROM-CHANNEL-MAP.md`.
 
 ## 1. Scope of the first R4 objective
 
@@ -186,3 +190,21 @@ R4 starts only after the R3 validation package is accepted. Nothing in this
 note changes R3 code, R3 ABI or R3 tests. The R3 open item about the `0x2F`
 EOI (`R3-FW-VALIDATION.md` §5.3) is not part of R4, and it should be settled
 in its own small revision.
+
+## 10. Changes made during implementation
+
+- Service codes: `0x17` `QT_CH_PUTC` (one byte) was added to the proposed
+  `0x14`–`0x16`, because one-character output is listed as its own service.
+- Name argument of `QT_CH_OPEN` is in EBX, as with the other services.
+- Name-not-found is `-7`, the code the JS ROM uses for "name not known" (the
+  design table in §4 was corrected to match the JS ROM before implementation).
+- Owner check: a channel used by another job returns `-13`. The JS ROM has no
+  owner check; R4 adds one (requirement 9).
+- Channel objects are owned by the opening job's tagged id, not by the kernel,
+  so job-exit reclaim finds them if the cleanup step ever misses one.
+- Open item 1 (trap #3 write code) is resolved in `docs/JS-ROM-CHANNEL-MAP.md`:
+  output is operation 5 (one byte) and operation 7 (string).
+- Open item 2 is resolved: the name is read with a range check (best effort).
+- Open item 3 is resolved: exit cleanup runs before the heap reclaim, in the
+  same trap or yield context, and is not called from the timer ISR.
+

@@ -1,5 +1,5 @@
 /*
- * QDOS/386 R3 - SYSTEM job, idle job and final validation.
+ * QDOS/386 R4 - SYSTEM job, idle job and final validation.
  *
  * Boot.  Initialise the descriptors and scheduler, then the kernel heap, then
  *        run the heap-only tests (no jobs, no timer).
@@ -15,6 +15,9 @@
 #include "platform.h"
 #include "test_jobs.h"
 #include "test_memory.h"
+#include "test_channels.h"
+#include "channel.h"
+#include "irq.h"
 
 #define TIMER_PERIOD_UNITS 16        /* i386VM: 16 * 1024 steps.  PC: see platform */
 
@@ -42,7 +45,7 @@ static int apps_done(void)
 {
 	return test_results[0].exited && test_results[1].exited &&
 	       test_results[2].exited && test_results[0].coop_resumed == 1 &&
-	       r3_phase_done;
+	       r3_phase_done && r4_phase_done;
 }
 
 static void finish(void)
@@ -51,6 +54,7 @@ static void finish(void)
 	int i;
 	int dev_ok = 1;
 	int r3_ok = 1;
+	int r4_ok = 1;
 	struct mem_stats st;
 
 	con_puts("IDLE: no application jobs remain\n");
@@ -101,6 +105,37 @@ static void finish(void)
 	if (r3_nchecks == 0)
 		r3_ok = 0;
 
+	for (i = 0; i < r4_nchecks; i++) {
+		con_puts("CHECK ");
+		con_puts(r4_checks[i].name);
+		if (r4_checks[i].na)
+			con_puts(": n/a\n");
+		else
+			con_puts(r4_checks[i].ok ? ": ok\n" : ": FAIL\n");
+		if (!r4_checks[i].ok)
+			r4_ok = 0;
+	}
+	if (r4_nchecks == 0)
+		r4_ok = 0;
+	con_puts("IRQ: spurious IRQ7 ");
+	con_putdec(irq_spurious_master7);
+	con_puts(" IRQ15 ");
+	con_putdec(irq_spurious_slave15);
+	con_puts(" genuine IRQ7 ");
+	con_putdec(irq_genuine_master7);
+	con_puts(" IRQ15 ");
+	con_putdec(irq_genuine_slave15);
+	con_putc('\n');
+	con_puts("CHANNELS: opened ");
+	con_putdec(chan_opened);
+	con_puts(" closed ");
+	con_putdec(chan_closed);
+	con_puts(" closed-on-exit ");
+	con_putdec(chan_closed_on_exit);
+	con_puts(" rejected ");
+	con_putdec(chan_rejected);
+	con_putc('\n');
+
 	mem_stats(&st);
 	con_puts("HEAP: total ");
 	con_putdec(st.total);
@@ -138,11 +173,11 @@ static void finish(void)
 	con_putdec(jobs[job_idle].dispatches);
 	con_putc('\n');
 
-	if (ok && r3_ok && mem_validate() == MEM_OK && stack_faults == 0) {
-		con_puts("\nQDOS/386 R3 MEMORY PASS\n");
+	if (ok && r3_ok && r4_ok && mem_validate() == MEM_OK && stack_faults == 0) {
+		con_puts("\nQDOS/386 R4 CHANNEL PASS\n");
 		halt_with(0);
 	}
-	con_puts("\nQDOS/386 R3 MEMORY FAIL\n");
+	con_puts("\nQDOS/386 R4 CHANNEL FAIL\n");
 	halt_with(1);
 }
 
@@ -164,7 +199,7 @@ int main(void)
 	unsigned int arena;
 	int i;
 
-	con_puts("QDOS/386 R3\n");
+	con_puts("QDOS/386 R4\n");
 	con_puts("Native i386 kernel\n\n");
 	con_puts("CPU: i386 protected mode\n");
 	con_puts((cr0 & 1u) ? "Protected mode: OK\n" : "Protected mode: FAIL\n");
@@ -248,6 +283,9 @@ int main(void)
 
 	/* R3 job phase: preempted allocators, reclaim, slot reuse, pressure. */
 	memory_job_phase();
+
+	/* R4: channel jobs and the IRQ classification checks. */
+	channel_job_phase();
 
 	/* Nothing left for SYSTEM: suspend indefinitely.  IDLE finishes the run. */
 	for (i = 0; ; i++) {

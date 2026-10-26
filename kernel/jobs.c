@@ -1,5 +1,5 @@
 /*
- * QDOS/386 R3 - job table, scheduler, service traps and job memory.
+ * QDOS/386 R4 - job table, scheduler, service traps and job memory.
  *
  * Scheduling follows the JS ROM (system_asm.s), as in R2:
  *  - Timer interrupt (l00900): SV.POLLM is incremented, then the poll list
@@ -34,6 +34,7 @@
  */
 #include "jobs.h"
 #include "memory.h"
+#include "channel.h"
 
 struct job jobs[JOB_MAX];
 int job_current = JOB_SYSTEM;
@@ -103,6 +104,9 @@ static void reclaim_dead(void)
 			continue;
 		if (j->stack_base != 0)
 			j->stack_hwm = stack_high_water(j);
+		/* Channels first: they free their own objects, so the heap pass
+		 * below finds only the job's stack and user blocks. */
+		chan_close_owner(j->id);
 		bytes_reclaimed += mem_reclaim_owner(j->id);
 		jobs_reclaimed++;
 		dead_mask &= ~bit;
@@ -473,6 +477,22 @@ unsigned int trap_dispatch(unsigned int sp)
 
 	case QT_MEM_VALIDATE:
 		result = mem_validate();
+		break;
+
+	case QT_CH_OPEN:
+		result = chan_open(job_current_id(), a);
+		break;
+
+	case QT_CH_CLOSE:
+		result = chan_close(a, job_current_id());
+		break;
+
+	case QT_CH_WRITE:
+		result = chan_write(a, job_current_id(), b, c);
+		break;
+
+	case QT_CH_PUTC:
+		result = chan_putc(a, job_current_id(), b);
 		break;
 
 	default:
