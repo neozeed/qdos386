@@ -2,6 +2,7 @@ build/
 logs/
 patches/
 tests/
+external/
 *.o
 __pycache__/
 sdk/examples/*.aout
