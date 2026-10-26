@@ -1,107 +1,103 @@
-# QDOS/386 R4 - native kernel with a managed heap and a channel manager
+# QDOS/386 R5 - native kernel that loads and runs independently linked a.out programs
 
-A native 32-bit i386 kernel, freestanding, flat address space, CPL 0, paging
-off. R4 adds a native channel manager with a console driver, and a corrected
-vector 0x2F (IRQ15) handler, on top of the R3 heap and job model. The R2
-scheduler and the R3 memory services are kept and still pass.
+A native 32-bit i386 kernel, freestanding, flat address space, CPL 0, paging off.
+R5 adds a guest-side OMAGIC a.out loader. Two applications, linked separately with
+the unchanged historical toolchain, are carried in a transfer area, validated by
+the kernel, and run as ordinary QDOS/386 jobs. They use the R4 channel services,
+and SYSTEM checks their exit statuses. The R2–R4 kernel is kept.
 
-Targets: the i386VM harness (synthetic timer) and the full Tiny386 PC
-(SeaBIOS, PIT/PIC). Both run the same kernel sources.
+Targets: the i386VM harness (synthetic timer) and the full Tiny386 PC (SeaBIOS,
+PIT/PIC). Both use the same kernel, the same transfer-area bytes and the same loader.
 
 ## Status
 
-Verified in the guest on both targets, three runs each:
+Verified in the guest on both targets, three runs each (`docs/R5-RUNTIME-REPORT.md`):
 
-- i386VM: `QDOS/386 R4 CHANNEL PASS`, 54 checks ok, 1 n/a.
-- Tiny386 PC, known-good BIOS: `QDOS/386 R4 CHANNEL PASS`, 54 checks ok, 1 n/a.
-- i386VM with the timer disabled: no PASS (instruction limit exceeded).
+- i386VM and Tiny386 PC: 103 checks ok, 1 n/a, 0 FAIL; `QDOS/386 R4 CHANNEL PASS`
+  and `QDOS/386 R5 A.OUT EXEC PASS`.
+- i386VM with the timer disabled: no PASS (instruction limit).
 
-Details, limits and exact checks: `docs/R4-RUNTIME-REPORT.md`.
-Channel ABI: `docs/R4-CHANNEL-ABI.md`. JS ROM channel audit:
-`docs/JS-ROM-CHANNEL-MAP.md`. Interrupt and firmware baseline:
-`docs/R3-FW-VALIDATION.md`.
+Documents:
+
+- `docs/R5-AOUT-FORMAT.md`: the a.out dialect, from bytes (Phase 0).
+- `docs/R5-APP-ABI.md`: memory map, linking, startup, exit, traps, transfer area,
+  loader and application contracts.
+- `docs/R5-RUNTIME-REPORT.md`: results, checks, limits, external dependency hashes.
+- `docs/R4-CHANNEL-ABI.md`, `docs/R3-MEMORY-ABI.md`: earlier ABIs, unchanged.
 
 ## Layout
 
 ```
 kernel/
-  main.c                 boot, heap-only tests, R2 sequence, R3 and R4 phases, report
-  jobs.h, jobs.c         job table, scheduler, traps (R2, R3 memory, R4 channel)
-  memory.h, memory.c     native heap (R3)
-  channel.h, channel.c   channel table, ids, ownership, console driver (R4)
-  irq.h, irq.c           IRQ7 and IRQ15 classification (R4 Phase 0)
-  context.s              IRQ stubs, yield, resume, IF save/restore, software int helpers
-  descriptors.c          GDT, IDT (IRQ0 0x20, IRQ7 0x27, trap 0x30, IRQ15 0x2F)
+  appmap.h               R5 memory map (slots, transfer area, heap end)
+  aout.h, aout.c         transfer-area reader and OMAGIC loader
+  main.c                 boot, R2-R4 phases, R5 application phase, report
+  jobs.h, jobs.c         job table, scheduler, traps (incl. QT_EXIT 0x18, QT_JOB_EXIT 0x19)
+  memory.h, memory.c     native heap
+  channel.h, channel.c   channel manager and CON driver (R4)
+  irq.h, irq.c           IRQ7 and IRQ15 classification (R4)
+  context.s              IRQ stubs, yield, resume, software int helpers
+  descriptors.c          GDT, IDT
 tests/
-  test_jobs.c/h          R2 test jobs
-  test_memory.c/h        R3 heap tests and memory job phase
-  test_channels.c/h      R4 channel jobs and the IRQ checks
+  test_jobs.c/h, test_memory.c/h, test_channels.c/h   R2-R4 checks
+  test_app.c/h           R5 application phase and malformed-image tests
+apps/
+  hello/hello.c          channel output, exit status 7
+  prep/prep.c            data, BSS, stack, preemption, exit status 42
+  common/app_start.s     _start (calls main, QT_EXIT, returns)
+  common/qtrap.s         C wrapper for int 0x30
+  common/slot0.ld        link script, origin 0x200000
+  common/slot1.ld        link script, origin 0x240000
+  probe-layout/          Phase 0 probe (format audit evidence)
 platform/
-  platform.h             platform interface (console, timer, PIC access, halt)
-  pc/                    Tiny386 console (port 0x402), PIC/PIT, halt, boot sector, image
-  i386vm/                console (MMIO 0x800001), synthetic timer, halt; no PIC
-docs/
-  R4-CHANNEL-ABI.md      native channel services, codes, errors, limits
-  R4-CHANNEL-DESIGN.md   design note (implemented; differences in section 10)
-  R4-RUNTIME-REPORT.md   commands, hashes, results, IRQ review, limitations
-  JS-ROM-CHANNEL-MAP.md  JS ROM TRAP #2 / TRAP #3 audit (68000 ABI, for reference)
-  R3-FW-VALIDATION.md    known-good firmware validation, memory map, IRQ review
-  R3-MEMORY-DESIGN.md, R3-MEMORY-ABI.md, R3-RUNTIME-REPORT.md, JS-ROM-MEMORY-MAP.md,
-  JS-ROM-KERNEL-MAP.md, TINY386-COMPATIBILITY.md, R1-RUNTIME-REPORT.md
+  pc/                    boot sector (INT 13h), kernel link, image builder, console, PIC/PIT
+  i386vm/                console, synthetic timer, halt
+tools/
+  make-xfer.py           transfer area: directory + exact a.out bytes
+  make-vm-image.py       i386VM image: kernel, zero padding to 0x280000, transfer area
 scripts/
   run-all.sh             build both targets and run the matrix
-logs/
-  i386vm-run{1,2,3}.log, pc-run{1,2,3}.txt, i386vm-notimer.log   R4 matrix
-  known-good-bios/       R3 matrix with the known-good BIOS (comparison)
-  seabios-local-build/   R3 matrix with the previous local SeaBIOS build (comparison)
-  r2-baseline/           R2 regression logs (comparison)
-external/
-  seabios-local-changes.diff, seabios-untracked.txt   from the earlier local build
-patches/
-  i386vm-synthetic-timer.patch   i386VM synthetic timer (applies to the harness)
+logs/                    R5 matrix logs (logs/*.log, logs/pc-run*.txt), fresh-extraction
+                         logs (logs/fresh-extraction/), R4 and R3 logs for comparison
+docs/                    see Status
 ```
 
 ## Build and run
 
 External inputs are not included. Set their locations:
 
-- `I386VM`: the i386VM harness tree (`bin/i386-gcc`, `bin/i386-ld`, `bin/i386vm`).
+- `I386VM`: the i386VM harness tree (`bin/i386-gcc`, `bin/as`, `bin/i386-ld`, `bin/i386vm`).
 - `TINY386`: the `tiny386_headless` binary built from the unmodified Tiny386 tree.
-- `SEABIOS`: a directory with `bios.bin` and `vgabios.bin`. The validated baseline
-  is the known-good pair in `docs/R3-FW-VALIDATION.md` §2.
+- `SEABIOS`: a directory with `bios.bin` and `vgabios.bin` (the known-good pair in
+  `docs/R5-RUNTIME-REPORT.md` section 7).
 
 ```
 I386VM=... TINY386=... SEABIOS=... scripts/run-all.sh
 ```
 
-Or build only: `make i386vm pc I386VM=... TINY386=... SEABIOS=...`.
-
 Outputs:
 
-- `build/i386vm/qdos386-r4.bin`: flat image for the i386VM harness.
-- `build/pc/r4pc.img`: Tiny386 hard-disk image (SeaBIOS boots the boot sector).
-- `build/i386vm/qdos386-r4-notimer.bin`: negative-test image.
+- `build/apps/hello.aout`, `build/apps/prep.aout`: the two applications (OMAGIC).
+- `build/xfer.bin`: the transfer area.
+- `build/i386vm/qdos386-r5.bin`: flat image for the i386VM harness (2.6 MB).
+- `build/i386vm/qdos386-r5-notimer.bin`: negative-test image.
+- `build/pc/r5pc.img`: Tiny386 hard-disk image.
 
-## Services (summary)
+## Services
 
 Trap `int 0x30`, EAX = function, EBX/ECX/EDX = arguments, EAX = result.
 
 | Code | Service |
 |---|---|
 | `0x08`–`0x0F` | R2 job and scheduler services |
-| `0x10`–`0x13` | R3 memory: allocate, free, free bytes, validate |
-| `0x14` | R4 `QT_CH_OPEN`: name in EBX, returns channel id |
-| `0x15` | R4 `QT_CH_CLOSE`: channel id |
-| `0x16` | R4 `QT_CH_WRITE`: channel id, buffer, length (up to 256) |
-| `0x17` | R4 `QT_CH_PUTC`: channel id, one byte |
+| `0x10`–`0x13` | R3 memory |
+| `0x14`–`0x17` | R4 channel: open, close, write, putc |
+| `0x18` | R5 `QT_EXIT`: record the status of the calling job |
+| `0x19` | R5 `QT_JOB_EXIT`: read a job's recorded status |
 
-Full definitions, error codes and limits are in `docs/R4-CHANNEL-ABI.md` and
-`docs/R3-MEMORY-ABI.md`. These are native i386 services. They are not the
-68000 trap ABI, and they are not compatible with QDOS.
-
-## Not in R4
+## Not in R5
 
 - Keyboard input, files, directories, serial, VGA, SuperBASIC, ELF loading.
-- Blocking I/O. The console is synchronous.
-- JS ROM BASIC relocation and transient-area growth.
-- Dynamic job-table size (fixed at 4) and channel table size (fixed at 8).
+- Relocation, dynamic linking, shared libraries, ZMAGIC/QMAGIC.
+- Protection between applications; everything runs in ring 0.
+- More than two application slots, or applications larger than 256 KiB.

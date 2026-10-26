@@ -35,6 +35,7 @@
 #include "jobs.h"
 #include "memory.h"
 #include "channel.h"
+#include "aout.h"
 
 struct job jobs[JOB_MAX];
 int job_current = JOB_SYSTEM;
@@ -69,6 +70,22 @@ static void init_frame(struct job *j)
 	sp[4] = (unsigned int) job_trampoline;
 	j->saved_sp = (unsigned int) sp;
 	j->saved_fmt = 0;
+}
+
+static struct job_exit_rec exit_rec[JOB_MAX];
+
+/* QT_JOB_EXIT: the record is looked up by the full id, so a reused slot
+ * (new tag) or a never-created id gives -2. */
+static int job_exit_status(unsigned int id)
+{
+	int i = (int) (id & 0xffffu);
+	if (i <= 0 || i >= JOB_MAX || exit_rec[i].id != id)
+		return -2;
+	if (exit_rec[i].exited)
+		return (int) exit_rec[i].status;
+	if (jobs[i].in_use && !jobs[i].dead)
+		return JOB_ERR_RUNNING;
+	return JOB_ERR_NOSTATUS;
 }
 
 static void run_tasks(struct qtask *t, unsigned long *counter)
@@ -107,6 +124,7 @@ static void reclaim_dead(void)
 		/* Channels first: they free their own objects, so the heap pass
 		 * below finds only the job's stack and user blocks. */
 		chan_close_owner(j->id);
+		app_release_owner(j->id);
 		bytes_reclaimed += mem_reclaim_owner(j->id);
 		jobs_reclaimed++;
 		dead_mask &= ~bit;
@@ -294,6 +312,9 @@ int job_alloc(const char *name, void (*entry)(void), unsigned char inc)
 	j->stack_base = base;
 	j->stack_top = base + JOB_STACK_BYTES;
 	j->stack_hwm = 0;
+	exit_rec[i].id = id;
+	exit_rec[i].exited = 0;
+	exit_rec[i].status = 0;
 	init_frame(j);
 	return (int) id;
 }
@@ -493,6 +514,17 @@ unsigned int trap_dispatch(unsigned int sp)
 
 	case QT_CH_PUTC:
 		result = chan_putc(a, job_current_id(), b);
+		break;
+
+	case QT_EXIT:
+		exit_rec[job_current].id = jobs[job_current].id;
+		exit_rec[job_current].exited = 1;
+		exit_rec[job_current].status = a;
+		result = 0;
+		break;
+
+	case QT_JOB_EXIT:
+		result = job_exit_status(a);
 		break;
 
 	default:

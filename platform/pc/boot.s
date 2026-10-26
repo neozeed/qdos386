@@ -29,6 +29,8 @@ start:
 	.word 0x7C00+0x1B0
 	.byte 0xA1			/* mov ax,[ksec] */
 	.word 0x7C00+0x1C2
+	.byte 0x03,0x06			/* add ax,[xsec]  (kernel + transfer sectors) */
+	.word 0x7C00+0x1C4
 	.byte 0xA3			/* mov [dap+2],ax */
 	.word 0x7C00+0x1B2+2
 	.byte 0xBE			/* mov si,dap */
@@ -70,6 +72,13 @@ pm:
 	cld
 	rep
 	movsb
+	/* ESI now points at the transfer area (0x10000 + kernel bytes). */
+	movl $0x280000,%edi
+	movl (0x7C00+0x1C4),%ecx
+	andl $0xffff,%ecx
+	shll $9,%ecx			/* transfer bytes = xsec * 512 */
+	rep
+	movsb
 	movl $0x100000,%eax
 	jmp *%eax
 
@@ -84,6 +93,8 @@ dap:	.byte 0x10,0			/* size, reserved */
 	.long 0				/* LBA high */
 	.org 0x1C2
 ksec:	.word 0				/* patched by make-image.py */
+	.org 0x1C4
+ xsec:	.word 0				/* transfer sectors, patched by make-image.py */
 	.org 0x1D0
 gdtdesc:
 	.word 24-1

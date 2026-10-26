@@ -41,6 +41,13 @@
 #define QT_CH_CLOSE   0x15        /* a = channel id -> 0, or negative */
 #define QT_CH_WRITE   0x16        /* a = channel id, b = buffer, c = length -> bytes written */
 #define QT_CH_PUTC    0x17        /* a = channel id, b = byte -> 1, or negative */
+/* R5 application services.  New numbers only; 0x08..0x17 are unchanged. */
+#define QT_EXIT       0x18        /* a = exit status, recorded for the calling job -> 0 */
+#define QT_JOB_EXIT   0x19        /* a = job id -> exit status, or negative (see JOB_ERR_*) */
+
+/* QT_JOB_EXIT errors.  -2 is the existing "no such job" code (QT_INFO). */
+#define JOB_ERR_RUNNING  (-16)    /* job exists and has not ended */
+#define JOB_ERR_NOSTATUS (-17)    /* job ended without calling QT_EXIT */
 
 #define TRAP_VECTOR 0x30
 
@@ -68,6 +75,14 @@ struct job {
 	unsigned int stack_hwm;       /* deepest stack use seen at reclaim, bytes */
 	unsigned long preempts;
 	unsigned long dispatches;
+};
+
+/* Exit record per slot.  Kept after the job is reclaimed, so SYSTEM can read
+ * the status later.  It is replaced when the slot is reused (new id). */
+struct job_exit_rec {
+	unsigned int id;              /* job id that owns this record; 0 = none */
+	int exited;                   /* QT_EXIT was called */
+	unsigned int status;          /* value passed to QT_EXIT */
 };
 
 extern struct job jobs[JOB_MAX];

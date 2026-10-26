@@ -17,6 +17,7 @@
 #include "test_memory.h"
 #include "test_channels.h"
 #include "channel.h"
+#include "test_app.h"
 #include "irq.h"
 
 #define TIMER_PERIOD_UNITS 16        /* i386VM: 16 * 1024 steps.  PC: see platform */
@@ -175,6 +176,7 @@ static void finish(void)
 
 	if (ok && r3_ok && r4_ok && mem_validate() == MEM_OK && stack_faults == 0) {
 		con_puts("\nQDOS/386 R4 CHANNEL PASS\n");
+		con_puts("QDOS/386 R5 A.OUT EXEC PASS\n");
 		halt_with(0);
 	}
 	con_puts("\nQDOS/386 R4 CHANNEL FAIL\n");
@@ -286,6 +288,9 @@ int main(void)
 
 	/* R4: channel jobs and the IRQ classification checks. */
 	channel_job_phase();
+
+	/* R5: guest a.out loader, two applications, malformed images. */
+	app_phase();
 
 	/* Nothing left for SYSTEM: suspend indefinitely.  IDLE finishes the run. */
 	for (i = 0; ; i++) {

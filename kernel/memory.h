@@ -31,7 +31,8 @@
  * targets have 8 MiB of RAM.  The top 2 MiB (0x600000..0x7ffff0) is kept
  * for the boot stack and for SeaBIOS data on the PC, so the arena never
  * reaches it.  The lower bound is the linker symbol bss_end. */
-#define MEM_ARENA_END   0x600000u
+#include "appmap.h"
+#define MEM_ARENA_END   HEAP_END
 
 /* Owner values.  Job owners are tagged job ids; SYSTEM's id is 0. */
 #define MEM_OWNER_KERNEL 0xffffffffu /* kernel-owned, never reclaimed */

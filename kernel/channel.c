@@ -74,7 +74,7 @@ int chan_user_range_ok(unsigned int addr, unsigned int n)
 		return 0;
 	if (addr + n < addr)
 		return 0;                    /* wraps */
-	return addr + n <= MEM_ARENA_END;
+	return addr + n <= USER_RANGE_END;
 }
 
 /* Copy a driver name (NUL-terminated, at most CHAN_NAME_MAX-1 characters)
