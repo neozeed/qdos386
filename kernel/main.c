@@ -1,19 +1,25 @@
 /*
- * QDOS/386 R1 - SYSTEM job, idle job and final validation.
+ * QDOS/386 R3 - SYSTEM job, idle job and final validation.
  *
+ * Boot.  Initialise the descriptors and scheduler, then the kernel heap, then
+ *        run the heap-only tests (no jobs, no timer).
  * Job 0 SYSTEM  boot context.  Creates TEST-A and TEST-B by service trap,
- *               changes TEST-B's priority, registers poll and schedule
- *               tasks, checks a timeout wake-up, waits indefinitely until
- *               TEST-B reactivates it, reuses TEST-A's slot for TEST-C and
- *               checks that TEST-A's old job id is stale.
- * Job 3 IDLE    lowest priority.  When every application job has exited it
- *               checks the results and prints PASS or FAIL.
+ *               runs the R2 scheduler checks, then the R3 job phase
+ *               (memory.c used by preempted jobs, reclaim, slot reuse,
+ *               creation under pressure), then suspends indefinitely.
+ * Job 3 IDLE    lowest priority.  When every application job has exited and
+ *               the R3 phase is done, it prints every check and the result.
  */
 #include "jobs.h"
+#include "memory.h"
 #include "platform.h"
 #include "test_jobs.h"
+#include "test_memory.h"
 
 #define TIMER_PERIOD_UNITS 16        /* i386VM: 16 * 1024 steps.  PC: see platform */
+
+/* Start of BSS, from the linker (C name bss_end -> symbol _bss_end). */
+extern char bss_end[];
 
 int test_system_id = 0;
 
@@ -35,7 +41,8 @@ static int ok_word(int b) { return b ? 1 : 0; }
 static int apps_done(void)
 {
 	return test_results[0].exited && test_results[1].exited &&
-	       test_results[2].exited && test_results[0].coop_resumed == 1;
+	       test_results[2].exited && test_results[0].coop_resumed == 1 &&
+	       r3_phase_done;
 }
 
 static void finish(void)
@@ -43,6 +50,8 @@ static void finish(void)
 	int ok = 1;
 	int i;
 	int dev_ok = 1;
+	int r3_ok = 1;
+	struct mem_stats st;
 
 	con_puts("IDLE: no application jobs remain\n");
 
@@ -82,6 +91,39 @@ static void finish(void)
 	    !chk_reuse || !chk_stale || !chk_newid || !dev_ok)
 		ok = 0;
 
+	for (i = 0; i < r3_nchecks; i++) {
+		con_puts("CHECK ");
+		con_puts(r3_checks[i].name);
+		con_puts(r3_checks[i].ok ? ": ok\n" : ": FAIL\n");
+		if (!r3_checks[i].ok)
+			r3_ok = 0;
+	}
+	if (r3_nchecks == 0)
+		r3_ok = 0;
+
+	mem_stats(&st);
+	con_puts("HEAP: total ");
+	con_putdec(st.total);
+	con_puts(" used ");
+	con_putdec(st.used);
+	con_puts(" free ");
+	con_putdec(st.free);
+	con_puts(" blocks ");
+	con_putdec(st.used_blocks);
+	con_puts("/");
+	con_putdec(st.free_blocks);
+	con_putc('\n');
+	con_puts("RECLAIM: jobs ");
+	con_putdec(jobs_reclaimed);
+	con_puts(" bytes ");
+	con_putdec(bytes_reclaimed);
+	con_putc('\n');
+	con_puts("STACK: faults ");
+	con_putdec(stack_faults);
+	con_puts(" hwm MEM-1 ");
+	con_putdec(test_results[M1_SLOT_RESULT_IDX].hwm);
+	con_putc('\n');
+
 	con_puts("TIMER: ticks ");
 	con_putdec(sched_ticks);
 	con_puts("\nCOOPERATIVE YIELDS: ");
@@ -96,11 +138,11 @@ static void finish(void)
 	con_putdec(jobs[job_idle].dispatches);
 	con_putc('\n');
 
-	if (ok) {
-		con_puts("\nQDOS/386 R1 MULTITASKING PASS\n");
+	if (ok && r3_ok && mem_validate() == MEM_OK && stack_faults == 0) {
+		con_puts("\nQDOS/386 R3 MEMORY PASS\n");
 		halt_with(0);
 	}
-	con_puts("\nQDOS/386 R1 MULTITASKING FAIL\n");
+	con_puts("\nQDOS/386 R3 MEMORY FAIL\n");
 	halt_with(1);
 }
 
@@ -119,9 +161,10 @@ int main(void)
 {
 	unsigned int cr0 = read_cr0();
 	unsigned long t0;
+	unsigned int arena;
 	int i;
 
-	con_puts("QDOS/386 R1\n");
+	con_puts("QDOS/386 R3\n");
 	con_puts("Native i386 kernel\n\n");
 	con_puts("CPU: i386 protected mode\n");
 	con_puts((cr0 & 1u) ? "Protected mode: OK\n" : "Protected mode: FAIL\n");
@@ -130,6 +173,20 @@ int main(void)
 
 	descriptors_init();
 	sched_init();
+
+	arena = ((unsigned int) bss_end + MEM_ALIGN - 1) & ~(MEM_ALIGN - 1);
+	if (mem_init(arena, MEM_ARENA_END) != MEM_OK) {
+		con_puts("Heap: arena rejected\n");
+		halt_with(1);
+	}
+	con_puts("Heap: arena ");
+	con_putdec(arena);
+	con_puts(" to ");
+	con_putdec(MEM_ARENA_END);
+	con_putc('\n');
+	memory_heap_tests();
+	con_puts("Heap: heap-only tests done\n");
+
 	con_puts("Kernel: initialized\n\n");
 	con_puts("SYSTEM: job 0 created\n");
 
@@ -151,8 +208,12 @@ int main(void)
 	qtrap(QT_SCHED_ADD, (unsigned int) &sched_node, 0, 0);
 
 	con_puts("SCHEDULER: preemption enabled\n");
+#ifndef QDOS_NO_TIMER
 	timer_start(TIMER_PERIOD_UNITS);
 	con_puts("TIMER: IRQ0 active\n\n");
+#else
+	con_puts("TIMER: disabled (negative test build)\n\n");
+#endif
 
 	/* Timeout: suspend SYSTEM for 3 ticks with a release flag. */
 	poll_at_start = poll_runs;
@@ -184,6 +245,9 @@ int main(void)
 	            (qtrap(QT_ACTIVATE, (unsigned int) id_c, 3, 0) == -1);  /* already active */
 
 	chk_tasks = (poll_runs > poll_at_start) && (sched_runs > sched_at_start);
+
+	/* R3 job phase: preempted allocators, reclaim, slot reuse, pressure. */
+	memory_job_phase();
 
 	/* Nothing left for SYSTEM: suspend indefinitely.  IDLE finishes the run. */
 	for (i = 0; ; i++) {

@@ -5,6 +5,7 @@
 .text
 .globl kstart
 kstart:
+	cli                       /* IF is inherited from the boot path; keep it clear until the scheduler runs */
 	movl $0x7FFFF0,%esp
 	cld
 	movl $_bss_start,%edi

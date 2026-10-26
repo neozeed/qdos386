@@ -1,7 +1,7 @@
 /*
- * QDOS/386 R1 - job table, scheduler and service traps.
+ * QDOS/386 R3 - job table, scheduler, service traps and job memory.
  *
- * Scheduling follows the JS ROM (system_asm.s):
+ * Scheduling follows the JS ROM (system_asm.s), as in R2:
  *  - Timer interrupt (l00900): SV.POLLM is incremented, then the poll list
  *    runs, then the scheduler (l00936).
  *  - Scheduler pass (l0093a): SV.POLLM is read and cleared, SV.RAND is
@@ -17,14 +17,23 @@
  *      the strictly highest acc wins; ties go to the first candidate found.
  *  - Save (l009d4): a non-zero accumulated priority of the outgoing job is
  *    reset to 1.
- *  - Deferred reclamation: a terminated job's slot is freed by a scheduler
- *    pass run by another job, never while its own stack is in use.
+ *
+ * R3 memory rules:
+ *  - A job's stack and every block it allocates with QT_MEM_ALLOC are heap
+ *    blocks owned by the job's tagged id.  Exit reclaims them all.
+ *  - A terminated job is marked dead inside its own scheduler pass, after
+ *    its frame is saved, so it can never be running or resumed when its
+ *    memory is freed.  Reclaim runs only in trap or cooperative-yield context
+ *    of another job.  It never runs in the timer ISR.
+ *  - Stack canaries are checked on every switch-out.  The check only counts
+ *    failures, since the ISR must not log.  The SYSTEM job reads the count.
  *
  * Not reproduced: the job-header address table (SV.JBBAS) and the poll
  * wait flag (JOB.WFLAG), since slots are indices here.  Activate's wait
  * option is not implemented.
  */
 #include "jobs.h"
+#include "memory.h"
 
 struct job jobs[JOB_MAX];
 int job_current = JOB_SYSTEM;
@@ -35,14 +44,17 @@ volatile unsigned long sched_passes = 0;
 volatile unsigned long poll_runs = 0;
 volatile unsigned long sched_runs = 0;
 volatile unsigned int sv_pollm = 0;
+volatile unsigned long stack_faults = 0;
+unsigned long jobs_reclaimed = 0;
+unsigned long bytes_reclaimed = 0;
 unsigned int sv_rand = 0;
 
 static struct qtask *poll_list = 0;     /* SV.PLIST */
 static struct qtask *sched_list = 0;    /* SV.SHLST */
-static unsigned int dead_mask = 0;      /* slots awaiting reclamation */
-static unsigned int job_stack[JOB_MAX][JOB_STACK_WORDS];
+static unsigned int dead_mask = 0;      /* slots whose frame is saved and dead */
 
 extern void job_trampoline(void);
+extern unsigned int irq_save(void);
 
 /* Build a cooperative (format 0) initial frame: edi, esi, ebx, ebp, ret. */
 static void init_frame(struct job *j)
@@ -67,18 +79,40 @@ static void run_tasks(struct qtask *t, unsigned long *counter)
 	}
 }
 
+/* Stack use in bytes: distance from the top to the lowest non-zero word
+ * above the canary.  Bounded by JOB_STACK_BYTES.  Called from job context. */
+static unsigned int stack_high_water(struct job *j)
+{
+	unsigned int a;
+	for (a = j->stack_base + 16; a < j->stack_top; a += 4) {
+		if (*(unsigned int *) a != 0)
+			return j->stack_top - a;
+	}
+	return 0;
+}
+
+/* Free the resources of each dead job that is not running.  Called only
+ * from trap or cooperative-yield context (never from the timer ISR). */
 static void reclaim_dead(void)
 {
 	int i;
-	for (i = 0; i < JOB_MAX; i++) {
-		if (i != job_current && (dead_mask & (1u << i))) {
-			dead_mask &= ~(1u << i);
-			jobs[i].in_use = 0;
-			jobs[i].dead = 0;
-			jobs[i].prio_inc = 0;
-			jobs[i].acc_prio = 0;
-			jobs[i].hold = 0;
-		}
+	for (i = 1; i < JOB_MAX; i++) {
+		unsigned int bit = 1u << i;
+		struct job *j = &jobs[i];
+		if (i == job_current || !(dead_mask & bit))
+			continue;
+		if (j->stack_base != 0)
+			j->stack_hwm = stack_high_water(j);
+		bytes_reclaimed += mem_reclaim_owner(j->id);
+		jobs_reclaimed++;
+		dead_mask &= ~bit;
+		j->in_use = 0;
+		j->dead = 0;
+		j->prio_inc = 0;
+		j->acc_prio = 0;
+		j->hold = 0;
+		j->stack_base = 0;
+		j->stack_top = 0;
 	}
 }
 
@@ -121,7 +155,8 @@ static int pick_next(unsigned int pollm)
 	return best;
 }
 
-/* Scheduler pass (l00936 .. l00a78). */
+/* Scheduler pass (l00936 .. l00a78).  Runs in the ISR or in a trap or yield
+ * with IF off.  It does not allocate or free memory. */
 static unsigned int schedule(unsigned int sp, int fmt, int from_irq)
 {
 	struct job *out = &jobs[job_current];
@@ -130,10 +165,16 @@ static unsigned int schedule(unsigned int sp, int fmt, int from_irq)
 
 	out->saved_sp = sp;
 	out->saved_fmt = fmt;
+	if (out->dead)
+		dead_mask |= 1u << job_current;    /* frame saved: now reclaimable */
 	if (out->acc_prio != 0)
 		out->acc_prio = 1;                 /* l009d4 */
-
-	reclaim_dead();
+	if (out->stack_base != 0 &&
+	    (*(unsigned int *) out->stack_base != JOB_STACK_CANARY ||
+	     *(unsigned int *) (out->stack_base + 4) != JOB_STACK_CANARY ||
+	     *(unsigned int *) (out->stack_base + 8) != JOB_STACK_CANARY ||
+	     *(unsigned int *) (out->stack_base + 12) != JOB_STACK_CANARY))
+		stack_faults++;
 
 	sched_passes++;
 	pollm = sv_pollm;                      /* l0093a: read and clear POLLM */
@@ -161,10 +202,11 @@ unsigned int sched_irq_tick(unsigned int sp)
 	return schedule(sp, 1, 1);
 }
 
-/* Cooperative yield path, called from yield_asm. */
+/* Cooperative yield path, called from yield_asm with IF off. */
 unsigned int sched_yield_sp(unsigned int sp)
 {
 	sched_yields++;
+	reclaim_dead();
 	return schedule(sp, 0, 0);
 }
 
@@ -180,11 +222,36 @@ int job_lookup(unsigned int id)
 	return (int) slot;
 }
 
-/* Allocate the lowest free slot >= 1 and build its initial frame. */
+unsigned int job_current_id(void)
+{
+	return jobs[job_current].id;
+}
+
+int stack_canary_ok(int slot)
+{
+	unsigned int b = jobs[slot].stack_base;
+	if (b == 0)
+		return 1;
+	return *(unsigned int *) b == JOB_STACK_CANARY &&
+	       *(unsigned int *) (b + 4) == JOB_STACK_CANARY &&
+	       *(unsigned int *) (b + 8) == JOB_STACK_CANARY &&
+	       *(unsigned int *) (b + 12) == JOB_STACK_CANARY;
+}
+
+/*
+ * Allocate the lowest free slot >= 1, its heap stack, and its initial frame.
+ * The stack is allocated before the slot changes, so a failure leaves the
+ * slot, the tag and the heap unchanged.  Returns the job id, -1 if no slot
+ * is free, or a negative MEM_ERR_* code if the stack cannot be allocated.
+ */
 int job_alloc(const char *name, void (*entry)(void), unsigned char inc)
 {
 	int i;
 	struct job *j;
+	unsigned int newtag;
+	unsigned int id;
+	unsigned int base;
+	void *stk;
 
 	for (i = 1; i < JOB_MAX; i++) {
 		if (!jobs[i].in_use && !(dead_mask & (1u << i)))
@@ -193,7 +260,23 @@ int job_alloc(const char *name, void (*entry)(void), unsigned char inc)
 	if (i >= JOB_MAX)
 		return -1;
 	j = &jobs[i];
-	j->tag = j->tag + 1;
+
+	newtag = j->tag + 1;
+	if (newtag >= 0x7fffu)              /* keep ids positive; tag 0 is reserved */
+		newtag = 1;
+	id = (newtag << 16) | (unsigned int) i;
+
+	stk = mem_alloc(JOB_STACK_BYTES, id);
+	if (mem_is_error((unsigned int) stk))
+		return (int) (unsigned int) stk;
+	base = (unsigned int) stk;
+	*(unsigned int *) base = JOB_STACK_CANARY;
+	*(unsigned int *) (base + 4) = JOB_STACK_CANARY;
+	*(unsigned int *) (base + 8) = JOB_STACK_CANARY;
+	*(unsigned int *) (base + 12) = JOB_STACK_CANARY;
+
+	j->tag = newtag;
+	j->id = id;
 	j->in_use = 1;
 	j->dead = 0;
 	j->name = name;
@@ -204,10 +287,11 @@ int job_alloc(const char *name, void (*entry)(void), unsigned char inc)
 	j->hold = 0;
 	j->preempts = 0;
 	j->dispatches = 0;
-	j->stack_base = (unsigned int) job_stack[i];
-	j->stack_top = j->stack_base + sizeof(job_stack[0]);
+	j->stack_base = base;
+	j->stack_top = base + JOB_STACK_BYTES;
+	j->stack_hwm = 0;
 	init_frame(j);
-	return (int) ((j->tag << 16) | (unsigned int) i);
+	return (int) id;
 }
 
 void job_idle_set(int slot)
@@ -226,31 +310,39 @@ void sched_init(void)
 		jobs[i].status = 0;
 		jobs[i].hold = 0;
 		jobs[i].tag = 0;
+		jobs[i].id = 0;
 		jobs[i].in_use = 0;
 		jobs[i].dead = 0;
 		jobs[i].name = 0;
 		jobs[i].entry = 0;
 		jobs[i].stack_base = 0;
 		jobs[i].stack_top = 0;
+		jobs[i].stack_hwm = 0;
 		jobs[i].preempts = 0;
 		jobs[i].dispatches = 0;
 	}
-	/* SYSTEM: the boot context, job 0.  Its stack is the boot stack. */
+	/* SYSTEM: the boot context, job 0.  Its stack is the boot stack, which
+	 * is not on the heap, so it has no canary and is never reclaimed. */
 	jobs[JOB_SYSTEM].in_use = 1;
 	jobs[JOB_SYSTEM].prio_inc = 0x20;         /* JS ROM BASIC job increment */
 	jobs[JOB_SYSTEM].name = "SYSTEM";
+	jobs[JOB_SYSTEM].id = 0;
 	job_current = JOB_SYSTEM;
 	dead_mask = 0;
 }
 
-/* Termination path (job_run returns here). */
+/*
+ * Termination path (job_run returns here).  The dead flag is set with IF off,
+ * so the timer cannot switch away before the frame is saved; schedule() then
+ * marks the slot reclaimable.  The frame is never resumed.
+ */
 void job_exit(void)
 {
 	struct job *j = &jobs[job_current];
+	(void) irq_save();
 	j->prio_inc = 0;                  /* no longer active */
 	j->status = -1;
 	j->dead = 1;
-	dead_mask |= 1u << job_current;   /* reclaimed by another job's pass */
 	yield_asm();
 	for (;;)
 		;
@@ -273,6 +365,9 @@ unsigned int trap_dispatch(unsigned int sp)
 	int result = -1;
 	int slot;
 	struct job *j;
+	struct mem_stats st;
+
+	reclaim_dead();
 
 	switch (fn) {
 	case QT_SUSPEND:
@@ -357,6 +452,27 @@ unsigned int trap_dispatch(unsigned int sp)
 		((struct qtask *) a)->next = sched_list;
 		sched_list = (struct qtask *) a;
 		result = 0;
+		break;
+
+	case QT_MEM_ALLOC:
+		/* Owner is the calling job.  A pointer is returned as an unsigned
+		 * value; error codes are negative and never valid pointers. */
+		result = (int) (unsigned int) mem_alloc(a, job_current_id());
+		break;
+
+	case QT_MEM_FREE:
+		result = mem_free((void *) a, job_current_id());
+		break;
+
+	case QT_MEM_FREE_BYTES:
+		if (mem_stats(&st) == MEM_OK)
+			result = (int) st.free;
+		else
+			result = MEM_ERR_CORRUPT;
+		break;
+
+	case QT_MEM_VALIDATE:
+		result = mem_validate();
 		break;
 
 	default:

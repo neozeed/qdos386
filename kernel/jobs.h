@@ -1,5 +1,13 @@
 /*
- * QDOS/386 R1 - native job model, service traps and scheduler interface.
+ * QDOS/386 R3 - native job model, service traps and scheduler interface.
+ *
+ * R3 changes from R2:
+ *   - job stacks come from the kernel heap (kernel/memory.c), not a static
+ *     array; each stack has a canary at its base and a high-water mark;
+ *   - every job owns the heap blocks it allocates through QT_MEM_ALLOC, and
+ *     they are reclaimed with the job;
+ *   - deferred reclamation runs only in trap and cooperative-yield context,
+ *     never in the timer ISR.
  *
  * The job record is a native i386 structure, not the QDOS job header.
  * Field correspondence is in docs/JS-ROM-KERNEL-MAP.md.
@@ -8,12 +16,14 @@
 #define QDOS386_JOBS_H
 
 #define JOB_MAX 4                 /* slot 0 SYSTEM, 1..3 application/idle */
-#define JOB_STACK_WORDS 1024      /* 4 KiB per job stack */
+#define JOB_STACK_BYTES 4096      /* heap-allocated, 16-byte aligned */
+#define JOB_STACK_CANARY 0xc0dec0deu
 #define JOB_SYSTEM 0
 #define JOB_NONE (-1)
 
 /* Service traps: int 0x30, EAX = function, EBX/ECX/EDX = arguments,
- * EAX = result on return.  Numbers follow the JS ROM trap names. */
+ * EAX = result on return.  R2 numbers follow the JS ROM trap names.
+ * R3 memory functions use 0x10..0x13, which do not overlap R2's 0x08..0x0F. */
 #define QT_SUSPEND    0x08        /* a = timeout ticks (<0 indefinite), b = hold byte ptr */
 #define QT_REACTIVATE 0x09        /* a = job id */
 #define QT_ACTIVATE   0x0A        /* a = job id, b = priority increment */
@@ -22,6 +32,10 @@
 #define QT_CREATE     0x0D        /* a = entry, b = inc, c = name -> job id */
 #define QT_POLL_ADD   0x0E        /* a = qtask node (poll list) */
 #define QT_SCHED_ADD  0x0F        /* a = qtask node (schedule list) */
+#define QT_MEM_ALLOC  0x10        /* a = bytes -> pointer, or negative MEM_ERR_* */
+#define QT_MEM_FREE   0x11        /* a = pointer -> 0, or negative MEM_ERR_* */
+#define QT_MEM_FREE_BYTES 0x12    /* -> free bytes in the heap */
+#define QT_MEM_VALIDATE   0x13    /* -> 0 if heap invariants hold, else MEM_ERR_CORRUPT */
 
 #define TRAP_VECTOR 0x30
 
@@ -39,12 +53,14 @@ struct job {
 	int status;                   /* 0 runnable; >0 timeout ticks; <0 indefinite */
 	unsigned char *hold;          /* JOB.HOLD release flag, set to 0xFF */
 	unsigned int tag;             /* JOB.TAG, part of the job id */
+	unsigned int id;              /* (tag << 16) | slot; also the heap owner */
 	int in_use;                   /* slot allocated */
 	int dead;                     /* job has terminated */
 	const char *name;
 	void (*entry)(void);
-	unsigned int stack_base;
+	unsigned int stack_base;      /* heap block; 0 for the boot stack */
 	unsigned int stack_top;
+	unsigned int stack_hwm;       /* deepest stack use seen at reclaim, bytes */
 	unsigned long preempts;
 	unsigned long dispatches;
 };
@@ -58,10 +74,15 @@ extern volatile unsigned long sched_passes;         /* scheduler passes */
 extern volatile unsigned long poll_runs;            /* poll-list task executions */
 extern volatile unsigned long sched_runs;           /* schedule-list task executions */
 extern volatile unsigned int sv_pollm;              /* SV.POLLM: ticks since last pass */
+extern volatile unsigned long stack_faults;         /* canary failures seen in the ISR */
+extern unsigned long jobs_reclaimed;                /* jobs whose resources were freed */
+extern unsigned long bytes_reclaimed;               /* heap bytes freed by reclaim */
 
 void sched_init(void);
 int job_alloc(const char *name, void (*entry)(void), unsigned char inc);
 int job_lookup(unsigned int id);            /* -1 if the id is stale or invalid */
+unsigned int job_current_id(void);
+int stack_canary_ok(int slot);
 void job_idle_set(int slot);
 void job_exit(void);
 void job_run(void);

@@ -59,6 +59,16 @@ resume_ctx:
 	sti
 	ret
 
+/*
+ * Spurious IRQ7 (vectors 0x27 and 0x2F).  The 8259 returns IRQ7 when a
+ * request has gone away before it is acknowledged, for example a tick that
+ * was pending at boot when the PIC was reprogrammed.  A spurious interrupt
+ * needs no EOI, so the handler only returns.
+ */
+.globl _spurious_stub
+_spurious_stub:
+	iret
+
 /* IRQ0 (vector 0x20, interrupt gate) */
 .globl _irq0_stub
 _irq0_stub:
@@ -92,9 +102,35 @@ _qtrap:
 	popl %ebx
 	ret
 
-/* Cooperative yield: callee-saved frame, scheduler pass, resume. */
+/*
+ * unsigned int irq_save(void): returns EFLAGS and clears IF.
+ * void irq_restore(unsigned int flags): sets IF again only if the saved
+ * flags had it set, so nested critical sections restore correctly.
+ */
+.globl _irq_save
+_irq_save:
+	pushfl
+	popl %eax
+	cli
+	ret
+
+.globl _irq_restore
+_irq_restore:
+	movl 4(%esp),%eax
+	testl $0x200,%eax
+	jz 1f
+	sti
+1:	ret
+
+/*
+ * Cooperative yield: callee-saved frame, scheduler pass, resume.
+ * Interrupts are masked for the whole pass.  Without this, the timer could
+ * run the scheduler while this job's cooperative frame is half built (R2 gap).
+ * resume_ctx sets IF again before returning to the job.
+ */
 .globl _yield_asm
 _yield_asm:
+	cli
 	pushl %ebp
 	pushl %ebx
 	pushl %esi

@@ -12,17 +12,20 @@
 
 struct test_result {
 	int iterations;               /* completed iterations */
+	unsigned int hwm;            /* stack high-water mark, read at reclaim (R3) */
 	int canary_errors;            /* stack values changed across preemption */
 	int coop_resumed;             /* TEST-A: resumed after its cooperative yield */
 	int exited;                   /* job reached its exit point */
 	unsigned long preempts;       /* timer preemptions, recorded at exit */
 };
 
-extern struct test_result test_results[3];
+#define TEST_RESULTS 10             /* R2: 0..2; R3 memory jobs: 3..9 */
+extern struct test_result test_results[TEST_RESULTS];
 extern unsigned int test_flag_rel;        /* release flag used by SYSTEM */
 
 void test_job_a(void);
 void test_job_b(void);
 void test_job_c(void);
+void spin_ticks(unsigned long n);
 
 #endif

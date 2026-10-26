@@ -5,13 +5,13 @@
 #include "jobs.h"
 #include "test_jobs.h"
 
-struct test_result test_results[3];
+struct test_result test_results[TEST_RESULTS];
 unsigned int test_flag_rel = 0;
 extern int test_system_id;              /* SYSTEM's job id, set by main */
 
 static volatile unsigned int spin_sink;
 
-static void spin_ticks(unsigned long n)
+void spin_ticks(unsigned long n)
 {
 	unsigned long start = sched_ticks;
 	unsigned int s = 0;
