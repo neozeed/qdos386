@@ -19,7 +19,7 @@
 
 #define CHAN_MAX 8                  /* channel table slots */
 #define CHAN_MAX_WRITE 256          /* bytes per write call */
-#define CHAN_NAME_MAX 8             /* driver name, NUL included in the limit */
+#define CHAN_NAME_MAX 16            /* name, NUL included in the limit (R6: WIN1_ names) */
 #define CHAN_TAG_MAX 0x7fff         /* tags wrap to 1 before this value */
 
 /* Native error codes, negative.  -3 (no memory) and -6 (no free entry, channel
@@ -29,14 +29,24 @@
 #define CHAN_ERR_BADID  (-12)        /* invalid, closed or stale id */
 #define CHAN_ERR_OWNER  (-13)        /* channel belongs to another job */
 #define CHAN_ERR_RANGE  (-14)        /* buffer outside the arena or too long */
+#define CHAN_ERR_NOTSUP (-15)        /* operation not supported by this driver */
+#define CHAN_ERR_NOVOL  (-18)        /* WIN1_ volume not mounted */
+
+#include "fat16.h"
 
 struct chan_object;
 
+/* A driver is found by exact name, or by prefix when prefix is set: then the
+ * whole name is passed to open, and the driver reads the part after its own
+ * prefix.  A NULL read, seek or write means the operation is not supported. */
 struct chan_driver {
 	const char *name;
-	int (*open)(struct chan_object *ch);
+	int prefix;
+	int (*open)(struct chan_object *ch, const char *name);
 	void (*close)(struct chan_object *ch);
 	int (*write)(struct chan_object *ch, const unsigned char *buf, unsigned int n);
+	int (*read)(struct chan_object *ch, unsigned char *buf, unsigned int n);
+	int (*seek)(struct chan_object *ch, unsigned long pos);
 };
 
 struct chan_object {
@@ -45,6 +55,7 @@ struct chan_object {
 	unsigned int tag;                /* tag of this open */
 	const struct chan_driver *drv;
 	unsigned long bytes_out;         /* bytes written through this channel */
+	struct fat16_file ff;            /* file state, used by WIN1_ channels only */
 };
 
 /* Service entry points.  id and owner are as described above; owner is the
@@ -53,6 +64,8 @@ int chan_open(unsigned int owner, unsigned int name_addr);
 int chan_close(unsigned int id, unsigned int owner);
 int chan_write(unsigned int id, unsigned int owner, unsigned int buf_addr, unsigned int n);
 int chan_putc(unsigned int id, unsigned int owner, unsigned int c);
+int chan_read(unsigned int id, unsigned int owner, unsigned int buf_addr, unsigned int n);
+int chan_seek(unsigned int id, unsigned int owner, unsigned int pos);
 
 /* Job exit: close every channel owned by 'owner'.  Called by reclaim_dead
  * before the job's heap blocks are reclaimed.  Returns channels closed. */

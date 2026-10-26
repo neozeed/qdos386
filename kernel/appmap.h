@@ -28,6 +28,14 @@
 #define XFER_BASE      0x00280000u
 #define XFER_SIZE      0x00040000u
 
+/* R6: FAT16 volume on the i386VM (preloaded RAM disk, see platform/i386vm).
+ * Reserved outside the kernel, heap, application slots, transfer area and
+ * stacks (boot stack top 0x7ffff0 grows down; firmware area from 0x600000).
+ * The region is 3 MiB; the volume image is exactly this size. */
+#define RAMDISK_BASE   0x002c0000u
+#define RAMDISK_SIZE   0x00300000u
+#define RAMDISK_FLOOR  0x00600000u   /* first address the stacks or firmware use */
+
 /* Heap: from the kernel BSS end up to the first application slot.  The heap
  * no longer reaches the top of RAM (R4 used 0x600000). */
 #define HEAP_END       APP_SLOT0_BASE
@@ -36,5 +44,13 @@
  * window that contains the kernel, the heap, the application slots and the
  * transfer area.  This is a range check, not a protection check. */
 #define USER_RANGE_END (XFER_BASE + XFER_SIZE)
+
+/* The RAM disk must sit above the transfer area and below the stack floor. */
+#if RAMDISK_BASE < (XFER_BASE + XFER_SIZE)
+#error "RAM disk overlaps the transfer area"
+#endif
+#if RAMDISK_BASE + RAMDISK_SIZE > RAMDISK_FLOOR
+#error "RAM disk overlaps the stacks or firmware"
+#endif
 
 #endif

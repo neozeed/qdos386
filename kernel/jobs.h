@@ -44,6 +44,9 @@
 /* R5 application services.  New numbers only; 0x08..0x17 are unchanged. */
 #define QT_EXIT       0x18        /* a = exit status, recorded for the calling job -> 0 */
 #define QT_JOB_EXIT   0x19        /* a = job id -> exit status, or negative (see JOB_ERR_*) */
+/* R6 file channels (WIN1_ names; see docs/R6-ABI.md). */
+#define QT_CH_READ    0x1A        /* a = channel id, b = buffer, c = length (<= 256) -> bytes read, 0 at end */
+#define QT_CH_SEEK    0x1B        /* a = channel id, b = byte position -> 0, or negative */
 
 /* QT_JOB_EXIT errors.  -2 is the existing "no such job" code (QT_INFO). */
 #define JOB_ERR_RUNNING  (-16)    /* job exists and has not ended */

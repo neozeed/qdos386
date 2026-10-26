@@ -68,6 +68,10 @@ int aout_check(const unsigned char *img, unsigned int len, struct app_image *out
  * BSS.  Returns the job id (positive) or a negative APP_ERR_* code. */
 int app_load(int index);
 
+/* The same load from a byte buffer (R6: a file read through a channel).  The
+ * buffer is checked exactly as a transfer image is; see aout_check. */
+int app_load_bytes(const unsigned char *img, unsigned int len);
+
 int app_slot_owner(int slot);                  /* job id, or 0 if free */
 void app_release_owner(unsigned int job_id);   /* called from job reclaim */
 

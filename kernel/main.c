@@ -18,6 +18,8 @@
 #include "test_channels.h"
 #include "channel.h"
 #include "test_app.h"
+#include "test_fs.h"
+#include "aout.h"
 #include "irq.h"
 
 #define TIMER_PERIOD_UNITS 16        /* i386VM: 16 * 1024 steps.  PC: see platform */
@@ -46,7 +48,7 @@ static int apps_done(void)
 {
 	return test_results[0].exited && test_results[1].exited &&
 	       test_results[2].exited && test_results[0].coop_resumed == 1 &&
-	       r3_phase_done && r4_phase_done;
+	       r3_phase_done && r4_phase_done && r6_phase_done;
 }
 
 static void finish(void)
@@ -177,6 +179,7 @@ static void finish(void)
 	if (ok && r3_ok && r4_ok && mem_validate() == MEM_OK && stack_faults == 0) {
 		con_puts("\nQDOS/386 R4 CHANNEL PASS\n");
 		con_puts("QDOS/386 R5 A.OUT EXEC PASS\n");
+		con_puts("QDOS/386 R6 FAT16 EXEC PASS\n");
 		halt_with(0);
 	}
 	con_puts("\nQDOS/386 R4 CHANNEL FAIL\n");
@@ -201,7 +204,7 @@ int main(void)
 	unsigned int arena;
 	int i;
 
-	con_puts("QDOS/386 R4\n");
+	con_puts("QDOS/386 R6\n");
 	con_puts("Native i386 kernel\n\n");
 	con_puts("CPU: i386 protected mode\n");
 	con_puts((cr0 & 1u) ? "Protected mode: OK\n" : "Protected mode: FAIL\n");
@@ -291,6 +294,9 @@ int main(void)
 
 	/* R5: guest a.out loader, two applications, malformed images. */
 	app_phase();
+
+	/* R6: FAT16 volume, WIN1_ file channel, a.out from a file. */
+	fs_phase();
 
 	/* Nothing left for SYSTEM: suspend indefinitely.  IDLE finishes the run. */
 	for (i = 0; ; i++) {

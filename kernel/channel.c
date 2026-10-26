@@ -31,9 +31,10 @@ volatile unsigned long chan_rejected = 0;
 
 /* ---- console driver: the only R4 backend --------------------------------- */
 
-static int con_drv_open(struct chan_object *ch)
+static int con_drv_open(struct chan_object *ch, const char *name)
 {
 	(void) ch;
+	(void) name;
 	return 0;
 }
 
@@ -51,17 +52,23 @@ static int con_drv_write(struct chan_object *ch, const unsigned char *buf, unsig
 	return (int) n;
 }
 
+extern struct chan_driver win1_driver;   /* win1.c: WIN1_ file channels */
+
 static struct chan_driver con_driver;
-static struct chan_driver *drivers[2];
+static struct chan_driver *drivers[3];
 
 static void drivers_init(void)
 {
 	con_driver.name = "CON";
+	con_driver.prefix = 0;
+	con_driver.read = 0;
+	con_driver.seek = 0;
 	con_driver.open = con_drv_open;
 	con_driver.close = con_drv_close;
 	con_driver.write = con_drv_write;
 	drivers[0] = &con_driver;
-	drivers[1] = 0;
+	drivers[1] = &win1_driver;
+	drivers[2] = 0;
 }
 
 static int drivers_ready = 0;
@@ -91,6 +98,20 @@ static int copy_name(unsigned int addr, char *out)
 			return 0;
 	}
 	return CHAN_ERR_RANGE;
+}
+
+static int name_eq(const char *a, const char *b);
+
+/* Does the driver serve this name?  Exact match, or prefix match for a
+ * prefix driver (its name is the prefix, followed by the file name). */
+static int name_match(const struct chan_driver *d, const char *name)
+{
+	unsigned int k = 0;
+	if (!d->prefix)
+		return name_eq(d->name, name);
+	while (d->name[k] != 0 && d->name[k] == name[k])
+		k++;
+	return d->name[k] == 0 && name[k] != 0;
 }
 
 /* Exact match of two NUL-terminated names. */
@@ -143,7 +164,7 @@ int chan_open(unsigned int owner, unsigned int name_addr)
 		return rc;
 
 	for (d = 0; drivers[d] != 0; d++)
-		if (name_eq(drivers[d]->name, name))
+		if (name_match(drivers[d], name))
 			break;
 	if (drivers[d] == 0)
 		return CHAN_ERR_NAME;
@@ -169,7 +190,7 @@ int chan_open(unsigned int owner, unsigned int name_addr)
 	ch->drv = drivers[d];
 	ch->bytes_out = 0;
 
-	rc = ch->drv->open(ch);
+	rc = ch->drv->open(ch, name);
 	if (rc != 0) {
 		mem_free(p, owner);
 		return rc;
@@ -213,6 +234,8 @@ int chan_write(unsigned int id, unsigned int owner, unsigned int buf_addr, unsig
 		chan_rejected++;
 		return CHAN_ERR_RANGE;
 	}
+	if (ch->drv->write == 0)
+		return CHAN_ERR_NOTSUP;
 	rc = ch->drv->write(ch, (const unsigned char *) buf_addr, n);
 	if (rc > 0)
 		ch->bytes_out += (unsigned long) rc;
@@ -227,9 +250,44 @@ int chan_putc(unsigned int id, unsigned int owner, unsigned int c)
 	if (rc != 0)
 		return rc;
 	b = (unsigned char) (c & 0xff);
+	if (ch->drv->write == 0)
+		return CHAN_ERR_NOTSUP;
 	rc = ch->drv->write(ch, &b, 1);
 	if (rc > 0)
 		ch->bytes_out += (unsigned long) rc;
+	return rc;
+}
+
+int chan_read(unsigned int id, unsigned int owner, unsigned int buf_addr, unsigned int n)
+{
+	struct chan_object *ch;
+	int rc = check(id, owner, &ch);
+	if (rc != 0)
+		return rc;
+	if (n > CHAN_MAX_WRITE) {
+		chan_rejected++;
+		return CHAN_ERR_RANGE;
+	}
+	if (n == 0)
+		return 0;
+	if (!chan_user_range_ok(buf_addr, n)) {
+		chan_rejected++;
+		return CHAN_ERR_RANGE;
+	}
+	if (ch->drv->read == 0)
+		return CHAN_ERR_NOTSUP;
+	return ch->drv->read(ch, (unsigned char *) buf_addr, n);
+}
+
+int chan_seek(unsigned int id, unsigned int owner, unsigned int pos)
+{
+	struct chan_object *ch;
+	int rc = check(id, owner, &ch);
+	if (rc != 0)
+		return rc;
+	if (ch->drv->seek == 0)
+		return CHAN_ERR_NOTSUP;
+	rc = ch->drv->seek(ch, pos);
 	return rc;
 }
 

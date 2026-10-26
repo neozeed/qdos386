@@ -37,6 +37,14 @@ _inb:
 	inb %dx,%al
 	ret
 
+/* unsigned int inw(unsigned int port) */
+.globl _inw
+_inw:
+	movl 4(%esp),%edx
+	xorl %eax,%eax
+	inw %dx,%ax
+	ret
+
 .globl _pc_halt_done
 _pc_halt_done:
 	ret

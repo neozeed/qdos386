@@ -205,16 +205,26 @@ static void app_not_started(void)
 
 int app_load(int index)
 {
-	static const char *names[APP_SLOTS] = { "APP0", "APP1" };
 	const unsigned char *img;
-	unsigned int ilen, flags, base, i;
-	struct app_image info;
-	int rc, id, js;
-	unsigned char *dst;
+	unsigned int ilen;
+	int rc;
 
 	rc = app_image_bytes(index, &img, &ilen);
 	if (rc != APP_OK)
 		return rc;
+	return app_load_bytes(img, ilen);
+}
+
+int app_load_bytes(const unsigned char *img, unsigned int ilen)
+{
+	static const char *names[APP_SLOTS] = { "APP0", "APP1" };
+	unsigned int flags, base, i;
+	struct app_image info;
+	int rc, id, js;
+	unsigned char *dst;
+
+	/* The bytes are read only during the check and the copy below; the caller
+	 * may reuse its buffer after the call returns. */
 	rc = aout_check(img, ilen, &info);
 	if (rc != APP_OK)
 		return rc;

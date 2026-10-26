@@ -527,6 +527,14 @@ unsigned int trap_dispatch(unsigned int sp)
 		result = job_exit_status(a);
 		break;
 
+	case QT_CH_READ:
+		result = chan_read(a, job_current_id(), b, c);
+		break;
+
+	case QT_CH_SEEK:
+		result = chan_seek(a, job_current_id(), b);
+		break;
+
 	default:
 		result = -1;
 		break;

@@ -1,0 +1,118 @@
+/*
+ * QDOS/386 R6 - Tiny386 PC disk: the FAT16 volume on the primary slave of the
+ * PIIX3 IDE controller (ports 0x1F0-0x1F7, Tiny386 "hdb=" option).
+ *
+ * Only IDENTIFY DEVICE (0xEC) and READ SECTORS (0x20) are issued, both with
+ * LBA28 addressing and polled PIO.  Nothing is written.  The data port is read
+ * one 16-bit word at a time.
+ */
+#include "platform.h"
+
+extern void outb(unsigned int port, unsigned int val);
+extern unsigned int inb(unsigned int port);
+extern unsigned int inw(unsigned int port);
+
+#define IDE_DATA     0x1f0
+#define IDE_COUNT    0x1f2
+#define IDE_LBA0     0x1f3
+#define IDE_LBA1     0x1f4
+#define IDE_LBA2     0x1f5
+#define IDE_DRIVE    0x1f6
+#define IDE_STATUS   0x1f7        /* read: status */
+#define IDE_COMMAND  0x1f7        /* write: command */
+
+#define ST_ERR  0x01
+#define ST_DRQ  0x08
+#define ST_DF   0x20
+#define ST_BSY  0x80
+
+#define IDE_CMD_READ      0x20
+#define IDE_CMD_IDENTIFY  0xec
+#define IDE_SLAVE_LBA    0xf0    /* LBA mode, slave drive (bit 4) */
+#define IDE_POLL_LIMIT   2000000u
+
+static int ide_state = 0;        /* 0 unknown, 1 present, -1 absent */
+static unsigned long ide_sectors = 0;
+
+/* Wait until BSY clears.  Returns the status, or -1 on timeout. */
+static int ide_wait_ready(void)
+{
+	unsigned int i;
+	for (i = 0; i < IDE_POLL_LIMIT; i++) {
+		unsigned int st = inb(IDE_STATUS);
+		if (!(st & ST_BSY))
+			return (int) st;
+	}
+	return -1;
+}
+
+/* Wait until DRQ is set (data ready).  Returns 0, or negative on error. */
+static int ide_wait_drq(void)
+{
+	unsigned int i;
+	for (i = 0; i < IDE_POLL_LIMIT; i++) {
+		int st = ide_wait_ready();
+		if (st < 0)
+			return -1;
+		if (st & (ST_ERR | ST_DF))
+			return -2;
+		if (st & ST_DRQ)
+			return 0;
+	}
+	return -3;
+}
+
+static void ide_read_words(unsigned char *buf, int words)
+{
+	int i;
+	for (i = 0; i < words; i++) {
+		unsigned int w = inw(IDE_DATA);
+		buf[2 * i] = (unsigned char) (w & 0xff);
+		buf[2 * i + 1] = (unsigned char) (w >> 8);
+	}
+}
+
+/* IDENTIFY DEVICE on the slave: records the LBA28 sector count. */
+static void ide_identify(void)
+{
+	unsigned char id[512];
+	int st;
+
+	ide_state = -1;
+	outb(IDE_DRIVE, IDE_SLAVE_LBA);
+	st = ide_wait_ready();
+	if (st <= 0 || st == 0xff)           /* no drive answers */
+		return;
+	outb(IDE_COMMAND, IDE_CMD_IDENTIFY);
+	if (ide_wait_drq() != 0)
+		return;
+	ide_read_words(id, 256);
+	ide_sectors = (unsigned long) id[120] | ((unsigned long) id[121] << 8) |
+	              ((unsigned long) id[122] << 16) | ((unsigned long) id[123] << 24);
+	ide_state = (ide_sectors != 0) ? 1 : -1;
+}
+
+unsigned long disk_sector_count(void)
+{
+	if (ide_state == 0)
+		ide_identify();
+	return ide_state == 1 ? ide_sectors : 0;
+}
+
+int disk_read_sector(unsigned int lba, unsigned char *buf)
+{
+	if (disk_sector_count() == 0 || lba >= ide_sectors)
+		return -1;
+	if (ide_wait_ready() < 0)
+		return -2;
+	outb(IDE_DRIVE, (unsigned int) (IDE_SLAVE_LBA | ((lba >> 24) & 0x0f)));
+	outb(IDE_COUNT, 1);
+	outb(IDE_LBA0, lba & 0xff);
+	outb(IDE_LBA1, (lba >> 8) & 0xff);
+	outb(IDE_LBA2, (lba >> 16) & 0xff);
+	outb(IDE_COMMAND, IDE_CMD_READ);
+	if (ide_wait_drq() != 0)
+		return -3;
+	ide_read_words(buf, 256);
+	return 0;
+}

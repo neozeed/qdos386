@@ -1,14 +1,29 @@
+# QDOS/386 R6 - native kernel that loads a.out programs from a FAT16 disk
+
+R6 adds read-only FAT16 files. A WIN1_ volume is mounted from the platform disk
+(Tiny386 IDE primary slave on the PC; a preloaded RAM disk on i386VM), and a job
+opens `WIN1_HELLO.AOU` through the R4 channel manager, reads it with
+`QT_CH_READ`, loads it with the unchanged R5 a.out loader, and runs it as an
+ordinary preemptive job. The guest prints the R6 lines only after those real
+file operations. R2–R5 behaviour and the R5 transfer area are kept.
+
+Targets: the i386VM harness and the Tiny386 PC. Both read the same FAT16 bytes.
+See docs/R6-ABI.md (channel ABI), docs/R6-FAT16-FORMAT.md (volume),
+docs/R6-RUNTIME-REPORT.md (results and limits) and docs/R6-AUDIT.md (the audit that
+preceded the design).
+
+## R6 build and run
+
+    make i386vm pc apps fat16 I386VM=... TINY386=... SEABIOS=...
+    scripts/run-all.sh        # three runs per target, plus the timer-off negative
+
+`build/fat16/win1.img` is the 3 MiB volume (tools/make-fat16.py). It is attached
+as `hdb` for the PC and embedded at 0x2C0000 in the i386VM image. Its SHA-256
+is in SHA256SUMS and must not change during a run.
+
+## Earlier releases
+
 # QDOS/386 R5 - native kernel that loads and runs independently linked a.out programs
-
-A native 32-bit i386 kernel, freestanding, flat address space, CPL 0, paging off.
-R5 adds a guest-side OMAGIC a.out loader. Two applications, linked separately with
-the unchanged historical toolchain, are carried in a transfer area, validated by
-the kernel, and run as ordinary QDOS/386 jobs. They use the R4 channel services,
-and SYSTEM checks their exit statuses. The R2–R4 kernel is kept.
-
-Targets: the i386VM harness (synthetic timer) and the full Tiny386 PC (SeaBIOS,
-PIT/PIC). Both use the same kernel, the same transfer-area bytes and the same loader.
-
 ## Status
 
 Verified in the guest on both targets, three runs each (`docs/R5-RUNTIME-REPORT.md`):

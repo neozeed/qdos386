@@ -29,6 +29,12 @@ unsigned int pic_slave_isr(void);       /* in-service register, slave */
 void pic_eoi_master(void);
 void pic_eoi_slave(void);
 
+/* Disk sector source for the FAT16 volume (R6).  Read-only use: the kernel
+ * only ever calls disk_read_sector.  Returns 0 on success, negative on error.
+ * disk_sector_count is the device size in 512-byte sectors (0 if absent). */
+int disk_read_sector(unsigned int lba, unsigned char *buf);
+unsigned long disk_sector_count(void);
+
 /* Stop the machine: finish the run with the given status. */
 void halt_with(int status);
 
