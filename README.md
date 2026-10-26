@@ -1,45 +1,50 @@
-# QDOS/386 R1 — native i386 kernel on the i386VM harness
+# QDOS/386 R1 — native i386 kernel
 
-A freestanding 32-bit kernel with QDOS-inspired job scheduling, built with the
-supplied GCC 1.40 / GAS 1.38 toolchain and run on the i386VM harness.
+A freestanding 32-bit kernel with a port of the JS ROM job scheduler and job
+table, built with the supplied GCC 1.40 / GAS 1.38 toolchain. It runs on the
+full Tiny386 PC emulator (SeaBIOS boot) and on the i386VM harness.
 
-## Status
+Status: checkpoint verified on both targets (see docs/R1-RUNTIME-REPORT.md).
 
-R1 checkpoint: **verified on i386VM** (cooperative switching, timer
-preemption, independent stacks, termination, idle, and a validated PASS line).
-
-Changes from the brief:
-- **Target:** i386VM, not Tiny386. The supplied Tiny386 is only a CPU core
-  (see docs/TINY386-COMPATIBILITY.md). No BIOS boot sector.
-- **Timer:** a synthetic IRQ0 register added to the harness (patches/).
-  This is not a PIT model.
-
-## Build
+## Build and run
 
 ```
-make I386VM=/path/to/i386vm          # produces build/qdos386.bin (raw image)
-make I386VM=/path/to/i386vm run      # runs it on the harness
+make I386VM=/path/to/i386vm TINY386=/path/to/tiny386_headless SEABIOS=/path/to/seabios/out
+make run-pc                  # Tiny386 PC: SeaBIOS boot, PIT/PIC timer
+make run-i386vm             # i386VM harness (needs the synthetic-timer patch)
 ```
 
-The harness must include the synthetic-timer patch:
-`patch -p1 < patches/i386vm-synthetic-timer.patch` in the i386VM tree, then
-`bash build-emulator.sh`. Without it the timer register does not exist and
-the kernel will report FAIL.
+- **Tiny386:** build `tiny386_headless` from the full tree (`gcc -O3 *.c -lm`).
+  SeaBIOS: `git clone https://github.com/coreboot/seabios.git`, apply
+  `seabios/patch`, use `seabios/config`, then `make`. Copy `out/bios.bin` and `out/vgabios.bin`.
+- **i386VM:** apply `patches/i386vm-synthetic-timer.patch` to the harness tree and
+  run `bash build-emulator.sh`.
 
 ## Layout
 
 ```
-kernel/context.s   descriptor loading, IRQ0 stub, cooperative yield, job start
-kernel/jobs.c/h    job table, QDOS accumulated-priority scheduler
-kernel/platform.c/h console, timer register, GDT/IDT
-kernel/main.c      SYSTEM job, idle job, final validation and PASS line
-tests/test_jobs.c  TEST-A and TEST-B (CPU-bound, canary checks)
-tests/bootstrap_timer_test.s   stand-alone timer bootstrap test (pre-kernel)
-docs/              kernel map, Tiny386 compatibility, runtime report
-patches/           harness change (synthetic timer)
-logs/              three deterministic runs and the timer-off control
+kernel/
+  context.s       cooperative and interrupt frames, IRQ0 and trap stubs, qtrap
+  descriptors.c   flat GDT, IDT (IRQ0 0x20, trap 0x30)
+  jobs.c/h        job table, JS ROM scheduler, service traps, reclamation
+  main.c          SYSTEM job, IDLE job, validation and PASS line
+platform/
+  platform.h      platform interface
+  pc/             boot.s, kernel.ld, entry.s, platform.c (PIT/PIC/0x402/0x8900),
+                  make-image.py, extract-kernel.py
+  i386vm/         platform.c (0x800001, synthetic timer), halt.s
+tests/
+  test_jobs.c/h   TEST-A, TEST-B (CPU-bound, canaries), TEST-C (reuses A's slot)
+  bootstrap_timer_test.s   earlier i386VM timer bootstrap test
+docs/
+  JS-ROM-KERNEL-MAP.md     routine-by-routine port map
+  TINY386-COMPATIBILITY.md
+  R1-RUNTIME-REPORT.md
+patches/          i386VM harness change (synthetic timer)
+logs/             runs for both targets, legacy R1 logs
+build/            outputs (created by make)
 ```
 
 ## Limitations
 
-See docs/R1-RUNTIME-REPORT.md.
+See docs/R1-RUNTIME-REPORT.md, "Not verified or not implemented".

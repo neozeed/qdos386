@@ -1,24 +1,20 @@
 /*
- * QDOS/386 R1 - architecture-specific assembly.
+ * QDOS/386 R1 - architecture-specific assembly (shared by both platforms).
  *
  * Two saved-state formats exist for a job's stack:
- *   fmt 0 (CTX): callee-saved registers pushed by yield_asm, then return
- *                address.  Restored by a pop/ret sequence.
- *   fmt 1 (IRQ): full general register set pushed by irq0_stub (pushal).
- *                Restored by popal/iretl, so EFLAGS, EIP and CS come from
- *                the interrupt frame.
+ *   fmt 0 (cooperative): callee-saved registers pushed by yield_asm, then
+ *                        the return address.  Restored by pop/ret.
+ *   fmt 1 (interrupt):   the full register set pushed by pushal in the
+ *                        IRQ0 or trap stub.  Restored by popal/iret.
+ * Scheduler entry points return (saved_sp | fmt) in EAX; bit 0 selects the
+ * restore path.  Stacks are 4-byte aligned, so bits 0-1 are free.
  *
- * Both schedulers (cooperative yield and timer preemption) return
- *   (saved_sp | fmt) in EAX.  resume_dispatch uses bit 0 to choose the
- *   restore path.  Stacks are 4-byte aligned, so bits 0-1 are free.
- *
- * C functions referenced from here use the GCC 1.40 leading-underscore
- * convention.
+ * C functions called from here use the GCC 1.40 leading-underscore names.
  */
 
 .text
 
-/* void load_descriptors(u32 gdtr_addr, u32 idtr_addr)  -- flat GDT + IDT */
+/* void load_descriptors(u32 gdtr_addr, u32 idtr_addr) */
 .globl _load_descriptors
 _load_descriptors:
 	movl 4(%esp),%eax
@@ -41,26 +37,20 @@ _read_cr0:
 	movl %cr0,%eax
 	ret
 
-/* void halt_with(int status): EAX=status, HLT (ends the run) */
-.globl _halt_with
-_halt_with:
-	movl 4(%esp),%eax
-	hlt
-
 /*
  * Common resume path.  EAX = saved_sp | fmt.
- * Interrupts are disabled here on entry from an ISR, and are enabled
- * before a fmt-0 job resumes, since that job expects IF=1.
+ * Interrupts are off on entry from an interrupt stub.  A cooperative frame
+ * is resumed with IF set, since that job expects it.
  */
 resume_dispatch:
 	movl %eax,%ecx
-	andl $1,%ecx		/* ECX = format (1 = IRQ) */
+	andl $1,%ecx
 	andl $-4,%eax
 	movl %eax,%esp
 	cmpl $0,%ecx
 	je resume_ctx
-	popal			/* restores EDI..EAX, skipping saved ESP */
-	iret			/* restores EIP, CS, EFLAGS (IF) */
+	popal
+	iret
 resume_ctx:
 	popl %edi
 	popl %esi
@@ -69,11 +59,7 @@ resume_ctx:
 	sti
 	ret
 
-/*
- * Timer preemption entry (IRQ0, vector 0x20, interrupt gate).
- * Saves the complete interrupted state, lets the scheduler choose the
- * next job, and resumes that job's saved state.
- */
+/* IRQ0 (vector 0x20, interrupt gate) */
 .globl _irq0_stub
 _irq0_stub:
 	pushal
@@ -82,11 +68,31 @@ _irq0_stub:
 	addl $4,%esp
 	jmp resume_dispatch
 
+/* Service trap (vector 0x30, interrupt gate). */
+.globl _trap_stub
+_trap_stub:
+	pushal
+	pushl %esp
+	call _trap_dispatch
+	addl $4,%esp
+	jmp resume_dispatch
+
 /*
- * Cooperative yield.  Saves callee-saved registers as a fmt-0 frame, lets the
- * scheduler choose the next job and resumes it.  Returns when the calling job
- * is next resumed.
+ * int qtrap(fn, a, b, c): EAX=fn, EBX=a, ECX=b, EDX=c, INT 0x30.
+ * EBX is callee-saved in cdecl, so it is saved here.
  */
+.globl _qtrap
+_qtrap:
+	pushl %ebx
+	movl 8(%esp),%eax
+	movl 12(%esp),%ebx
+	movl 16(%esp),%ecx
+	movl 20(%esp),%edx
+	int $0x30
+	popl %ebx
+	ret
+
+/* Cooperative yield: callee-saved frame, scheduler pass, resume. */
 .globl _yield_asm
 _yield_asm:
 	pushl %ebp
@@ -98,11 +104,8 @@ _yield_asm:
 	addl $4,%esp
 	jmp resume_dispatch
 
-/*
- * First code run by a new job.  A fresh job's frame returns here; the job's
- * entry point is then called, and its return reaches the termination path.
- */
+/* First code run by a fresh job (its frame returns here). */
 .globl _job_trampoline
 _job_trampoline:
 	call _job_run
-	hlt			/* job_run never returns; keep the stack-top defined */
+	hlt

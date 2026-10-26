@@ -1,22 +1,29 @@
 /*
- * QDOS/386 R1 - CPU-bound test jobs.  Neither job yields.  Progress depends
- * on timer preemption.  Each job keeps canary values in its own stack frame
- * and checks them after every iteration, to show that each stack survives
- * preemption.
+ * QDOS/386 R1 - application test jobs.
  */
 #include "platform.h"
-#include "test_jobs.h"
 #include "jobs.h"
+#include "test_jobs.h"
 
-#define TEST_SPIN 20000
+struct test_result test_results[3];
+unsigned int test_flag_rel = 0;
+extern int test_system_id;              /* SYSTEM's job id, set by main */
 
-struct test_result test_results[2];
 static volatile unsigned int spin_sink;
 
-static void run_test(int id, const char *name)
+static void spin_ticks(unsigned long n)
+{
+	unsigned long start = sched_ticks;
+	unsigned int s = 0;
+	while (sched_ticks - start < n) {
+		spin_sink = s++;             /* CPU-bound, no yield */
+	}
+}
+
+static void run_cpu_test(int id, const char *name)
 {
 	unsigned int canary[4];
-	unsigned int it, s;
+	int it;
 
 	canary[0] = 0xa5a50000u | (unsigned int) id;
 	canary[1] = 0x5a5a0000u | (unsigned int) id;
@@ -24,34 +31,51 @@ static void run_test(int id, const char *name)
 	canary[3] = 0x9abcdef0u;
 
 	for (it = 1; it <= TEST_ITERATIONS; it++) {
-		for (s = 0; s < TEST_SPIN; s++)
-			spin_sink = s;                 /* CPU-bound, no yield */
+		if (id == 1 && it == 1) {
+			/* TEST-B: wait until SYSTEM is indefinitely suspended, then
+			 * reactivate it through the job id. */
+			while (jobs[JOB_SYSTEM].status >= 0)
+				spin_ticks(1);
+			qtrap(QT_REACTIVATE, (unsigned int) test_system_id, 0, 0);
+		}
+		spin_ticks(TEST_SLICE_TICKS);
 		if (canary[0] != (0xa5a50000u | (unsigned int) id) ||
 		    canary[1] != (0x5a5a0000u | (unsigned int) id) ||
 		    canary[2] != 0x12345678u || canary[3] != 0x9abcdef0u)
 			test_results[id].canary_errors++;
-		test_results[id].iterations = (int) it;
+		test_results[id].iterations = it;
 		if (id == 0 && it == 1) {
-			/* Cooperative switch: save callee-saved frame, resume later. */
+			/* Cooperative switch: callee-saved frame, resumed later. */
 			yield_asm();
 			test_results[id].coop_resumed = 1;
 			con_puts("TEST-A: resumed after cooperative yield\n");
 		}
 		con_puts(name);
 		con_puts(": iteration ");
-		con_putdec(it);
+		con_putdec((unsigned long) it);
 		con_putc('\n');
 	}
 	con_puts(name);
 	con_puts(": exited\n");
+	test_results[id].preempts = jobs[job_current].preempts;
+	test_results[id].exited = 1;
 }
 
 void test_job_a(void)
 {
-	run_test(0, "TEST-A");
+	run_cpu_test(0, "TEST-A");
 }
 
 void test_job_b(void)
 {
-	run_test(1, "TEST-B");
+	run_cpu_test(1, "TEST-B");
+}
+
+/* Short job that reuses TEST-A's slot. */
+void test_job_c(void)
+{
+	con_puts("TEST-C: running in reused slot\n");
+	test_results[2].iterations = 1;
+	test_results[2].exited = 1;
+	con_puts("TEST-C: exited\n");
 }

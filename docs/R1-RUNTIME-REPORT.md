@@ -1,34 +1,50 @@
-# R1 runtime report
+# QDOS/386 R1 (extended) runtime report
 
-Platform: i386VM harness with the synthetic timer patch. Toolchain: GCC 1.40,
-GAS 1.38, a.out, `--raw`. Harness: `i386vm` built from `build-emulator.sh`
-(`-O2 -DI386_ENABLE_FPU`).
+Two targets, one kernel:
 
-## Required verification
+- **PC:** Tiny386 full PC emulator (headless build), SeaBIOS boot sector,
+  8259 PIC, 8254 PIT. Output via port 0x402.
+- **i386VM:** the R1 harness, with the synthetic IRQ0 register. Output via 0x800001.
 
-| # | Item | Result | Evidence |
+## Required verification (brief, section "Required verification")
+
+| # | Item | PC | i386VM | Evidence |
+|---|---|---|---|---|
+| 1 | Cross-compiler and linker build | PASS | PASS | `make`; GCC 1.40 + GAS 1.38 + i386-ld |
+| 2 | Boot-image structural validity | PASS | PASS | Boot sector 512 bytes, signature 55 AA; kernel image `make-image.py` checks sector count, extract checks OMAGIC, no relocations, origin, entry |
+| 3 | Tiny386 boot | PASS | n/a | logs/pc-raw1-3.txt: SeaBIOS boot, then `Booting from 0000:7c00`, kernel output |
+| 4 | Protected-mode entry | PASS | PASS | `Protected mode: OK`, `Paging: disabled` (CR0 read by the guest) |
+| 5 | Cooperative context switch | PASS | PASS | `TEST-A: resumed after cooperative yield`; `COOPERATIVE YIELDS: 4` |
+| 6 | Timer interrupt delivery | PASS | PASS | `TIMER: ticks 17`. PC: PIT on IRQ0 through the PIC. i386VM: device count matches (CHECK device ticks: ok) |
+| 7 | Preemptive switching between CPU-bound jobs | PASS | PASS | `TEST-A: preempted yes`, `TEST-B: preempted yes` |
+| 8 | Independent stack preservation | PASS | PASS | Canary check every iteration; `canary_errors == 0` |
+| 9 | Job termination and idle transition | PASS | PASS | `TEST-A/B/C: exited`; `IDLE: no application jobs remain`; `IDLE DISPATCHES: 3` |
+| 10 | Repeated deterministic runtime behaviour | PASS (3/3 identical after the boot lines) | PASS (3/3 identical) | logs/*-run*.log, logs/pc-raw*.txt |
+
+## JS ROM job-table extension (this stretch)
+
+| Check | PC | i386VM | What it shows |
 |---|---|---|---|
-| 1 | Cross-compiler and linker build | PASS | `make`; `text=3056 data=44 bss=18664 entry=0`; no warnings |
-| 2 | Image structural validity | PASS | Raw image 3100 bytes, entry 0, loaded at physical 0 (harness rejects bad images) |
-| 3 | Tiny386 boot | **Not tested** on Tiny386 (not supplied as a machine). Run on i386VM instead | logs/run1.log |
-| 4 | Protected-mode entry | PASS | Guest reads CR0: `Protected mode: OK`, `Paging: disabled` |
-| 5 | Cooperative context switch | PASS | `TEST-A: resumed after cooperative yield`; `COOPERATIVE YIELDS: 4` |
-| 6 | Timer interrupt delivery | PASS | `TIMER: ticks 33`; device count (low 8 bits) equals `sched_ticks` |
-| 7 | Preemptive switching between CPU-bound jobs | PASS | `TEST-A: preempted 13 times`, `TEST-B: preempted 15 times` (run1) |
-| 8 | Independent stack preservation | PASS | Canary check per iteration; `canary_errors == 0` for both jobs |
-| 9 | Job termination and idle transition | PASS | `TEST-A: exited`, `TEST-B: exited`; `IDLE: no application jobs remain`; `IDLE DISPATCHES: 5` |
-| 10 | Repeated deterministic runtime | PASS | Three runs, identical output MD5 (`logs/run1-3.log`) |
+| CHECK chprio | ok | ok | Change priority, then read it back |
+| CHECK timeout wake | ok | ok | SYSTEM suspended for 3 ticks: woke after ≥3 ticks, release flag set |
+| CHECK reactivate | ok | ok | TEST-B reactivated SYSTEM from an indefinite suspend, and the release flag was set |
+| CHECK poll/sched lists | ok | ok | Poll and schedule tasks ran |
+| CHECK slot reuse | ok | ok | TEST-C reused TEST-A's slot after deferred reclamation |
+| CHECK stale id | ok | ok | TEST-A's old id returns -2 after the reuse |
+| CHECK new id | ok | ok | New id is valid; activating an active job returns -1 |
+| CHECK device ticks | n/a | ok | Device counter on i386VM only |
 
-Control: with the timer disabled (`TIMER_PERIOD_UNITS 0`), the same code prints
-`preempted 0 times`, `ticks 0`, and `QDOS/386 R1 MULTITASKING FAIL`, exit 1
-(`build/negative-timer-off.bin`). The PASS line is therefore not printed
-unconditionally.
+## Negative controls
 
-## Sample run (logs/run1.log)
+- **i386VM, timer off (verified):** the run does not finish: `instruction limit exceeded`, because SYSTEM waits on ticks that never come.
+  An earlier version of this kernel (without the job-table port) reported FAIL
+  with zero preemptions. The PASS line is only printed after the checks run.
+
+## Sample run (PC, logs/pc-raw1.txt)
 
 ```
 QDOS/386 R1
-i386VM native boot
+Native i386 kernel
 
 CPU: i386 protected mode
 Protected mode: OK
@@ -36,53 +52,38 @@ Paging: disabled
 Kernel: initialized
 
 SYSTEM: job 0 created
-TEST-A: job 1 created
-TEST-B: job 2 created
-
-TIMER: IRQ0 active
+TEST-A: job created by trap
+TEST-B: job created by trap
 SCHEDULER: preemption enabled
+TIMER: IRQ0 active
 
 TEST-A: resumed after cooperative yield
 TEST-A: iteration 1
-TEST-B: iteration 1
-TEST-A: iteration 2
-TEST-B: iteration 2
-TEST-A: iteration 3
-TEST-A: exited
-TEST-B: iteration 3
-TEST-B: exited
+...
 IDLE: no application jobs remain
-TEST-A: preempted 13 times
-TEST-B: preempted 15 times
-TIMER: ticks 33
+TEST-A: preempted yes
+TEST-B: preempted yes
+CHECK chprio: ok
+...
+CHECK device ticks: n/a
+TIMER: ticks 17
 COOPERATIVE YIELDS: 4
-IDLE DISPATCHES: 5
+SCHEDULER PASSES: 36
+POLL RUNS: 17
+SCHEDULE RUNS: 36
+IDLE DISPATCHES: 3
 
 QDOS/386 R1 MULTITASKING PASS
 ```
 
-The run ends with `HALT EAX=00000000`, exit status 0.
+## Not verified or not implemented
 
-## Implemented
-
-- Flat GDT (code 0x08, data 0x10), IDT with an IRQ0 interrupt gate.
-- Job table with a native record and QDOS accumulated-priority selection.
-- Two context formats: callee-saved (cooperative) and full interrupt frame
-  (preemptive), both resumed by one dispatch routine.
-- Fresh-job frames returning into a termination path (`job_trampoline` → `job_run` → `job_exit`).
-- Suspend (SYSTEM), exit (test jobs), idle job, and validation before PASS.
-
-## Not implemented or not proven
-
-- The complete QDOS scheduler is not reproduced. Timeouts, poll and schedule
-  task lists, job tags, trap dispatch, and reactivate/priority-change traps are absent.
-- Tiny386 boot, BIOS boot sector, real PIC/PIT: not available in the supplied material.
-- Resource reclamation: none. Stacks are static 4 KiB buffers and are not reused.
-  The brief asks for deferred reclamation; it is not implemented.
-- Interrupts are not nested. No EOI (no PIC).
-- No stack-overflow detection; each stack is 4 KiB.
-- Any CPU exception stops the harness (per the harness README). The kernel
-  installs no handler for exceptions.
-- Port I/O (`IN`/`OUT`) is not supported by the harness and is not used.
-- Timer is step-based. Output order is deterministic for this build; it would
-  change with any code change.
+- Tiny386 timing is host-clock based. Repeat runs gave identical output here, but this is
+  not a guarantee under different host load.
+- The PC timer test relies on ~100 Hz real time. A faster or slower host changes
+  wall-clock duration, not the tick-paced flow.
+- Activate's wait option and job-info status are not implemented.
+- Stacks are fixed 4 KiB per slot. No stack-overflow detection.
+- Interrupts are not nested. Any CPU exception has no handler; the emulator stops.
+- Only the PC port I/O listed in docs/TINY386-COMPATIBILITY.md is used.
+- The brief's wider QDOS API (SuperBASIC, filesystem, graphics) is out of scope.

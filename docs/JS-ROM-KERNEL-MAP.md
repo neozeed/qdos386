@@ -1,79 +1,78 @@
-# JS ROM kernel map (R1 Phase 0)
+# JS ROM kernel map
 
 Source: `js-rom-gas-r2.zip` (the brief calls it `js2-gas.zip`), file `src/system_asm.s`.
-All addresses are the labels in that file. Offsets are byte offsets from the
-named base register (A6 = system variables, A0/A2/A3 = job header).
-Labels were checked against the source. Corrections to the brief are marked **[corr]**.
+Labels were checked against that file. Corrections to the brief are marked **[corr]**.
+Status column: **Done** = ported and exercised by a test; **Partly** = ported
+without some of the original behaviour; **Not in R1** = not ported.
 
 ## Routines
 
-| Label | What it does (verified) | R1 status | i386 replacement |
+| Label | Behaviour in the JS ROM (verified) | Status | i386 implementation |
 |---|---|---|---|
-| `l00900` | Polled interrupt: `SV.POLLM` +1, run poll list, then if the interrupted context was user mode it falls into the scheduler; supervisor mode returns. | Replaced | `irq0_stub` (context.s) → `sched_irq_tick` |
-| `l00936` | Scheduler entry: `jsr l009d4` (save), then the scheduling pass. **[corr]** The brief calls it the scheduler entry; it is the entry of the *save-and-schedule* sequence, reached by fall-through from `l00900`. | Replaced | `schedule()` in jobs.c |
-| `l0093a` | Reads and clears `SV.POLLM`, increments `SV.RAND`, runs the schedule task list (`SV.SHLST`), selects a job, runs it. | Partly | Tick counter; no schedule task list |
-| `l009d4` | Saves the current job: resets accumulated priority to 1 if non-zero, stores D0-D7/A0-A4, A5, A6, USP, SR, PC into the job header. | Replaced | `schedule()` stores `saved_sp`, `saved_fmt`; resets `acc_prio` |
-| `l00a0c` | Selection. Round robin from current+1, current examined last. Each runnable job with increment ≠ 0: accumulated = 1 if 0, else + increment (saturating). Highest accumulated wins; first found wins ties. Returns -2 if none. | Replaced | `pick_next()` |
-| `l00a78` | Restores the selected job: pushes PC and SR, sets USP, loads registers, `rte`. | Replaced | `resume_dispatch` (context.s), two formats |
-| `l00a9e` | Runs a linked task list (poll, schedule, interrupt). | Not reproduced | — |
-| `tr1d08` | Suspend job: stores the timeout in `JOB.STAT`, saves the job's release reference, returns to `l00936`. | Partly | `job_suspend_self()`, no timeout |
-| `tr1d09` | Reactivate job: clears status, releases a hold flag, returns to `l00936`. | Not in R1 | — |
-| `tr1d0a` | Activate job: sets increment, copies START, optionally waits. | Partly | `job_create()` |
-| `tr1d0b` (`o990`) | Change priority: sets increment; clears accumulated priority if increment is 0. | Not in R1 | — |
-| `l003bc` / `l003e4` | Look up a job by ID, checking its TAG. | Not reproduced | Index-based slots |
-| `l00408` | Returns current job ID. | Replaced | `job_current` |
-| `l00246` | Initialises the job table. Job 0 is BASIC, increment `0x20` (`l00246`: `move.b #0x20,0x0013`). | Not reproduced | Job 0 is SYSTEM, increment 1 |
-| `l0058c` / `l005f0` | Create-job path: sets job descriptor, allocates the tag, links the job into the tree. | Partly | `job_create()` |
+| `l00900` | Polled interrupt: `SV.POLLM` += 1, run the poll list, then fall into the scheduler if the interrupted context was user mode. | Done | `sched_irq_tick` (kernel/jobs.c): POLLM++, poll list, scheduler pass. Entered from the IRQ0 stub. |
+| `l00936` | Scheduler entry: `jsr l009d4` (save), then the pass. **[corr]** The brief calls this the scheduler entry; it is the save-and-schedule sequence, reached by fall-through from `l00900`. | Done | `schedule()` |
+| `l0093a` | Reads and clears `SV.POLLM`, increments `SV.RAND`, runs the schedule list, selects a job, runs it. | Done | `schedule()`: `pollm = sv_pollm; sv_pollm = 0; sv_rand++;` schedule list, `pick_next(pollm)`. |
+| `l009d4` | Save current job: reset a non-zero accumulated priority to 1; store registers into the job header. | Done | `schedule()` stores `saved_sp`/`saved_fmt`; resets `acc_prio`. |
+| `l00a0c` | Select: candidates after the current job, current job last. Skip inc = 0. Timeout countdown for status > 0. Accumulated priority, strict maximum, first found wins ties. | Done | `pick_next(pollm)` |
+| `l00a78` | Restore selected job and `rte`. | Done | `resume_dispatch` in context.s, two frame formats |
+| `l00a9e` | Runs a linked task list. | Done | `run_tasks()` over `poll_list` (SV.PLIST) and `sched_list` (SV.SHLST) |
+| `tr1d08` | Suspend: status = timeout (word), JOB.HOLD = a1, then the scheduler. | Done | `QT_SUSPEND` → `trap_dispatch` → `schedule()` |
+| `tr1d09` | Reactivate: if status ≠ 0, clear it and release the hold flag (`sf`); then the scheduler. | Done | `QT_REACTIVATE` |
+| `tr1d0a` / `o9a0` | Activate: fails if increment ≠ 0, else sets the increment and START. The wait option (JOB.WJOB) is not implemented. | Partly | `QT_ACTIVATE`, no wait option |
+| `tr1d0b` / `o990` | Change priority: set increment; if 0, clear accumulated priority. | Done | `QT_CHPRIO` |
+| `o524` (job info) | Returns the job's status and priority. | Partly | `QT_INFO` returns increment and accumulated priority; status not included |
+| `l003bc` / `l003e4` | Look up a job by id and check its TAG. | Done | `job_lookup()`: id = (tag << 16) | slot. Stale ids fail. |
+| `l0058c` / `l005f0` | Create job: allocate a slot, set the TAG, link the job. | Done | `QT_CREATE` → `job_alloc()` |
+| `l00408` | Current job id. | Done | `job_current` |
+| `l00246` | Job table init. Job 0 is BASIC with increment `0x20`. | Partly | Job 0 is SYSTEM with increment `0x20`. There is no BASIC job. |
+| Trap table | QDOS traps via the 68000 trap table. | Partly | Traps are `int 0x30` with a function code in EAX (`QT_*` in kernel/jobs.h). The numbers follow the JS ROM trap names; the 68000 vector mechanism is not reproduced. |
 
-## Job header (offsets from the job base, from l009d4 / l00a0c / l00a78)
+## Job record (native), with JS ROM fields
 
-| Offset | Field | Used by R1 |
+| Native field | JS ROM offset | Use |
 |---|---|---|
-| `0x00` | Job base pointer (list entry points to it) | — |
-| `0x04` | START address | — |
-| `0x08` | Owner | — |
-| `0x0c` | JOB.HOLD (release flag pointer) | No |
-| `0x10` | TAG (checked by `l003e4`) | No |
-| `0x12` | Accumulated priority (byte) | Yes: `acc_prio` |
-| `0x13` | Priority increment (byte) | Yes: `prio_inc` |
-| `0x14` | Status word: 0 runnable; > 0 suspended with timeout; < 0 suspended indefinitely | Yes, as runnable / suspended / dead |
-| `0x18` | WJOB | No |
-| `0x1c` | JOB.TRAPV | No |
-| `0x20`-`0x5b` | D0-D7, A0-A6 | Yes: saved in the i386 frame |
-| `0x5c` | A7 (USP) | Yes: `saved_sp` |
-| `0x60` | SR | Yes: EFLAGS in the IRQ frame |
-| `0x62` | PC | Yes: EIP in the IRQ frame |
+| `saved_sp` / `saved_fmt` | `0x5c` (A7), `0x60` (SR), `0x62` (PC) | Saved state. The format bit selects the cooperative or interrupt frame. |
+| `acc_prio` | `0x12` | Accumulated priority |
+| `prio_inc` | `0x13` | Priority increment. 0 = not active. |
+| `status` | `0x14` | 0 runnable; > 0 timeout ticks; < 0 indefinitely suspended |
+| `hold` | `0x0c` | Release flag pointer, set to 0xFF on release |
+| `tag` | `0x10` | Part of the job id |
+| `in_use`, `dead` | — | Slot state, with deferred reclamation |
 
-## System variables used by the scheduler
+## System variables
 
-| Offset | Name | Use |
+| Offset | Name | Use in R1 |
 |---|---|---|
-| `0x2e` | SV.RAND | Counter; not used in R1 |
-| `0x30` | SV.POLLM | Poll-tick counter; R1 uses the timer tick count |
-| `0x35` | SV.PCINT | Interrupt mask; not used |
-| `0x3c` | SV.PLIST | Poll task list; not used |
-| `0x40` | SV.SHLST | Schedule task list; not used |
-| `0x50` | SV.TRAPV | Trap vector; not used |
-| `0x62` | SV.JBMAX | Highest job number; implicit (4 slots) |
-| `0x64` | SV.JBPNT | Current job pointer; `job_current` |
-| `0x68` | SV.JBBAS | Job table base; static `jobs[]` |
-| `0x7c` | SV.JBTOP | Top of job table; not used |
+| `0x2e` | SV.RAND | Incremented each scheduler pass (`sv_rand`) |
+| `0x30` | SV.POLLM | Ticks since the last pass (`sv_pollm`) |
+| `0x3c` | SV.PLIST | Poll list head (`poll_list`) |
+| `0x40` | SV.SHLST | Schedule list head (`sched_list`) |
+| `0x64` | SV.JBPNT | `job_current` |
+| `0x68` | SV.JBBAS | Job table: a fixed array of four slots |
 
-## Selection rule (exact in R1, from l00a0c)
+## Selection rule (l00a0c, as implemented)
 
-For each candidate in round-robin order starting after the current job, with
-the current job last:
-1. Skip if not runnable (status ≠ 0) or increment = 0.
-2. Accumulated priority = 1 if it was 0; otherwise accumulated + increment, saturating at 255.
-3. Choose the strictly highest accumulated priority. First candidate found wins ties.
+For each candidate after the current job, current job last:
 
-Before the pass, the outgoing job's accumulated priority is reset to 1 if non-zero (`l009d4`).
+1. Skip if the job is not in use or `prio_inc == 0`.
+2. If `status > 0`: `status -= POLLM`. Still suspended while > 0. On expiry set `status = 0` and `*hold = 0xFF`.
+3. Skip if `status < 0`.
+4. `acc = 1` if it was 0, else `acc + inc`, saturating at 255.
+5. The strictly highest `acc` wins. The first candidate found wins ties.
 
-## Divergences
+Before the pass, the outgoing job's `acc` is reset to 1 if non-zero (l009d4).
 
-- No suspend timeout countdown (`SV.POLLM` vs `JOB.STAT`). R1 uses suspended-indefinitely only.
-- No poll or schedule task lists, job TAG checks, release flags, or trap-table dispatch.
-- Job 0 is SYSTEM with increment 1. The JS ROM BASIC job uses increment 0x20.
-- Stacks are per-job static buffers (4 KiB). The QDOS heap is not used.
-- Preemption is driven by the synthetic timer (step-based), not the poll interrupt.
-- Interrupts are not nested.
+## Reclamation
+
+A terminated job keeps its slot until another job runs a scheduler pass. That
+pass frees the slot, so a job's stack is never freed while it is still in use.
+A freed slot gets a new tag when reused, so the old id becomes stale (`QT_REACTIVATE` returns -2).
+
+## Remaining differences
+
+- Job 0 is SYSTEM (increment `0x20`). The JS ROM BASIC job is not present.
+- Activate's wait option and the job-info status field are not implemented.
+- Slots are a fixed table of four, not the JS ROM's variable-length job area.
+- Traps are `int 0x30`, not the 68000 trap vector table.
+- The poll wait flag (JOB.WFLAG, checked at `l0064c`) is not modelled.
+- Stacks are fixed 4 KiB per slot.
