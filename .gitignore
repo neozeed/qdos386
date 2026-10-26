@@ -1,0 +1,8 @@
+build/
+logs/
+patches/
+*.o
+__pycache__/
+sdk/examples/*.aout
+sdk/lib/*.o
+sdk/lib/*.a
