@@ -13,6 +13,9 @@
 #include "win1.h"
 #include "cin.h"
 #include "irq.h"
+#ifdef QDOS_PAGING_POC
+#include "paging.h"
+#endif
 
 #define SHELL_TIMER_UNITS 16        /* same period as the R6 test build */
 
@@ -52,6 +55,9 @@ int shell_boot(void)
 	arena = ((unsigned int) bss_end + MEM_ALIGN - 1) & ~(MEM_ALIGN - 1);
 	if (mem_init(arena, MEM_ARENA_END) != MEM_OK)
 		boot_fail("heap arena rejected");
+#ifdef QDOS_PAGING_POC
+	pg_init();                     /* R11J: identity paging before the volume and shell */
+#endif
 
 	if (win1_mount() != FAT_OK)
 		boot_fail("WIN1_ volume not mounted");

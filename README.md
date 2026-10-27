@@ -1,3 +1,39 @@
+# QDOS/386 R11J - paging proof of concept (opt-in)
+
+R11J (branch `r11j-paging`, from frozen R11I `bc9a90f`) proves that two live copies of **one
+byte-identical fixed-origin a.out** can run at the same virtual entry 0x240000 in different page
+directories, with private frames, a shared kernel mapping, real timer preemption, independent
+writable state and exits, and release of their frames.  It is a proof of concept: ring 0 only, no
+memory protection, and only in images built with `-DQDOS_PAGING_POC`.  Every default image is
+byte-identical to R11I; the R11H fixed-profile loader is unchanged.
+
+Documents: `docs/R11J-PAGING-AUDIT.md`, `docs/R11J-MEMORY-MAP.md`, `docs/R11J-ADDRESS-SPACE-ABI.md`,
+`docs/R11J-PAGING-RUNTIME-REPORT.md`, `docs/R11J-KNOWN-LIMITATIONS.md`.
+
+## Build
+
+    export I386VM=/path/to/i386vm-tree QDOS386_TOOLS=/path/to/i386vm-tree
+    sh scripts/r11j-build-harness.sh build/harness   # i386vm-r9, -block (R11I) and -block-fd (optional)
+    sh scripts/r11j-images.sh                        # POC kernels (i386VM block, PC, PC VGA) + TEST images
+    sh scripts/r11j-build.sh                         # SAME.AOU, SAMELNCH.AOU, build/fat16/win1-r11j.img
+
+## Run
+
+    # i386VM block mode, POC kernel, host-backed volume:
+    printf 'RUN SAMELNCH.AOU\n' | build/harness/i386vm-r9-block \
+        build/r11j/vm-poc/qdos386-r11j-poc.bin build/fat16/win1-r11j.img
+    # Tiny386 PC: SHELLIMG=build/r11j/pc-poc/r11j-poc.img sh scripts/r11h-run-tiny386.sh ...
+    # QEMU: python3 scripts/r11j-qemu-capture.py OUT WORK . "run samelnch.aou"
+    # Full matrix and independent log checks:
+    HARNESS_DIR=build/harness TINY386=... sh scripts/r11j-matrix.sh OUT
+    python3 scripts/r11j-assert.py OUT
+
+`SAMELNCH` modes: none (main proof), `N` (negative cases), `R` (repeated launch/exit), `F` (page faults;
+on i386VM the CPU core ends the run at the first fault: use the `-fd` harness with `I386VM_FAULTDUMP=1`),
+`T` (failed copy; TEST image only).
+
+---
+
 # QDOS/386 R11I - host-backed i386VM block device
 
 R11I (branch `r11i-block`, from frozen R11H-FIX1 `4affc37`) lets the standalone i386VM harness

@@ -17,6 +17,9 @@
 #include "cin.h"
 #include "memory.h"
 #include "platform.h"
+#ifdef QDOS_PAGING_POC
+#include "paging.h"
+#endif
 
 struct chan_slot {
 	struct chan_object *obj;
@@ -94,6 +97,14 @@ static int drivers_ready = 0;
 
 int chan_user_range_ok(unsigned int addr, unsigned int n)
 {
+#ifdef QDOS_PAGING_POC
+	/* R11J: a paged caller may name only its own window and the shared kernel heap. */
+	{
+		int pr = pg_user_range_ok(addr, n);
+		if (pr >= 0)
+			return pr;
+	}
+#endif
 	/* R11E: the lower bound is the heap arena base.  Before this, only the
 	 * upper bound was checked, so a user buffer could name kernel memory. */
 	if (addr == 0 && n != 0)

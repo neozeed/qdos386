@@ -678,3 +678,157 @@ int app_load_bytes(const unsigned char *img, unsigned int ilen)
 	m.len = ilen;
 	return app_load_src(mem_rd, &m, ilen, -1, 0, 0);
 }
+
+#ifdef QDOS_PAGING_POC
+/* ---- R11J paging proof of concept (docs/R11J-ADDRESS-SPACE-ABI.md) ------------------
+ * Frames for a paged process are one physically contiguous run taken from the region pool
+ * inside [lo, hi).  Contiguity matters on the i386VM harness: its CPU core sends a
+ * multi-byte access that crosses a page boundary above 0x800000 to the harness with the
+ * first physical address only, so the two pages must be physically adjacent. */
+#include "paging.h"
+
+long app_frames_alloc(unsigned int lo, unsigned int hi, unsigned int bytes,
+                      unsigned int owner, unsigned int *base)
+{
+	unsigned int a;
+	long h;
+
+	if (app_pool_init() != APP_OK)
+		return REGION_ERR_NOMEM;
+	if (bytes == 0 || hi < lo || bytes > hi - lo)
+		return REGION_ERR_NOMEM;
+	for (a = lo; a <= hi - bytes; a += PG_PAGE) {
+		h = region_reserve_at(&app_pool, a, bytes, owner);
+		if (h > 0) {
+			*base = a;
+			return h;
+		}
+	}
+	return REGION_ERR_NOMEM;
+}
+
+int app_frames_release(long handle, unsigned int owner)
+{
+	return region_release(&app_pool, handle, owner);
+}
+
+void app_pool_stats(unsigned int *count, unsigned int *bytes)
+{
+	unsigned long b = 0;
+
+	*count = 0;
+	*bytes = 0;
+	if (!app_pool_ready)
+		return;
+	*count = (unsigned int) region_live(&app_pool, &b);
+	*bytes = (unsigned int) b;
+}
+
+/* args_write with the block written at blk but its pointers built for vbase. */
+static void args_write_at(unsigned char *blk, unsigned int vbase, unsigned int argc,
+                          const unsigned char *packed)
+{
+	unsigned int i, p, k;
+
+	for (i = 0; i < APP_ARG_BYTES; i++)
+		blk[i] = 0;
+	wr32(blk, argc);
+	wr32(blk + 4, vbase + 8);
+	k = 0;
+	p = 0;
+	for (i = 0; i < argc; i++) {
+		wr32(blk + 8 + 4 * i, vbase + APP_ARG_STR_OFF + k);
+		while (packed[p] != 0)
+			blk[APP_ARG_STR_OFF + k++] = packed[p++];
+		blk[APP_ARG_STR_OFF + k++] = 0;
+		p++;
+	}
+	wr32(blk + 8 + 4 * argc, 0);
+}
+
+/*
+ * Load an image linked for slot 1 into a new address space.  Order: validate (reads only),
+ * then record, frames, job; each failure undoes what came before it.  The window is zeroed,
+ * the image copied and the argument block written through the frames' physical addresses:
+ * the caller is never a paged job (jobs.c refuses QT_PG_START from one), so the template
+ * directory, which maps the pool, is active.  Interrupts are off for the whole load, as in
+ * app_load_src.
+ */
+int app_load_paged(app_rd_fn rd, void *ctx, unsigned int len,
+                   const unsigned char *packed, unsigned int plen)
+{
+	struct app_image info;
+	unsigned int flags, frames = 0, argc_n, i, *w;
+	int rc, rec, id, js, argc;
+	long h;
+
+	if (pg_slot_paged(job_current))
+		return PG_ERR_REFUSED;
+	rc = aout_check_src(rd, ctx, len, &info);
+	if (rc != APP_OK)
+		return rc;
+	if (info.slot != 1 || info.entry != PG_VBASE)
+		return PG_ERR_ORIGIN;
+	argc = args_check(packed, plen);
+	if (argc < 0)
+		return APP_ERR_ARGS;
+	argc_n = (unsigned int) argc;
+	rc = app_pool_init();
+	if (rc != APP_OK)
+		return rc;
+
+	flags = irq_save();
+	rec = pg_rec_alloc();
+	if (rec < 0) {
+		irq_restore(flags);
+		return PG_ERR_NOREC;
+	}
+	h = app_frames_alloc(PG_POOL_LO, PG_POOL_HI, PG_VSIZE, PG_OWNER_BASE + (unsigned int) rec,
+	                     &frames);
+	if (h <= 0) {
+		pg_rec_free(rec);
+		irq_restore(flags);
+		return PG_ERR_NOFRAMES;
+	}
+	id = job_alloc_sized("APPV", app_not_started, 0, APP_STACK_BYTES);
+	if (id < 0) {
+		region_release(&app_pool, h, PG_OWNER_BASE + (unsigned int) rec);
+		pg_rec_free(rec);
+		irq_restore(flags);
+		return (id == -1) ? APP_ERR_NOJOB : APP_ERR_NOMEM;
+	}
+	js = job_lookup((unsigned int) id);
+	if (js == JOB_NONE) {
+		job_cancel((unsigned int) id);
+		region_release(&app_pool, h, PG_OWNER_BASE + (unsigned int) rec);
+		pg_rec_free(rec);
+		irq_restore(flags);
+		return APP_ERR_NOJOB;
+	}
+	w = (unsigned int *) frames;
+	for (i = 0; i < PG_VSIZE / 4u; i++)
+		w[i] = 0;
+#ifdef QDOS_TEST_FAULT_LAUNCH
+	fault_launches++;
+	fault_read_no = (fault_launches == QDOS_TEST_FAULT_LAUNCH) ? QDOS_TEST_FAULT_READ : 0;
+	fault_reads = 0;
+#endif
+	rc = copy_src(rd, ctx, &info, (unsigned char *) frames);
+	if (rc != APP_OK) {
+		job_cancel((unsigned int) id);
+		region_release(&app_pool, h, PG_OWNER_BASE + (unsigned int) rec);
+		pg_rec_free(rec);
+		irq_restore(flags);
+		return rc;
+	}
+	args_write_at((unsigned char *) (frames + PG_VSIZE - APP_ARG_BYTES),
+	              PG_VBASE + PG_VSIZE - APP_ARG_BYTES, argc_n, packed);
+	pg_rec_build(rec, frames);
+	jobs[js].entry = (void (*)(void)) info.entry;
+	jobs[js].args = PG_VBASE + PG_VSIZE - APP_ARG_BYTES;
+	pg_rec_bind(rec, js, (unsigned int) id, h, frames);
+	jobs[js].prio_inc = 2;
+	irq_restore(flags);
+	return id;
+}
+#endif

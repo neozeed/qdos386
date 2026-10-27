@@ -106,7 +106,9 @@ build/xfer.bin: $(APPS) tools/make-xfer.py
 	python3 tools/make-xfer.py $@ HELO=build/apps/hello.aout PREP=build/apps/prep.aout HEL2=build/apps/hello.aout
 
 # ---- i386VM ---------------------------------------------------------------
-I386VM_SRC = $(KCORE) kernel/context.s platform/i386vm/platform.c platform/i386vm/disk.c platform/i386vm/halt.s
+# R11J: I386EXTRA adds the paging POC sources (empty for every default image).
+I386EXTRA ?=
+I386VM_SRC = $(KCORE) kernel/context.s platform/i386vm/platform.c platform/i386vm/disk.c platform/i386vm/halt.s $(I386EXTRA)
 
 $(I386D)/kernel-raw.bin: $(I386VM_SRC) $(wildcard kernel/*.h) $(wildcard tests/*.h) platform/platform.h
 	mkdir -p $(I386D)
@@ -137,6 +139,10 @@ PC_OBJS = $(PCD)/main.o $(PCD)/region.o $(PCD)/jobs.o $(PCD)/clock.o $(PCD)/cloc
           $(PCD)/fat16.o $(PCD)/win1.o $(PCD)/test_fs.o $(PCD)/disk.o \
           $(PCD)/cin.o $(PCD)/kbd.o $(PCD)/vga.o $(PCD)/test_console.o $(PCD)/test_r8.o $(PCD)/i8042.o $(PCD)/test_dir.o $(PCD)/imgload.o $(PCD)/shellboot.o $(PCD)/test_shell.o
 
+# R11J: PCEXTRA adds the paging POC objects (empty for every default image).
+PCEXTRA ?=
+PC_OBJS += $(PCEXTRA)
+
 pc: $(PCD)/$(PCIMG)
 
 # Every object depends on every header: the R8 change to a shared struct
@@ -160,6 +166,9 @@ $(PCD)/%.o: platform/pc/%.c $(PC_HDR) $(PCD)/.pcflags
 	mkdir -p $(PCD)
 	$(GCC) -c $(INC) $(PCFLAGS) $< -o $@
 $(PCD)/context.o: kernel/context.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+$(PCD)/paging_s.o: kernel/paging.s
 	mkdir -p $(PCD)
 	$(AS) -o $@ $<
 $(PCD)/entry.o: platform/pc/entry.s
@@ -195,6 +204,16 @@ r11h-i386vm:
 # The legacy RAM-disk targets above are unchanged.  Requires I386VM=<tree>.
 r11i-i386vm-block:
 	$(MAKE) i386vm I386D=build/r11i/block I386FLAGS="$(R9_FLAGS) -DQDOS_I386VM_BLOCK" I386IMG=qdos386-r11i-block.bin I386WIN= IMGENV="QDOS_LAYOUT=r9"
+
+# R11J: paging proof of concept (opt-in; docs/R11J-ADDRESS-SPACE-ABI.md).  Default images
+# are unchanged: the POC sources enter only through I386EXTRA / PCEXTRA here.
+R11J_POC = -DQDOS_PAGING_POC
+r11j-i386vm-poc:
+	$(MAKE) i386vm I386D=build/r11j/vm-poc I386FLAGS="$(R9_FLAGS) -DQDOS_I386VM_BLOCK $(R11J_POC)" I386IMG=qdos386-r11j-poc.bin I386WIN= IMGENV="QDOS_LAYOUT=r9" I386EXTRA="kernel/paging.c kernel/paging.s"
+r11j-pc-poc:
+	$(MAKE) build/pc-r9/boot.bin
+	$(MAKE) pc PCD=build/r11j/pc-poc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11J_POC)" PCIMG=r11j-poc.img PCBOOT=build/pc-r9/boot.bin PCEXTRA="build/r11j/pc-poc/paging.o build/r11j/pc-poc/paging_s.o"
+	$(MAKE) pc PCD=build/r11j/pc-poc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11J_POC)" PCIMG=r11j-poc-vga.img PCBOOT=build/pc-r9/boot.bin PCEXTRA="build/r11j/pc-poc-vga/paging.o build/r11j/pc-poc-vga/paging_s.o"
 
 # Canonical R11H PC images (the shipped set).  Requires I386VM=<tree>.  The R9 boot
 # sector (transfer address 0x340000) is built by its own rule.

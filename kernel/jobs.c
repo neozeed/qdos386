@@ -40,6 +40,19 @@
 #include "imgload.h"
 #include "fpu.h"
 #include "clock_boot.h"
+#ifdef QDOS_PAGING_POC
+#include "paging.h"
+#endif
+
+/* R11J: a hold-flag release.  In the paging POC the flag may live in a paged job's
+ * private window, so the write is made in that job's address space (paging.c). */
+#ifdef QDOS_PAGING_POC
+#define HOLD_RELEASE(slot, j) pg_hold_release(slot)
+#define RUN_TASKS(t, c) run_tasks_template(t, c)
+#else
+#define HOLD_RELEASE(slot, j) (*(j)->hold = 0xff)
+#define RUN_TASKS(t, c) run_tasks(t, c)
+#endif
 
 struct job jobs[JOB_MAX];
 int job_current = JOB_SYSTEM;
@@ -101,6 +114,20 @@ static void run_tasks(struct qtask *t, unsigned long *counter)
 	}
 }
 
+#ifdef QDOS_PAGING_POC
+/* R11J: task nodes and code belong to unpaged registrants; run them in the template. */
+static void run_tasks_template(struct qtask *t, unsigned long *counter)
+{
+	unsigned int was;
+
+	if (t == 0)
+		return;
+	was = pg_enter_template();
+	run_tasks(t, counter);
+	pg_leave_template(was);
+}
+#endif
+
 /* Stack use in bytes: distance from the top to the lowest non-zero word
  * above the canary.  Bounded by JOB_STACK_BYTES.  Called from job context. */
 static unsigned int stack_high_water(struct job *j)
@@ -123,6 +150,12 @@ static void reclaim_dead(void)
 		struct job *j = &jobs[i];
 		if (i == job_current || !(dead_mask & bit))
 			continue;
+#ifdef QDOS_PAGING_POC
+		/* R11J: first the address space; if its directory were active, keep the slot dead
+		 * and retry on a later pass (never reached: guard). */
+		if (pg_release_owner(j->id, i) != 0)
+			continue;
+#endif
 		if (j->stack_base != 0)
 			j->stack_hwm = stack_high_water(j);
 		/* Channels first: they free their own objects, so the heap pass
@@ -161,7 +194,7 @@ static int pick_next(unsigned int pollm)
 				continue;
 			j->status = 0;
 			if (j->hold != 0)
-				*j->hold = 0xff;          /* sf (a1): release the flag */
+				HOLD_RELEASE(i, j);       /* sf (a1): release the flag */
 		}
 		if (j->status < 0)
 			continue;
@@ -206,7 +239,7 @@ static unsigned int schedule(unsigned int sp, int fmt, int from_irq)
 	pollm = sv_pollm;                      /* l0093a: read and clear POLLM */
 	sv_pollm = 0;
 	sv_rand++;
-	run_tasks(sched_list, &sched_runs);    /* l00a9e: schedule list */
+	RUN_TASKS(sched_list, &sched_runs);    /* l00a9e: schedule list */
 
 	next = pick_next(pollm);
 	if (next != job_current) {
@@ -219,6 +252,12 @@ static unsigned int schedule(unsigned int sp, int fmt, int from_irq)
 		fpu_save(out->fpu);
 		job_current = next;
 		fpu_restore(jobs[job_current].fpu);
+#ifdef QDOS_PAGING_POC
+		/* R11J: the incoming job's address space.  IF is off, and every stack and the
+		 * kernel are in the shared template mapping, so the switch may happen here. */
+		pg_activate(job_current);
+		pg_after_switch(job_current);
+#endif
 	}
 	jobs[job_current].dispatches++;
 	return jobs[job_current].saved_sp | (unsigned int) jobs[job_current].saved_fmt;
@@ -232,7 +271,7 @@ unsigned int sched_irq_tick(unsigned int sp)
 	timer_ack();
 	sv_pollm++;
 	cin_poll_tick();                       /* R7: bounded, no-op unless enabled */
-	run_tasks(poll_list, &poll_runs);
+	RUN_TASKS(poll_list, &poll_runs);
 	return schedule(sp, 1, 1);
 }
 
@@ -254,7 +293,7 @@ void con_input_arrived(void)
 	if (j->in_use && j->status < 0) {
 		j->status = 0;
 		if (j->hold != 0)
-			*j->hold = 0xff;
+			HOLD_RELEASE(con_waiter, j);
 	}
 	con_waiter = JOB_NONE;
 }
@@ -462,6 +501,17 @@ unsigned int trap_dispatch(unsigned int sp)
 
 	reclaim_dead();
 
+#ifdef QDOS_PAGING_POC
+	/* R11J: services whose pointers the kernel uses later, in other contexts, or that
+	 * load images, are not available to a paged process (docs/R11J-ADDRESS-SPACE-ABI.md). */
+	if (pg_slot_paged(job_current) &&
+	    (fn == QT_CREATE || fn == QT_POLL_ADD || fn == QT_SCHED_ADD ||
+	     fn == QT_IMG_LOAD || fn == QT_IMG_START || fn == QT_PG_START)) {
+		f[7] = (unsigned int) PG_ERR_REFUSED;
+		return sp | 1u;
+	}
+#endif
+
 	switch (fn) {
 	case QT_SUSPEND:
 		/* tr1d08: JOB.STAT = timeout, JOB.HOLD = release flag, then schedule.
@@ -488,7 +538,7 @@ unsigned int trap_dispatch(unsigned int sp)
 		if (j->status != 0) {
 			j->status = 0;
 			if (j->hold != 0)
-				*j->hold = 0xff;
+				HOLD_RELEASE(slot, j);
 		}
 		result = 0;
 		f[7] = (unsigned int) result;
@@ -687,6 +737,16 @@ unsigned int trap_dispatch(unsigned int sp)
 		f[7] = 0;
 		return schedule(sp, 1, 0);
 
+#ifdef QDOS_PAGING_POC
+	case QT_PG_START:
+		result = img_pg_start_request(a, b, c);
+		break;
+
+	case QT_PG_INFO:
+		result = pg_info_fill(a, b);
+		break;
+#endif
+
 	default:
 		result = -1;
 		break;
@@ -694,3 +754,17 @@ unsigned int trap_dispatch(unsigned int sp)
 	f[7] = (unsigned int) result;
 	return sp | 1u;                       /* same frame, no scheduling */
 }
+
+#ifdef QDOS_PAGING_POC
+/* R11J: end the current job from an exception frame (paging.c pg_exception).  The frame
+ * at sp is saved but never resumed; the job is reclaimed like any other dead job. */
+unsigned int job_kill_current(unsigned int sp)
+{
+	struct job *j = &jobs[job_current];
+
+	j->prio_inc = 0;
+	j->status = -1;
+	j->dead = 1;
+	return schedule(sp, 1, 0);
+}
+#endif
