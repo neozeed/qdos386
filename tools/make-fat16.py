@@ -28,7 +28,7 @@ RESERVED = 1
 NFATS = 2
 ROOT_ENTRIES = 512
 ROOT_SECTORS = ROOT_ENTRIES * 32 // BPS
-NAME_RE = re.compile(r'^[A-Z0-9_]{1,8}\.[A-Z0-9_]{1,3}$')
+NAME_RE = re.compile(r'^[A-Z0-9_]{1,8}(\.[A-Z0-9_]{1,3})?$')  # R11G: extension optional
 TRAILER = b'TRAILER: listed only if the end-of-directory marker were ignored\n'
 
 def sectors_per_fat(clusters):
@@ -129,7 +129,7 @@ def main():
     records.append(entry(pad11('GONE', 'TXT'), 0x20, 0, 10, first_byte=0xe5))  # 2 deleted
     records.append(entry(b'LFNFRAGMENT', 0x0f, 0, 0))                    # 3 long name
     for name, content in files:                                           # 4 files
-        base, ext = name.split('.')
+        base, _, ext = name.partition('.')   # R11G: no-extension names (e.g. ZORK1_Z3)
         first, size = place(content)
         records.append(entry(pad11(base, ext), 0x20, first, size))
     records.append(entry(pad11('SUBDIR'), 0x10, 0, 0))                    # 5 subdir

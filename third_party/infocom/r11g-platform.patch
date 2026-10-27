@@ -1,0 +1,204 @@
+--- infocom.c
++++ infocom.c
+@@ -4,30 +4,8 @@
+ #include	"infocom.h"
+ #include <stdio.h>
+ #include <stdlib.h>
+-#include <fcntl.h>
+-#include <qdos.h>
+-#include <sys/qlib.h>
+-#include <sms.h>
+-
+-/*! OSAL handel to abstract QL specific definitions */
+-typedef struct {
+-  WINDOWDEF_t       windef;
+-  chanid_t          ch;
+-  unsigned short    key_code;
+-  int               idle_ticks;
+-  int               width;
+-  int               height;
+-  int               scale_x;
+-  int               scale_y;
+-} t_osal_handle;
+-
+-/*! game window in QL pixels (high res has max 512x256) */
+-#define WINDOW_WIDTH      500
+-#define WINDOW_HEIGHT     250
+-
+-
+-
+ 
++/* QDOS/386 port (R11G): QL window/OSAL layer removed; console I/O uses libc stdin/stdout. */
+ 
+ word		random1 ;
+ word		random2 ;
+@@ -107,47 +85,50 @@
+ 
+ 
+ 
+-t_osal_handle* init_osal( void )
++/* R11G: refuse a story the interpreter cannot run safely.  The original reads the header and
++ * then the story blocks without checking the file size, so a truncated file is read as garbage
++ * until it fails with an opcode error.  The SDK has no file-size query (fseek SEEK_END is refused),
++ * so the size is counted by reading to end of file.  Checks: version 3, and the file holds at least
++ * the length the header declares (version 3: word 26 x 2 bytes).  Returns 1 if the story may be played. */
++int qd_story_ok ( void )
+ {
+-  t_osal_handle* p;
+-//  WINDOWDEF_t my_windef = { WHITE_M4, 1, COLOR_BACKGROUND, RED_M4, WINDOW_WIDTH + 4, WINDOW_HEIGHT + 2, 2, 1 };
+-  WINDOWDEF_t my_windef = { 
+-   2, /* border colour (red) */
+-   0, /* border width */
+-   0, /* paper (black) */
+-   7, /* ink (white) */
+-   512, /* width (pixel) */
+-   256, /* height (pixels) */
+-   0, /* x origin */
+-   0 /* y origin */
+- };
+-
+-
+-
+-  p = malloc( sizeof( t_osal_handle ) );
+-  if(! p )
+-    return NULL;
+-
+-  memset( p, 0, sizeof( t_osal_handle ) );
+-  memcpy( & p->windef, & my_windef, sizeof( WINDOWDEF_t ) );
+-  p->idle_ticks = 5;
+-
+-  p->ch =  ut_con ( & p->windef );
+-  if( p->ch < 0 ) {
+-    fprintf( stderr, "could not open screen error!\n" );
+-    free( p );
+-    p = NULL;
+-  } else {
+-    p->width = 100;
+-    p->height = 50;
+-    p->scale_x = WINDOW_WIDTH / p->width;
+-    p->scale_y = WINDOW_HEIGHT / p->height;
++  extern FILE *game_file ;
++  unsigned char h[32] ;
++  unsigned char blk[512] ;
++  size_t n ;
++  long size ;
++  unsigned long want ;
++
++  if ( fseek ( game_file,0L,SEEK_SET ) != 0 )
++    return 0 ;
++  size = 0 ;
++  while ( ( n = fread ( (char *)blk,1,sizeof blk,game_file ) ) > 0 )
++    size += (long)n ;
++  if ( fseek ( game_file,0L,SEEK_SET ) != 0 )
++    return 0 ;
++  if ( size < 32 )
++  {
++    printf ( "WIN1_ZORK1_Z3: not a Z-code story file (%ld bytes).\n", size ) ;
++    return 0 ;
+   }
+-
+-  return p;
++  if ( fread ( (char *)h,1,32,game_file ) != 32 )
++    return 0 ;
++  if ( fseek ( game_file,0L,SEEK_SET ) != 0 )
++    return 0 ;
++  if ( h[0] != 3 )
++  {
++    printf ( "WIN1_ZORK1_Z3: unsupported Z-code version %d (this interpreter runs version 3).\n", h[0] ) ;
++    return 0 ;
++  }
++  want = ( (unsigned long)h[26] * 256UL + h[27] ) * 2UL ;
++  if ( want == 0 || (unsigned long)size < want )
++  {
++    printf ( "WIN1_ZORK1_Z3: story file is truncated: %ld bytes, header needs %lu.\n", size, want ) ;
++    return 0 ;
++  }
++  return 1 ;
+ }
+ 
+-
+ main ( argc,argv )
+ int		argc ;
+ char	*argv[] ;
+@@ -208,13 +189,16 @@
+ 		usage ( argv[0] ) ;
+ #else
+ //long _stack = 20L * 1024L;
+-t_osal_handle* p;
+-char _prog_name[] = "InfoTaskForce";
+-p=init_osal();
+ 
+ 
+-		if ( open_file ( "win1_zork1_z3") )
++
++		if ( open_file ( "WIN1_ZORK1_Z3") )
+ 		{
++			if ( ! qd_story_ok () )
++			{
++				close_file () ;
++				return ;
++			}
+ 			init () ;
+ 			if ( play )
+ 				interp () ;
+@@ -222,7 +206,7 @@
+ 				options ( head_info,objects,vocabulary,tree ) ;
+ 		}
+ 		else
+-			printf ( "Failed to Open File %s\n",argv[argc] ) ;
++			printf ( "Failed to Open File WIN1_ZORK1_Z3\n" ) ;
+ #endif
+ }
+ 
+--- file.c
++++ file.c
+@@ -2,6 +2,7 @@
+ /* (C)opyright 1987 InfoTaskforce. */
+ 
+ #include	<stdio.h>
++#include	<stdlib.h>
+ #include	"infocom.h"
+ 
+ #define		name_size	10
+@@ -32,6 +33,7 @@
+ 	{
+ 		printf ( "Failed to Seek Start of File\n" ) ;
+ 		quit () ;
++		exit ( 1 ) ;
+ 	}
+ 	else
+ 	{
+@@ -39,6 +41,7 @@
+ 		{
+ 			printf ( "Failed to read File Header\n" ) ;
+ 			quit () ;
++		exit ( 1 ) ;
+ 		}
+ 		else
+ 		{
+@@ -137,6 +140,7 @@
+ 	{
+ 		printf ( "Failed to Seek required Blocks\n" ) ;
+ 		quit () ;
++		exit ( 1 ) ;
+ 	}
+ 	else
+ 		fread ((char *)ptr,block_size,(int)num_blocks,game_file);
+--- support.c
++++ support.c
+@@ -2,6 +2,7 @@
+ /* (C)opyright 1987 InfoTaskforce. */
+ 
+ #include	"infocom.h"
++#include	<stdlib.h>
+ 
+ null ()
+ {
+@@ -190,4 +191,7 @@
+ 	}
+ 	echo ( "\n" ) ;
+ 	quit () ;
++	/* R11G: an internal error is fatal.  quit() only sets the status and returns, so the
++	 * interpreter loop would carry on and repeat the message forever. */
++	exit ( 1 ) ;
+ }

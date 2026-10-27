@@ -301,3 +301,23 @@ for the libc that was supplied and why it is not used in R8.
 - Applications have 224 KiB of text + data + BSS, a 16 KiB stack, and read
   arguments only through `argv`.
 - The kernel heap is shared and is not inside the application's slot.
+
+## R11G: Task Force '87 Z-machine running Zork I
+
+The original Task Force '87 interpreter (sources in `third_party/infocom/orig`, unchanged) is
+built as a slot-1 a.out, `INFOCOM.AOU`, by `scripts/r11g-build.sh`. The port is a separate patch,
+`third_party/infocom/r11g-platform.patch`: it removes the QL layer, opens `WIN1_ZORK1_Z3`, checks the
+story header (version 3, length) and makes internal errors fatal. The story is not included.
+
+- Put the story on the read-only FAT16 volume as `ZORK1_Z3`. The interpreter opens
+  `WIN1_ZORK1_Z3`; `WIN1_` is a case-sensitive prefix, and the root entry is an 8-character base with
+  no extension.
+- Missing, truncated, wrong-version or empty stories are reported with a message. Internal errors
+  print once and exit with status 1.
+- Save and restore are not supported: they print `Failed.` and write nothing.
+- Build: `scripts/r11g-build.sh <sdk> <historical GCC 1.40 tree> <outdir>`. Host headers are hidden
+  from the historical compiler with a private mount namespace, and the build fails if they leak.
+- Slot size: this README says slot 1 holds "about 1 MiB"; the linker script and `docs/R5-APP-ABI.md`
+  say 256 KiB. The interpreter image is 40,566 bytes, so it fits either way. The discrepancy is not
+  yet resolved.
+- Runtime evidence and limits: `docs/R11G-RUNTIME-REPORT.md`. Licences: `third_party/infocom/PROVENANCE.md`.
