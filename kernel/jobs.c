@@ -38,6 +38,7 @@
 #include "aout.h"
 #include "cin.h"
 #include "imgload.h"
+#include "fpu.h"
 
 struct job jobs[JOB_MAX];
 int job_current = JOB_SYSTEM;
@@ -210,7 +211,13 @@ static unsigned int schedule(unsigned int sp, int fmt, int from_irq)
 	if (next != job_current) {
 		if (from_irq && out->prio_inc != 0 && out->status == 0)
 			out->preempts++;
+		/* R10: the x87 state belongs to the job.  Save the outgoing job's
+		 * (FNSAVE also reinitialises the FPU) and load the incoming one's.
+		 * Both switch paths (timer ISR and cooperative yield) come through
+		 * here, so both are covered. */
+		fpu_save(out->fpu);
 		job_current = next;
+		fpu_restore(jobs[job_current].fpu);
 	}
 	jobs[job_current].dispatches++;
 	return jobs[job_current].saved_sp | (unsigned int) jobs[job_current].saved_fmt;
@@ -334,6 +341,7 @@ int job_alloc_sized(const char *name, void (*entry)(void), unsigned char inc, un
 	j->tag = newtag;
 	j->id = id;
 	j->in_use = 1;
+	fpu_clean(j->fpu);                 /* R10: a new job starts with a clean x87 */
 	j->dead = 0;
 	j->name = name;
 	j->entry = entry;
@@ -406,6 +414,7 @@ void sched_init(void)
 	/* SYSTEM: the boot context, job 0.  Its stack is the boot stack, which
 	 * is not on the heap, so it has no canary and is never reclaimed. */
 	jobs[JOB_SYSTEM].in_use = 1;
+	fpu_clean(jobs[JOB_SYSTEM].fpu);
 	jobs[JOB_SYSTEM].prio_inc = 0x20;         /* JS ROM BASIC job increment */
 	jobs[JOB_SYSTEM].name = "SYSTEM";
 	jobs[JOB_SYSTEM].id = 0;

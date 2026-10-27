@@ -16,9 +16,28 @@ extern unsigned int inb(unsigned int port);
 static int pic_ready = 0;
 static unsigned int pit_divisor = 11932;   /* ~100 Hz */
 
+#include "vga.h"
+
 void con_putc(unsigned char c)
 {
-	outb(0x402, c);
+#ifdef QDOS_CON_VGA
+	static int vga_ready = 0;
+#endif
+
+	outb(0x402, c);                    /* Tiny386 debug port: always */
+#ifdef QDOS_CON_SERIAL
+	/* Optional diagnostic backend (not the default): also send the byte to
+	 * the first 16550 UART at 0x3F8, so QEMU can capture it with -serial. */
+	outb(0x3f8, c);
+#endif
+#ifdef QDOS_CON_VGA
+	/* Optional human console: 80x25 text at 0xB8000 (platform/pc/vga.c). */
+	if (!vga_ready) {
+		vga_init();
+		vga_ready = 1;
+	}
+	vga_putc(c);
+#endif
 }
 
 void con_puts(const char *s)
@@ -128,6 +147,11 @@ void halt_with(int status)
 	(void) status;
 	while (*s)
 		outb(0x8900, (unsigned int) (unsigned char) *s++);
+#ifdef QDOS_HALT_DEBUG_EXIT
+	/* Optional diagnostic exit for QEMU's isa-debug-exit device (port 0xF4):
+	 * QEMU exits with status (0x10 << 1) | 1 = 33. Not the default. */
+	outb(0xf4, 0x10);
+#endif
 	for (;;)
 		;
 }

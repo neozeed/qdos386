@@ -31,7 +31,7 @@ I386WIN  ?= build/fat16/win1.img
 PCWIN    ?= build/fat16/win1.img
 
 INC = -Ikernel -Itests -Iplatform
-KCORE = kernel/main.c kernel/jobs.c kernel/memory.c kernel/channel.c kernel/irq.c kernel/descriptors.c \
+KCORE = kernel/main.c kernel/jobs.c kernel/fpu.c kernel/memory.c kernel/channel.c kernel/irq.c kernel/descriptors.c \
         kernel/aout.c kernel/fat16.c kernel/win1.c kernel/cin.c kernel/kbd.c kernel/imgload.c kernel/shellboot.c \
         tests/test_jobs.c tests/test_memory.c tests/test_channels.c tests/test_app.c tests/test_fs.c \
         tests/test_console.c tests/test_dir.c tests/test_shell.c tests/test_r8.c
@@ -131,11 +131,11 @@ run-i386vm: $(I386D)/$(I386IMG)
 	$(VM) $(I386D)/$(I386IMG)
 
 # ---- Tiny386 PC -----------------------------------------------------------
-PC_OBJS = $(PCD)/main.o $(PCD)/jobs.o $(PCD)/memory.o $(PCD)/channel.o $(PCD)/irq.o \
+PC_OBJS = $(PCD)/main.o $(PCD)/jobs.o $(PCD)/fpu.o $(PCD)/memory.o $(PCD)/channel.o $(PCD)/irq.o \
           $(PCD)/descriptors.o $(PCD)/test_jobs.o $(PCD)/test_memory.o $(PCD)/test_channels.o \
           $(PCD)/aout.o $(PCD)/test_app.o $(PCD)/context.o $(PCD)/platform.o \
           $(PCD)/fat16.o $(PCD)/win1.o $(PCD)/test_fs.o $(PCD)/disk.o \
-          $(PCD)/cin.o $(PCD)/kbd.o $(PCD)/test_console.o $(PCD)/test_r8.o $(PCD)/i8042.o $(PCD)/test_dir.o $(PCD)/imgload.o $(PCD)/shellboot.o $(PCD)/test_shell.o
+          $(PCD)/cin.o $(PCD)/kbd.o $(PCD)/vga.o $(PCD)/test_console.o $(PCD)/test_r8.o $(PCD)/i8042.o $(PCD)/test_dir.o $(PCD)/imgload.o $(PCD)/shellboot.o $(PCD)/test_shell.o
 
 pc: $(PCD)/$(PCIMG)
 
@@ -174,7 +174,7 @@ platform/pc/boot.bin: platform/pc/boot.s
 	cd platform/pc && $(AS) -o boot.o boot.s && $(LD) -N -T boot.ld -e start -o boot.aout boot.o && python3 $(I386VM)/tools/aout-to-raw.py boot.aout boot.bin
 
 $(PCD)/run.ini: $(PCD)/$(PCIMG) $(PCWIN)
-	printf '[pc]\nbios = %s/bios.bin\nvga_bios = %s/vgabios.bin\nmem_size = 8M\nhda = %s\nhdb = %s\n' \
+	printf '[pc]\nbios = %s/bios.bin\nvga_bios = %s/vgabios.bin\nmem_size = 8M\nhda = %s\nhdb = %s\n\n[cpu]\nfpu = 1\n' \
 	  "$(SEABIOS)" "$(SEABIOS)" "$(CURDIR)/$(PCD)/$(PCIMG)" "$(CURDIR)/$(PCWIN)" > $@
 
 run-pc: $(PCD)/run.ini

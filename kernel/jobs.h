@@ -15,7 +15,10 @@
 #ifndef QDOS386_JOBS_H
 #define QDOS386_JOBS_H
 
-#define JOB_MAX 4                 /* slot 0 SYSTEM, 1..3 application/idle */
+#include "fpu.h"
+
+#define JOB_MAX 6                 /* R10: slot 0 SYSTEM, IDLE, shell, and room for two
+                                  * floating-point application jobs beside them */
 #define JOB_STACK_BYTES 4096      /* heap-allocated, 16-byte aligned */
 #define JOB_STACK_CANARY 0xc0dec0deu
 #define JOB_SYSTEM 0
@@ -89,6 +92,7 @@ struct job {
 	unsigned int args;            /* R8: argument block address in the slot, 0 if none */
 	unsigned long preempts;
 	unsigned long dispatches;
+	unsigned int fpu[FPU_STATE_WORDS];   /* R10: x87 state (FNSAVE image) */
 };
 
 /* Exit record per slot.  Kept after the job is reclaimed, so SYSTEM can read

@@ -11,6 +11,7 @@
  *               the R3 phase is done, it prints every check and the result.
  */
 #include "jobs.h"
+#include "fpu.h"
 #include "memory.h"
 #include "platform.h"
 #include "test_jobs.h"
@@ -217,6 +218,9 @@ int test_main(void)
 	descriptors_init();
 	input_init();                  /* R7: i8042 and IRQ1 before the timer */
 	sched_init();
+	fpu_reset();                   /* R10: clean x87 before any job runs */
+	con_puts(fpu_selftest() == 0 ? "CHECK x87 selftest: ok\n"
+	                             : "CHECK x87 selftest: FAIL (enable [cpu] fpu = 1)\n");
 
 	arena = ((unsigned int) bss_end + MEM_ALIGN - 1) & ~(MEM_ALIGN - 1);
 	if (mem_init(arena, MEM_ARENA_END) != MEM_OK) {

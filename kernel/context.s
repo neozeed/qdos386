@@ -178,3 +178,40 @@ _yield_asm:
 _job_trampoline:
 	call _job_run
 	hlt
+
+/* ---- R10: x87 state (80387 instructions; see kernel/fpu.c) ---------------
+ * All four use only the 80387 instruction set and no SSE.  The 108-byte
+ * FNSAVE image is saved by fpu_save and restored by fpu_restore. */
+
+/* void fpu_fninit(void): the clean control word, empty stack. */
+.globl _fpu_fninit
+_fpu_fninit:
+	fninit
+	ret
+
+/* void fpu_save(u32 *area): FNSAVE, which also reinitialises the FPU. */
+.globl _fpu_save
+_fpu_save:
+	movl 4(%esp),%eax
+	fnsave (%eax)
+	ret
+
+/* void fpu_restore(u32 *area): FRSTOR. */
+.globl _fpu_restore
+_fpu_restore:
+	movl 4(%esp),%eax
+	frstor (%eax)
+	ret
+
+/* void fpu_probe(u32 *out): out[0] low word <- FNSTCW, out[1] low word <-
+ * FNSTSW, out[2] <- FILD m32 of 12345 then FISTP m32 (out[3] holds the
+ * result).  The caller preloads sentinels so a no-op FPU is visible. */
+.globl _fpu_probe
+_fpu_probe:
+	movl 4(%esp),%eax
+	fnstcw (%eax)
+	fnstsw 4(%eax)
+	movl $12345,8(%eax)
+	fildl 8(%eax)
+	fistpl 12(%eax)
+	ret

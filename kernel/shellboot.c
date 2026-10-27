@@ -4,6 +4,7 @@
  */
 #include "shellboot.h"
 #include "jobs.h"
+#include "fpu.h"
 #include "memory.h"
 #include "platform.h"
 #include "aout.h"
@@ -42,6 +43,10 @@ int shell_boot(void)
 	descriptors_init();
 	input_init();                  /* i8042 and IRQ1 before the timer */
 	sched_init();
+	fpu_reset();                   /* R10: clean x87 before any job runs */
+	if (fpu_selftest() != 0)
+		boot_fail("x87 FPU not functional (enable [cpu] fpu = 1)");
+	con_puts("FPU: x87 OK\n");
 
 	arena = ((unsigned int) bss_end + MEM_ALIGN - 1) & ~(MEM_ALIGN - 1);
 	if (mem_init(arena, MEM_ARENA_END) != MEM_OK)
