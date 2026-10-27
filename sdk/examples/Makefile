@@ -103,3 +103,16 @@ FPCOMB.aout: r11c/fpcomb/fpcomb.c r11c/check.h $(LIBS)
 # The compiler support archive, built from the historical gnulib sources.
 ../lib/libgcc-qd.a:
 	$(MAKE) -C ../compiler
+
+# R11D tests: the C89 core, native setjmp/longjmp, scanf, the libm extension.
+C89COR.aout: r11d/c89cor/c89cor.c r11d/check.h $(LIBS)
+	../bin/qdos386-gcc -O -o $@ r11d/c89cor/c89cor.c
+
+JMPTST.aout: r11d/jmptst/jmptst.c r11d/check.h $(LIBS)
+	../bin/qdos386-gcc -O -o $@ r11d/jmptst/jmptst.c
+
+SCANTS.aout: r11d/scants/scants.c r11d/check.h $(LIBS)
+	../bin/qdos386-gcc -O -o $@ r11d/scants/scants.c
+
+MATHX.aout: r11d/mathx/mathx.c r11d/tables/mathx.h r11d/check.h $(LIBS)
+	../bin/qdos386-gcc -O -o $@ r11d/mathx/mathx.c

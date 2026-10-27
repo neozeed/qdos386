@@ -1,4 +1,33 @@
-# QDOS/386 SDK (R11C)
+# QDOS/386 SDK (R11D)
+
+R11D extends the C89 library: string, ctype, stdlib (`qsort`, `bsearch`,
+`strtol`, `rand`, `div`, `atexit`, `abort`), `setjmp`/`longjmp` (native i386),
+`assert`, `locale` (C locale only), `signal` (fails: no delivery), `time`
+(struct tm and formatting only; the calendar clock is absent), the `scanf`
+family, `perror`/`strerror`, and `math.h` transcendental functions
+(`exp log log10 sin cos tan asin acos atan atan2 sinh cosh tanh fmod`).
+File-modifying APIs (`remove`, `rename`, `tmpfile`, `tmpnam`, write-mode
+`fopen`) fail explicitly.  Nothing is a success-returning stub.
+
+Read first:
+- `docs/R11D-C89-COVERAGE.md` / `.csv` (per-function status and test evidence)
+- `docs/R11D-BLOCKED-APIS.md` (every blocked or limited API and why)
+- `docs/R11D-LIBC-PORT-MAP.md` (what came from where)
+- `docs/R11D-LIBM-MAP.md` (methods and measured accuracy)
+- `docs/R11D-LIBQDOS-ABI.md` (libqdos: not expanded in R11D)
+- `docs/R11D-RUNTIME-REPORT.md` (what was run, where, and the results)
+
+Build and run: `scripts/r11d-volume.sh [LGTEST4.aout]` builds the volume;
+`scripts/r11d-run-all.sh` runs the scripted Tiny386 and i386VM matrix;
+`scripts/r11d-qemu-smoke.sh` runs the scripted QEMU VGA smoke test.
+
+Coverage of each function by a guest test is recorded per symbol in
+`docs/R11D-C89-COVERAGE.csv`; several functions have no test yet.
+
+Tests (`examples/r11d/`): `C89COR` (83 checks), `JMPTST` (19), `SCANTS` (33,
+reads "3 4" from stdin), `MATHX` (24, with per-function ulp reporting).
+
+---
 
 This directory builds native applications for QDOS/386.  R11C adds a floating
 point C89 runtime: `strtod` and `atof` (correctly rounded), `%f %e %g` in the

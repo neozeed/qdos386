@@ -1,7 +1,7 @@
-External inputs used to build and test R11C (not in the source archive).
+External inputs used to build and test R11D (not in the source archive).
 Hashes are sha256 of the exact files used.
 
-Tiny386 (vga-window dev-tree build, used for all R11C runs):
+Tiny386 (vga-window dev-tree build, used for all R11D runs):
 e201502f21f488aa13e3d34dec0f9635d147d170fdfb057f44b15c070bbfbef9  tiny386_headless
 Tiny386 FPU rounding patch (external, version-specific):
 ae8ef6f15c1ad7f43a91a6fe71a39ac033b500f3bce0974ec5bcedae7a0cd538  fpu-round-nearest.patch
@@ -9,13 +9,13 @@ BIOS (also in run/*/bios.bin):
 7bd968419c81fcf8262c5c1182cef43bb0d5eb70f375f94567ae71fd64a15e9e  bios.bin
 VGA BIOS (also in run/*/vgabios.bin):
 f5aedb52cde5c88d85e5b304a4cc48459c231aef42b9950ccc82bd321d9c127e  vgabios.bin
-LGTEST4.aout, 3,576-check FPU suite. INCLUDED in images/win1-r11c.img as LGTEST.AOU.
-Frozen fixture with the owner's confirmation. Its 3 floatundidf results are documented.
+LGTEST4.aout, 3,576-check FPU suite. INCLUDED in images/win1-r11d.img as LGTEST.AOU (frozen fixture).
+Its 3 floatundidf results are documented, not corrected.
 8003124ae0d20ea533dcce0e3526d4a7881b169752c91d9f503ab1d4b786f52d  LGTEST4.aout
 FPJOB.aout, frozen fixture, INCLUDED as FPJOB.AOU and sdk/examples/FPJOB.aout.
 No matching source reproduces it. Provenance is under separate investigation.
 114ed3677ddb64594a70fa031c2ae173a52e6aa0d2a6c252650213749efd096c  FPJOB.aout
-i386VM harness (i386vm-r9, used by scripts/r11c-run-all.sh):
+i386VM harness (i386vm-r9, used by scripts/r11d-run-all.sh):
 a4724f79b26a716e64609399a8c199cbceaf98da9673d6010c41341766543e3a  i386vm-r9
 GCC 1.40 / GAS / i386-ld toolchain (QDOS386_TOOLS). NOT included:
 3567f3beab83e17d7f7b5ff5844ee1dd85fd452b84128bdc0a7d46bb103d7904  bin/i386-gcc

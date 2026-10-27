@@ -7,9 +7,11 @@ $(error set QDOS386_TOOLS to the GCC 1.40 / GAS / i386-ld tree)
 endif
 GCC = $(QDOS386_TOOLS)/bin/i386-gcc
 AR  = ar
+AS  = $(QDOS386_TOOLS)/bin/as
 INC = -I../include
 
-OBJS = string.o malloc.o stdlib.o stdio.o ctype.o errno.o strtod.o fpbig.o
+OBJS = string.o malloc.o stdlib.o stdio.o ctype.o errno.o strtod.o fpbig.o \
+	misc.o time.o scanf.o jmp.o
 
 ../lib/libc.a: $(OBJS)
 	mkdir -p ../lib
@@ -18,6 +20,9 @@ OBJS = string.o malloc.o stdlib.o stdio.o ctype.o errno.o strtod.o fpbig.o
 
 %.o: %.c ../include/qdos386.h ../include/stdio.h ../include/stdlib.h ../include/string.h ../include/stdarg.h ../include/errno.h ../include/float.h fpbig.h
 	$(GCC) -c -O $(INC) $< -o $@
+
+jmp.o: jmp.s
+	$(AS) -o $@ jmp.s
 
 clean:
 	rm -f *.o ../lib/libc.a

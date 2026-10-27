@@ -12,6 +12,13 @@ void qd_exit(int status)
 		qtrap(QD_TRAP_SUSPEND, (unsigned int) -1, 0, 0);
 }
 
+/* Records the exit status and returns.  The kernel ends the job when its entry
+ * point returns, so main's return path (crt0_libc.s) uses this, not qd_exit. */
+void qd_exit_record(int status)
+{
+	qtrap(QD_TRAP_EXIT, (unsigned int) status, 0, 0);
+}
+
 int qd_args(char ***argv)
 {
 	unsigned int block = 0;

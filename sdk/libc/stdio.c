@@ -387,12 +387,33 @@ static void out_fp(struct qd_out *o, double v, char conv, int width, int left, i
 	out_field(o, body, n, width, left, zero && !left, sign);
 }
 
+/* Integer precision (C89 7.9.6.1): pad the digits with leading zeros to prec;
+ * a zero value with precision 0 produces no digits.  Returns the new length. */
+static int int_prec(char *buf, const char *digits, int len, int prec, int is_zero)
+{
+	int i, zeros;
+	if (prec < 0) {                 /* no precision: digits unchanged */
+		for (i = 0; i < len; i++)
+			buf[i] = digits[i];
+		return len;
+	}
+	if (prec == 0 && is_zero)
+		return 0;
+	zeros = prec > len ? prec - len : 0;
+	for (i = 0; i < zeros; i++)
+		buf[i] = '0';
+	for (i = 0; i < len; i++)
+		buf[zeros + i] = digits[i];
+	return zeros + len;
+}
+
 static int qd_vformat(struct qd_out *o, const char *fmt, va_list ap)
 {
 	for (; *fmt != '\0'; fmt++) {
 		int left = 0, zero = 0, plus = 0, space = 0, alt = 0;
 		int width = 0, prec = -1;
 		char digits[16];
+		char pbuf[FMT_MAXPREC + 16];   /* digits padded to the precision (C89) */
 		int len;
 
 		if (*fmt != '%') {
@@ -435,7 +456,8 @@ static int qd_vformat(struct qd_out *o, const char *fmt, va_list ap)
 			long v = va_arg(ap, long);
 			unsigned long m = v < 0 ? 0UL - (unsigned long) v : (unsigned long) v;
 			len = to_base(m, 10, 0, digits);
-			out_field(o, digits, len, width, left, zero && !left,
+			len = int_prec(pbuf, digits, len, prec, m == 0);
+			out_field(o, pbuf, len, width, left, zero && !left && prec < 0,
 			          v < 0 ? "-" : plus ? "+" : space ? " " : NULL);
 			break;
 		}
@@ -446,7 +468,8 @@ static int qd_vformat(struct qd_out *o, const char *fmt, va_list ap)
 			unsigned long v = va_arg(ap, unsigned long);
 			unsigned int base = *fmt == 'u' ? 10 : *fmt == 'o' ? 8 : 16;
 			len = to_base(v, base, *fmt == 'X', digits);
-			out_field(o, digits, len, width, left, zero && !left, NULL);
+			len = int_prec(pbuf, digits, len, prec, v == 0);
+			out_field(o, pbuf, len, width, left, zero && !left && prec < 0, NULL);
 			break;
 		}
 		case 'c': {

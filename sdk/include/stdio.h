@@ -13,6 +13,8 @@
 #define SEEK_CUR 1
 #define SEEK_END 2
 #define FILENAME_MAX 16
+#define TMP_MAX 25
+#define L_tmpnam 16
 
 /* setvbuf modes (C89). */
 #define _IOFBF 0
@@ -20,6 +22,7 @@
 #define _IONBF 2
 
 typedef struct qd_file FILE;
+typedef long fpos_t;
 
 extern FILE *stdin;
 extern FILE *stdout;
@@ -62,5 +65,26 @@ int feof(FILE *fp);
 int ferror(FILE *fp);
 void clearerr(FILE *fp);
 void rewind(FILE *fp);
+
+/* Positioning by fpos_t. */
+int fgetpos(FILE *fp, fpos_t *pos);
+int fsetpos(FILE *fp, const fpos_t *pos);
+
+/* Input with a format.  scanf reads stdin; sscanf reads a string; vsscanf is a
+ * C89 va_list form of sscanf (C99 has the same name; behaviour here is C89). */
+int scanf(const char *fmt, ...);
+int fscanf(FILE *fp, const char *fmt, ...);
+int sscanf(const char *s, const char *fmt, ...);
+int vsscanf(const char *s, const char *fmt, va_list ap);
+char *gets(char *buf);
+
+/* Errors and files.  remove, rename, tmpfile, tmpnam and freopen fail: the
+ * FAT16 volume is read only (see docs/R11D-BLOCKED-APIS.md). */
+void perror(const char *s);
+int remove(const char *name);
+int rename(const char *from, const char *to);
+FILE *tmpfile(void);
+char *tmpnam(char *s);
+FILE *freopen(const char *name, const char *mode, FILE *fp);
 
 #endif

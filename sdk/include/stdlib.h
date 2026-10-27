@@ -6,11 +6,26 @@
 #define EXIT_SUCCESS 0
 #define EXIT_FAILURE 1
 #define RAND_MAX 32767
+#define MB_CUR_MAX 1
+
+typedef struct { int quot; int rem; } div_t;
+typedef struct { long quot; long rem; } ldiv_t;
 void *malloc(size_t n);
 void *calloc(size_t nmemb, size_t size);
 void *realloc(void *p, size_t n);
 void free(void *p);
 void exit(int status);
+void abort(void);
+int atexit(void (*fn)(void));
+int system(const char *cmd);
+char *getenv(const char *name);
+int rand(void);
+void srand(unsigned int seed);
+div_t div(int num, int den);
+ldiv_t ldiv(long num, long den);
+/* Multibyte: the C locale only, one byte is one character.  No wchar_t exists,
+ * so the wide-character conversions are not provided (docs/R11D-C89-COVERAGE.md). */
+int mblen(const char *s, size_t n);
 int abs(int n);
 long labs(long n);
 int atoi(const char *s);

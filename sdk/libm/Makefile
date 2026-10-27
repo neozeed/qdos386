@@ -9,7 +9,7 @@ AS  = $(QDOS386_TOOLS)/bin/as
 AR  = ar
 INC = -I../include
 
-OBJS = fabs.o modf.o floor.o ceil.o frexp.o ldexp.o sqrt.o pow.o xmath.o
+OBJS = fabs.o modf.o floor.o ceil.o frexp.o ldexp.o sqrt.o pow.o xmath.o trans.o xtrans.o
 
 ../lib/libm.a: $(OBJS)
 	mkdir -p ../lib
@@ -21,6 +21,9 @@ OBJS = fabs.o modf.o floor.o ceil.o frexp.o ldexp.o sqrt.o pow.o xmath.o
 
 xmath.o: xmath.s
 	$(AS) -o $@ xmath.s
+
+xtrans.o: xtrans.s
+	$(AS) -o $@ xtrans.s
 
 clean:
 	rm -f *.o ../lib/libm.a

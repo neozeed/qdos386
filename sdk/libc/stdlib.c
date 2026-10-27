@@ -113,11 +113,113 @@ long labs(long n)
 
 /* Defined in stdio.c: writes out pending stdout and stderr text. */
 void qd_flush_std(void);
+/* Defined in lib/qdos.c: records the exit status without ending the job. */
+void qd_exit_record(int status);
+
+/* ---- exit, atexit, abort ----------------------------------------------- */
+
+#define QD_ATEXIT_MAX 32
+static void (*qd_atexit_fn[QD_ATEXIT_MAX])(void);
+static int qd_atexit_n = 0;
+
+int atexit(void (*fn)(void))
+{
+	if (fn == NULL || qd_atexit_n >= QD_ATEXIT_MAX)
+		return 1;                 /* fails: the table is full */
+	qd_atexit_fn[qd_atexit_n++] = fn;
+	return 0;
+}
+
+/* exit runs the atexit functions in reverse order of registration, then
+ * flushes stdio, then ends the job.  Return from main reaches exit through
+ * crt0_libc.s. */
+/* Shared part of exit and of main's return: the atexit functions, then stdio. */
+static void qd_run_exit_hooks(void)
+{
+	while (qd_atexit_n > 0) {
+		void (*fn)(void) = qd_atexit_fn[--qd_atexit_n];
+		fn();
+	}
+	qd_flush_std();
+}
 
 void exit(int status)
 {
-	qd_flush_std();
+	qd_run_exit_hooks();
 	qd_exit(status);
+}
+
+/* Called by crt0_libc.s when main returns: runs the same hooks, records the
+ * status, and returns so that the job ends with its entry point. */
+void qd_main_exit(int status)
+{
+	qd_run_exit_hooks();
+	qd_exit_record(status);
+}
+
+/* abort ends the job with status 3.  C89 requires termination; it does not
+ * require the stdio buffers to be flushed, so they are discarded here. */
+void abort(void)
+{
+	qd_exit(3);
+}
+
+/* ---- environment and command processor ----------------------------------- */
+
+/* QDOS/386 has no environment: getenv always finds nothing. */
+char *getenv(const char *name)
+{
+	(void) name;
+	return NULL;
+}
+
+/* There is no command processor.  system(NULL) reports that none exists
+ * (0); any command fails (-1). */
+int system(const char *cmd)
+{
+	return cmd == NULL ? 0 : -1;
+}
+
+/* ---- rand and srand: the C89 example generator (4.10.2.2) ------------------ */
+
+static unsigned long qd_rand_next = 1;
+
+int rand(void)
+{
+	qd_rand_next = qd_rand_next * 1103515245UL + 12345UL;
+	return (int) ((qd_rand_next / 65536UL) % 32768UL);
+}
+
+void srand(unsigned int seed)
+{
+	qd_rand_next = (unsigned long) seed;
+}
+
+/* ---- div, ldiv, mblen (C locale) ------------------------------------------- */
+
+div_t div(int num, int den)
+{
+	div_t r;
+	r.quot = num / den;          /* C89: truncation toward zero */
+	r.rem = num % den;
+	return r;
+}
+
+ldiv_t ldiv(long num, long den)
+{
+	ldiv_t r;
+	r.quot = num / den;
+	r.rem = num % den;
+	return r;
+}
+
+int mblen(const char *s, size_t n)
+{
+	if (s == NULL)
+		return 0;                 /* the C locale has no shift states */
+	if (n == 0)
+		return -1;
+	return *s == '\0' ? 0 : 1;
 }
 
 /* ---- qsort and bsearch (C89 4.10.5) ------------------------------------ */

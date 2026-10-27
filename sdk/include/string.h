@@ -22,4 +22,6 @@ size_t strspn(const char *s, const char *accept);
 size_t strcspn(const char *s, const char *reject);
 char *strpbrk(const char *s, const char *accept);
 char *strtok(char *s, const char *delim);
+int strcoll(const char *a, const char *b);
+char *strerror(int errnum);
 #endif

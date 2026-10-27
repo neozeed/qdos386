@@ -227,3 +227,9 @@ char *strtok(char *s, const char *delim)
 	}
 	return start;
 }
+
+/* C locale: collation is byte order, so strcoll is strcmp (C89 7.11.4.3). */
+int strcoll(const char *a, const char *b)
+{
+	return strcmp(a, b);
+}

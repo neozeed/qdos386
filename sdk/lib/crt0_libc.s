@@ -33,11 +33,8 @@ _start:
 	pushl %eax		/* argc (first argument, lowest address) */
 	call _main
 	addl $8,%esp
-	movl %eax,%ebx		/* a = exit status (kept in ebx across the flush) */
-	pushl %ebx
-	call _qd_flush_std	/* the libc stdout buffer reaches the console */
-	popl %ebx
-	movl $0x18,%eax		/* QT_EXIT */
-	int $0x30
+	pushl %eax		/* status: runs the atexit functions, flushes stdio, records the status */
+	call _qd_main_exit
+	addl $4,%esp
 	leave
-	ret
+	ret			/* the job ends with its entry point */
