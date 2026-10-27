@@ -22,6 +22,8 @@
 #endif
 
 int img_load_request(unsigned int name_addr, unsigned int args_addr, unsigned int args_len);
+/* R11H: start at a profile (0..3) or any (-1), no arguments. */
+int img_start_request(unsigned int name_addr, int profile);
 
 /* Boot path (kernel): load the named file into the given slot (0 or 1), with
  * argv = { name }.  The name is a kernel string. */

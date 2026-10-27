@@ -317,7 +317,28 @@ story header (version 3, length) and makes internal errors fatal. The story is n
 - Save and restore are not supported: they print `Failed.` and write nothing.
 - Build: `scripts/r11g-build.sh <sdk> <historical GCC 1.40 tree> <outdir>`. Host headers are hidden
   from the historical compiler with a private mount namespace, and the build fails if they leak.
-- Slot size: this README says slot 1 holds "about 1 MiB"; the linker script and `docs/R5-APP-ABI.md`
-  say 256 KiB. The interpreter image is 40,566 bytes, so it fits either way. The discrepancy is not
-  yet resolved.
+- Slot size: resolved in R11H. Slot 1 is 1 MiB on the R9 memory map (the release map) and 256 KiB on the
+  default map. `docs/R11H-MEMORY-MAP.md` section 1 gives the table. The interpreter image is 40,566 bytes,
+  so it fits either way.
 - Runtime evidence and limits: `docs/R11G-RUNTIME-REPORT.md`. Licences: `third_party/infocom/PROVENANCE.md`.
+
+## R11H: several fixed-origin application profiles
+
+R11H lets a program start other programs at different fixed origins, so two or more can be resident at
+once. It does not relocate executables: each image is linked for one origin and runs only there.
+
+- Profiles: 0 (0x200000) shell, 1 (0x240000) child, 2 (0x380000, 1 MiB) and 3 (0x500000, 1 MiB) on the R9
+  memory map. The default map has only profiles 0 and 1.
+- Build for a profile with `qdos386-gcc -slot N`, N = 0 to 3. Each slot has its own linker script in
+  `sdk/ld/slot<N>.ld`. Slot 1 is 1 MiB on the R9 map (256 KiB on the default map).
+- Start an image at a profile: `int qd_start(const char *name, int profile)`. It returns a tagged job id,
+  or a negative code (`-28` profile busy, `-35` profile not available or wrong origin, `-36` address
+  occupied, `-20`..`-25` malformed image, `-44` no such file). `profile = -1` uses the image's own profile.
+- `RUN` at the shell loads profile 1 only, as before.
+- Exit status: `qd_job_exit_status(id)`. A stale id is refused (`QD_ERR_NOJOB`) only after its table index
+  has been given to a newer job.
+
+Examples in `sdk/examples/r11h/`: `multia.c` and `multib.c` (concurrent children with distinct exit codes),
+`collide.c` (refused on a busy profile), `multi.c` (the launcher, run by `RUN MULTI.AOU`) and `neg.c` (the
+guest negative tests, run by `RUN NEG.AOU`). Limits and the full error list: `docs/R11H-EXEC-ABI.md`.
+Memory map: `docs/R11H-MEMORY-MAP.md`.

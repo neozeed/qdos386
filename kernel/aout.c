@@ -9,11 +9,58 @@
 #include "aout.h"
 #include "jobs.h"
 #include "memory.h"
+#include "region.h"
 
 extern unsigned int irq_save(void);
 extern void irq_restore(unsigned int flags);
 
-static int slot_owner[APP_SLOTS];        /* job id holding each slot, or 0 */
+static int slot_owner[APP_PROFILES];    /* job id holding each profile, or 0 */
+static long profile_handle[APP_PROFILES];  /* R11H: region of each owned profile */
+static struct region_pool app_pool;     /* R11H: application regions */
+static int app_pool_ready = 0;
+
+/* R11H: the application-region pool, built once from the profiles.  FREE spans
+ * are exactly the profile ranges, so only a profile origin can be reserved.
+ * Everything else (kernel, heap, transfer area, stacks, RAM disk) stays outside
+ * the pool and cannot be claimed. */
+static int app_pool_init(void)
+{
+	struct region_span sp[APP_PROFILES];
+	int n = 0, i, rc;
+
+	if (app_pool_ready)
+		return APP_OK;
+	/* Slots 0 and 1 are one contiguous FREE span; profiles 2 and 3 (R9 only)
+	 * are separate spans, and only when their size is not zero. */
+	sp[n].base = APP_SLOT0_BASE;
+	sp[n].end = APP_SLOT1_BASE + APP_SLOT1_SIZE;
+	sp[n].kind = REGION_SPAN_FREE;
+	n++;
+	for (i = 2; i < APP_PROFILES; i++) {
+		if (APP_PROFILE_SIZE(i) == 0)
+			continue;
+		sp[n].base = APP_PROFILE_BASE(i);
+		sp[n].end = APP_PROFILE_BASE(i) + APP_PROFILE_SIZE(i);
+		sp[n].kind = REGION_SPAN_FREE;
+		n++;
+	}
+	rc = region_init(&app_pool, sp, n);
+	if (rc != REGION_OK)
+		return APP_ERR_LAYOUT;
+	app_pool_ready = 1;
+	return APP_OK;
+}
+
+/* The profile whose base is entry, or -1. */
+static int profile_of(unsigned int entry)
+{
+	int n;
+
+	for (n = 0; n < APP_PROFILES; n++)
+		if (entry == APP_PROFILE_BASE(n))
+			return n;
+	return -1;
+}
 static struct app_xfer_entry xfer_tab[XFER_MAX_IMAGES];
 static int xfer_count = 0;
 
@@ -202,12 +249,14 @@ int aout_check_src(app_rd_fn rd, void *ctx, unsigned int len, struct app_image *
 	if (trs != 0 || drs != 0)
 		return APP_ERR_RELOC;
 
-	if (entry == APP_SLOT0_BASE)
-		slot = 0;
-	else if (entry == APP_SLOT1_BASE)
-		slot = 1;
-	else
-		return APP_ERR_ENTRY;
+	{
+		int prof = profile_of(entry);
+		if (prof < 0)
+			return APP_ERR_ENTRY;
+		if (APP_PROFILE_SIZE(prof) == 0)
+			return APP_ERR_NOPROFILE;   /* a profile this memory map does not have */
+		slot = (unsigned int) prof;
+	}
 
 	if (text == 0 || (text & 15u) || (data & 15u) || (bss & 15u))
 		return APP_ERR_LAYOUT;
@@ -271,7 +320,7 @@ int aout_check(const unsigned char *img, unsigned int len, struct app_image *out
 
 int app_slot_owner(int slot)
 {
-	if (slot < 0 || slot >= APP_SLOTS)
+	if (slot < 0 || slot >= APP_PROFILES)
 		return 0;
 	return slot_owner[slot];
 }
@@ -279,9 +328,13 @@ int app_slot_owner(int slot)
 void app_release_owner(unsigned int job_id)
 {
 	int i;
-	for (i = 0; i < APP_SLOTS; i++)
-		if (slot_owner[i] != 0 && (unsigned int) slot_owner[i] == job_id)
+	for (i = 0; i < APP_PROFILES; i++)
+		if (slot_owner[i] != 0 && (unsigned int) slot_owner[i] == job_id) {
+			if (profile_handle[i] > 0)
+				region_release(&app_pool, profile_handle[i], job_id);
+			profile_handle[i] = 0;
 			slot_owner[i] = 0;
+		}
 }
 
 static void app_not_started(void)
@@ -397,10 +450,11 @@ static int args_check(const unsigned char *packed, unsigned int plen)
 int app_load_src(app_rd_fn rd, void *ctx, unsigned int len, int want_slot,
                  const unsigned char *packed, unsigned int plen)
 {
-	static const char *names[APP_SLOTS] = { "APP0", "APP1" };
+	static const char *names[APP_PROFILES] = { "APP0", "APP1", "APP2", "APP3" };
 	unsigned int flags, base, argc_n;
 	struct app_image info;
 	int rc, id, js, argc;
+	long h;
 	unsigned char *dst;
 
 	/* 1. Validate.  Nothing below changes memory until this has passed. */
@@ -408,7 +462,8 @@ int app_load_src(app_rd_fn rd, void *ctx, unsigned int len, int want_slot,
 	if (rc != APP_OK)
 		return rc;
 	if (want_slot >= 0 && (unsigned int) want_slot != info.slot)
-		return (want_slot == 1) ? APP_ERR_NOTSLOT1 : APP_ERR_NOTSLOT0;
+		return (want_slot == 1) ? APP_ERR_NOTSLOT1 :
+		       (want_slot == 0) ? APP_ERR_NOTSLOT0 : APP_ERR_NOPROFILE;
 	argc = args_check(packed, plen);
 	if (argc < 0)
 		return APP_ERR_ARGS;
@@ -419,8 +474,11 @@ int app_load_src(app_rd_fn rd, void *ctx, unsigned int len, int want_slot,
 	 * the job and releases the slot, so nothing is left behind. */
 	if (slot_owner[info.slot] != 0)
 		return APP_ERR_SLOTBUSY;
+	rc = app_pool_init();
+	if (rc != APP_OK)
+		return rc;
 	flags = irq_save();
-	base = APP_SLOT_BASE_OF(info.slot);
+	base = APP_PROFILE_BASE(info.slot);
 	dst = (unsigned char *) base;
 	id = job_alloc_sized(names[info.slot], app_not_started, 0, APP_STACK_BYTES);
 	if (id < 0) {
@@ -433,19 +491,28 @@ int app_load_src(app_rd_fn rd, void *ctx, unsigned int len, int want_slot,
 		irq_restore(flags);
 		return APP_ERR_NOJOB;
 	}
+	/* The region is owned by the job, so it is taken after the job exists. */
+	h = region_reserve_at(&app_pool, base, APP_PROFILE_SIZE(info.slot), (unsigned int) id);
+	if (h < 0) {
+		job_cancel((unsigned int) id);
+		irq_restore(flags);
+		return (h == REGION_ERR_BUSY) ? APP_ERR_ADDROCC : APP_ERR_NOMEM;
+	}
 	slot_owner[info.slot] = APP_RESERVED;
 	rc = copy_src(rd, ctx, &info, dst);
 	if (rc != APP_OK) {
 		slot_owner[info.slot] = 0;
+		region_release(&app_pool, h, (unsigned int) id);
 		job_cancel((unsigned int) id);
 		irq_restore(flags);
 		return rc;
 	}
-	args_write(dst + APP_SLOT_SIZE_OF(info.slot) - APP_ARG_BYTES, argc_n, packed, plen);
+	args_write(dst + APP_PROFILE_SIZE(info.slot) - APP_ARG_BYTES, argc_n, packed, plen);
 
 	jobs[js].entry = (void (*)(void)) info.entry;
-	jobs[js].args = base + APP_SLOT_SIZE_OF(info.slot) - APP_ARG_BYTES;
+	jobs[js].args = base + APP_PROFILE_SIZE(info.slot) - APP_ARG_BYTES;
 	jobs[js].prio_inc = 2;
+	profile_handle[info.slot] = h;
 	slot_owner[info.slot] = id;
 	irq_restore(flags);
 	return id;

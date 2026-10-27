@@ -34,6 +34,35 @@
  */
 #define APP_SLOTS      2
 
+/*
+ * R11H application profiles.  A profile is a fixed link origin with a size.
+ * Profiles 0 and 1 are the shell and child slots above.  Profiles 2 and 3 are
+ * extra origins for concurrently resident children; they exist only on the R9
+ * map, where 0x380000..0x5FFFFF is free and outside the heap.  On the default
+ * map that range holds the FAT16 RAM disk, so the profiles have size 0 and
+ * loads for them are refused with APP_ERR_NOPROFILE.
+ *
+ * An image is linked for exactly one profile base; the loader never moves it.
+ */
+#define APP_PROFILES   4
+
+#ifdef QDOS_LAYOUT_R9
+#define APP_PROFILE2_BASE 0x00380000u
+#define APP_PROFILE2_SIZE 0x00100000u
+#define APP_PROFILE3_BASE 0x00500000u
+#define APP_PROFILE3_SIZE 0x00100000u
+#else
+#define APP_PROFILE2_BASE 0x00380000u
+#define APP_PROFILE2_SIZE 0x00000000u   /* default map: the RAM disk is here */
+#define APP_PROFILE3_BASE 0x00500000u
+#define APP_PROFILE3_SIZE 0x00000000u
+#endif
+
+#define APP_PROFILE_BASE(n) ((n) == 0 ? APP_SLOT0_BASE : (n) == 1 ? APP_SLOT1_BASE : \
+                             (n) == 2 ? APP_PROFILE2_BASE : APP_PROFILE3_BASE)
+#define APP_PROFILE_SIZE(n) ((n) == 0 ? APP_SLOT0_SIZE : (n) == 1 ? APP_SLOT1_SIZE : \
+                             (n) == 2 ? APP_PROFILE2_SIZE : APP_PROFILE3_SIZE)
+
 #ifdef QDOS_LAYOUT_R9
 
 #define APP_SLOT0_BASE 0x00200000u
@@ -84,7 +113,12 @@
 /* User pointers (channel buffers, names) are range-checked to the flat
  * window that contains the kernel, the heap, the application slots and the
  * transfer area.  This is a range check, not a protection check. */
+#ifdef QDOS_LAYOUT_R9
+/* R9: applications may keep buffers in profile 3, which ends at 0x600000. */
+#define USER_RANGE_END (APP_PROFILE3_BASE + APP_PROFILE3_SIZE)
+#else
 #define USER_RANGE_END (XFER_BASE + XFER_SIZE)
+#endif
 
 /* Layout invariants, checked at compile time. */
 #if XFER_BASE < APP_SLOT1_BASE + APP_SLOT1_SIZE
@@ -92,6 +126,17 @@
 #endif
 #if APP_SLOT0_BASE + APP_SLOT0_SIZE > APP_SLOT1_BASE
 #error "application slots overlap"
+#endif
+#ifdef QDOS_LAYOUT_R9
+#if APP_PROFILE2_BASE < XFER_BASE + XFER_SIZE
+#error "profile 2 overlaps the transfer area"
+#endif
+#if APP_PROFILE2_BASE + APP_PROFILE2_SIZE > APP_PROFILE3_BASE
+#error "profiles 2 and 3 overlap"
+#endif
+#if APP_PROFILE3_BASE + APP_PROFILE3_SIZE > 0x00600000u
+#error "profile 3 reaches the boot stack"
+#endif
 #endif
 #if RAMDISK_SIZE != 0
 #if RAMDISK_BASE < (XFER_BASE + XFER_SIZE)

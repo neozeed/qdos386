@@ -613,6 +613,10 @@ unsigned int trap_dispatch(unsigned int sp)
 		result = img_load_request(a, b, c);
 		break;
 
+	case QT_IMG_START:
+		result = img_start_request(a, (int) b);
+		break;
+
 	case QT_APP_ARGS:
 		/* R8: argc of the calling job, and the argv array address through a.
 		 * A job with no argument block has argc 0. */

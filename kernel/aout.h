@@ -39,6 +39,8 @@
 #define APP_ERR_NOTSLOT1  (-32)  /* RUN: image is not linked for slot 1 */
 #define APP_ERR_NOTSLOT0  (-33)  /* boot: image is not linked for slot 0 */
 #define APP_ERR_ARGS     (-34)  /* argument block: too many, too long, or not NUL-terminated */
+#define APP_ERR_NOPROFILE (-35)  /* R11H: profile not available on this memory map */
+#define APP_ERR_ADDROCC  (-36)  /* R11H: the profile's address range is occupied */
 
 /* R8 limits.  Text + data + BSS of one image may not exceed APP_IMAGE_LIMIT;
  * the slot's top APP_ARG_BYTES hold the argument block, so the limit is below
@@ -46,7 +48,7 @@
 #ifdef QDOS_LAYOUT_R9
 /* R9: slot 0 keeps the 224 KiB shell limit; slot 1 takes a 1 MiB image less
  * the argument block at the top of the slot. */
-#define APP_IMAGE_LIMIT_OF(n) ((n) == 0 ? 0x00038000u : 0x000FFE00u)
+#define APP_IMAGE_LIMIT_OF(n) ((n) == 0 ? 0x00038000u : 0x000FFE00u)   /* profiles 1..3 */
 #else
 #define APP_IMAGE_LIMIT_OF(n) 0x00038000u     /* 224 KiB, both slots */
 #endif

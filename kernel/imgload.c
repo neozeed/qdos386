@@ -56,7 +56,7 @@ static int copy_user_name(unsigned int addr, char *out)
 }
 
 /* Load the file called name into want_slot, with packed as its arguments. */
-static int img_load_named(const char *name, unsigned int want_slot,
+static int img_load_named(const char *name, int want_slot,
                           const unsigned char *packed, unsigned int plen)
 {
 	struct fat16_vol *v;
@@ -75,7 +75,7 @@ static int img_load_named(const char *name, unsigned int want_slot,
 	if (f.size > IMG_FILE_MAX)
 		return APP_ERR_TOOBIG;
 	src.f = &f;
-	return app_load_src(fat_rd, &src, (unsigned int) f.size, (int) want_slot, packed, plen);
+	return app_load_src(fat_rd, &src, (unsigned int) f.size, want_slot, packed, plen);
 }
 
 int img_load_kernel(const char *name, unsigned int want_slot)
@@ -122,4 +122,22 @@ int img_load_request(unsigned int name_addr, unsigned int args_addr, unsigned in
 		img_packed[total + i] = *(unsigned char *) (args_addr + i);
 	total += args_len;
 	return img_load_named(name, 1, img_packed, total);
+}
+
+/* R11H: start the named WIN1_ root file at a profile (0..3), or any (-1), with
+ * no arguments.  Returns the tagged job id, or a negative code. */
+int img_start_request(unsigned int name_addr, int profile)
+{
+	char name[IMG_NAME_MAX];
+	unsigned int n = 0, i;
+
+	if (profile < -1 || profile >= APP_PROFILES)
+		return APP_ERR_NOPROFILE;
+	if (!copy_user_name(name_addr, name))
+		return FAT_ERR_NAME;
+	while (name[n] != 0)
+		n++;
+	for (i = 0; i <= n; i++)
+		img_packed[i] = (unsigned char) name[i];
+	return img_load_named(name, profile, img_packed, n + 1);
 }

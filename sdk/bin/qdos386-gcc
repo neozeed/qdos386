@@ -2,10 +2,12 @@
 # qdos386-gcc - build a QDOS/386 R8/R9 application (an i386 a.out, OMAGIC 0407)
 # with the historical toolchain: GCC 1.40 (C89), GAS 1.38, i386-ld 1.94.
 #
-# Usage:  qdos386-gcc [-slot 0|1] [-O] [-I dir] [-D name[=value]] -o out.aout src.c ...
+# Usage:  qdos386-gcc [-slot 0|1|2|3] [-O] [-I dir] [-D name[=value]] -o out.aout src.c ...
 #
-#   -slot N   link for application slot N (default 1; origin 0x240000 or
-#             0x200000).  Each slot is 256 KiB, the argument block sits at its top.
+#   -slot N   link for application profile N (default 1).  Origins: 0 = 0x200000,
+#             1 = 0x240000, 2 = 0x380000 and 3 = 0x500000 (R11H; profiles 2 and 3 are
+#             1 MiB and exist only on the R9 memory map).  Slot 1 is 1 MiB on the R9 map and
+#             256 KiB on the default map.  The argument block sits at the top of the profile.
 #   -O        pass -O to GCC 1.40 (the only optimisation level it has)
 #   -I, -D    as GCC 1.40
 #   -o        output a.out file (required)
@@ -37,7 +39,7 @@ defs=
 srcs=
 while [ $# -gt 0 ]; do
 	case "$1" in
-	-slot)  [ $# -ge 2 ] || die "-slot needs 0 or 1"; slot=$2; shift ;;
+	-slot)  [ $# -ge 2 ] || die "-slot needs 0, 1, 2 or 3"; slot=$2; shift ;;
 	-O)     optO=-O ;;
 	-I)     [ $# -ge 2 ] || die "-I needs a directory"; incs="$incs -I$2"; shift ;;
 	-I*)    incs="$incs $1" ;;
@@ -52,7 +54,7 @@ while [ $# -gt 0 ]; do
 	esac
 	shift
 done
-case "$slot" in 0|1) ;; *) die "-slot must be 0 or 1" ;; esac
+case "$slot" in 0|1|2|3) ;; *) die "-slot must be 0, 1, 2 or 3" ;; esac
 [ -n "$out" ] || die "-o is required"
 [ -n "$srcs" ] || die "no source files"
 

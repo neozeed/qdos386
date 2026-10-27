@@ -197,6 +197,12 @@ int qd_run(const char *name, const char *args)
 	                   (unsigned int) args, n + 1);
 }
 
+/* R11H: start a named WIN1_ root file at a profile, or any (-1).  No arguments. */
+int qd_start(const char *name, int profile)
+{
+	return (int) qtrap(QD_TRAP_IMG_START, (unsigned int) name, (unsigned int) profile, 0);
+}
+
 int qd_con_wait(unsigned char *flag)
 {
 	return (int) qtrap(QD_TRAP_CON_WAIT, 0, (unsigned int) flag, 0);

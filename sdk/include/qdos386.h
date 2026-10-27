@@ -41,6 +41,7 @@ int qtrap(unsigned int fn, unsigned int a, unsigned int b, unsigned int c);
 #define QD_TRAP_JOB_RECLAIMED 0x1Eu
 #define QD_TRAP_IMG_LOAD     0x1Du
 #define QD_TRAP_JOB_SELF     0x21u   /* R11E: added to the kernel in R11E */
+#define QD_TRAP_IMG_START    0x24u   /* R11H: start at a profile (0..3) or -1 for any */
 #define QD_TRAP_JOB_SLOT     0x22u   /* R11E: added to the kernel in R11E */
 
 /* Limits of the argument vector (see docs/R8-APP-ABI.md). */
@@ -103,6 +104,7 @@ int qd_job_suspend(long ticks);                     /* the calling job; < 0 = un
 int qd_job_exit_status(int id);                     /* status, or a QD_ERR_* code */
 int qd_job_reclaimed(int id);                       /* 1 if the job's slot is free */
 int qd_run(const char *name, const char *args);     /* job id, or error; args may be NULL */
+int qd_start(const char *name, int profile);       /* R11H: tagged job id at a profile (0..3), -1 any; no arguments */
 int qd_con_wait(unsigned char *flag);               /* sleep until console input (flag set) */
 
 /* Heap, with the failure code kept (qd_alloc returns NULL only).  Blocks are
