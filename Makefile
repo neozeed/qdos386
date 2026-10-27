@@ -190,6 +190,12 @@ r11h-i386vm:
 	$(MAKE) i386vm I386D=build/i386vm-r11h-rel I386FLAGS="$(R9_FLAGS)" I386IMG=qdos386-r11h-rel.bin I386WIN=build/fat16/win1-r11h.img IMGENV="QDOS_LAYOUT=r9"
 	$(MAKE) i386vm I386D=build/i386vm-r11h-neg I386FLAGS="$(R9_FLAGS)" I386IMG=qdos386-r11h-neg.bin I386WIN=build/fat16/win1-r11h-neg.img IMGENV="QDOS_LAYOUT=r9"
 
+# R11I: kernel-only i386VM image for the host-backed block device (patches/i386vm-block.patch).
+# No FAT16 payload is appended (I386WIN empty); the volume is passed to the harness at launch.
+# The legacy RAM-disk targets above are unchanged.  Requires I386VM=<tree>.
+r11i-i386vm-block:
+	$(MAKE) i386vm I386D=build/r11i/block I386FLAGS="$(R9_FLAGS) -DQDOS_I386VM_BLOCK" I386IMG=qdos386-r11i-block.bin I386WIN= IMGENV="QDOS_LAYOUT=r9"
+
 # Canonical R11H PC images (the shipped set).  Requires I386VM=<tree>.  The R9 boot
 # sector (transfer address 0x340000) is built by its own rule.
 r11h-pc:

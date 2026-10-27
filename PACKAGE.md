@@ -1,35 +1,32 @@
-# qdos386-R11H-FIX1
+# qdos386-R11I-BLOCK
 
-Base: R11H source `a15bd80` (frozen). Branch `r11h-fix1`. Final source commit: `4affc37`
-(the commit that holds this package's docs; later commits, if any, are listed in the
-release notes that accompany the tarball).
+Base: frozen R11H-FIX1 `4affc37` (archive SHA256 `43fe3a125355991df151057715a510d736cbf2349f921ad1fdef2971d6dcbf22`),
+unchanged.  Branch `r11i-block`.  Final source commit: `bc9a90f`.
 
 Contents
-- Source tree (git archive of the final source commit): kernel, platform, SDK, tools, scripts,
-  docs, tests, patches, third_party.
-- build/r11h/: MULTI, MULTIA, MULTIB, COLLIDE, NEG (release set) and FAULT (test only).
-- build/r11h-neg/: malformed a.out inputs (not runnable); the same ten files are inside win1-r11h-neg.img.
-- build/r11h-maps/: link maps for the R9 and R8 memory maps.
-- build/fat16/win1-r11h.img: release volume (no story), sha256 672806ad2c2ca337c453...
-- build/fat16/win1-r11h-neg.img: negative test volume (release set plus the ten malformed inputs).
-- build/fat16/win1-r11h-fault.img: test volume (release set plus FAULT.AOU).
-- build/pc-r11h/, build/pc-r11h-vga/: PC shell and VGA kernel images (release).
-- build/pc-r11h-none/, build/pc-r11h-pin/, build/i386vm-r11h-pin/: clock-mode variants for the regression.
-- build/pc-fault/: TEST ONLY. Kernel built with -DQDOS_TEST_FAULT_LAUNCH=4; never a release image.
-- build/i386vm-r11h-rel/, build/i386vm-r11h-neg/: i386VM images (release and negative).
-- build/pc-r11f-none-run/bios.bin, vgabios.bin: firmware used by the Tiny386 runs.
-- logs/fix1/: matrix, regression, QEMU VGA capture, fault and Phoon 2106 transcripts.
+- Source tree (git archive of `bc9a90f`): kernel, platform (both i386VM disk backends), SDK, tools,
+  scripts, docs, tests, patches, third_party, logs.
+- patches/i386vm-block.patch + harness/i386vm-block/blockdev.{c,h}: the separate, optional harness
+  change.  Build instructions: README.md ("R11I - Build") or scripts/r11i-build-harness.sh.
+- build/r11i/block/qdos386-r11i-block.bin: kernel-only i386VM image for the block device (release).
+- build/r11i/block-pin/: pinned-clock block variant used by the Phoon regression (test variant).
+- build/r11i/spare-test/: TEST ONLY.  Block kernel with -DQDOS_TEST_SPARE; never a release image.
+- build/fat16/win1-r11h.img: example read-only FAT16 volume (project programs and texts, no story).
+- build/fat16/win1-r11h-neg.img: negative-test volume (release set plus ten malformed inputs).
+- build/i386vm-r11h-rel/, build/i386vm-r11h-neg/: legacy RAM-disk i386VM images (= R11H-FIX1).
+- build/pc-r11h/, build/pc-r11h-vga/ and the other R11H-FIX1 build outputs: unchanged, byte-identical.
+- logs/r11i/: every R11I transcript (matrix, regressions, equivalence, QEMU VGA, failure cases,
+  fd-mode check, spare-span test, host tests).
 
 Not included (deliberately)
-- Emulator binaries (Tiny386, i386VM harness). They are identified by hash in docs/R11H-FIX1-RUNTIME-REPORT.md
-  and built from the emulator source and patches.
-- The private Zork I story volume and any derived smoke volume.
-- The historical GCC 1.40 / GAS / i386-ld tree (identified by hash in docs/R11H-FIX1-BASELINE.md).
+- Emulator binaries (Tiny386, i386VM harnesses): identified by hash in docs/R11I-RUNTIME-REPORT.md and
+  built from the historical emulator source and the patches.
+- The private Zork I story volume and anything derived from it.
+- The historical GCC 1.40 / GAS / i386-ld tree (hash in docs/R11I-BLOCK-AUDIT.md).
 
-Toolchain
-- Building needs the historical tree: QDOS386_TOOLS and I386VM both point to it.
-- Canonical commands: docs/R11H-FIX1-BUILD-REPRO.md.
+Launch
+- Legacy RAM disk: i386vm-r9 build/i386vm-r11h-rel/qdos386-r11h-rel.bin
+- Host-backed disk: i386vm-r9-block build/r11i/block/qdos386-r11i-block.bin build/fat16/win1-r11h.img
 
 Verification
-- docs/R11H-FIX1-RUNTIME-REPORT.md: results, labelled as scripted, with limits.
-- SHA256SUMS lists every file in this package except itself.
+- docs/R11I-RUNTIME-REPORT.md.  SHA256SUMS lists every file in this package except itself.

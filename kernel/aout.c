@@ -19,13 +19,128 @@ static long profile_handle[APP_PROFILES];  /* R11H: region of each owned profile
 static struct region_pool app_pool;     /* R11H: application regions */
 static int app_pool_ready = 0;
 
+#if defined(QDOS_I386VM_BLOCK) && defined(QDOS_TEST_SPARE)
+/* TEST ONLY (R11I).  Never compiled into a production image.  Bounded guest proof that the
+ * former RAM-disk span is usable RAM held by the allocator: on the first pool build, allocate
+ * the whole spare span through region_alloc, write and verify a pattern on every page of it,
+ * check that the neighbouring transfer area and 0x801000..0x8FFFFF are untouched and the block
+ * device still serves sector 0, then release the span.  Prints SPARE: PASS or SPARE: FAIL. */
+#include "platform.h"
+static unsigned long spare_sum(unsigned long lo, unsigned long hi)
+{
+	unsigned long s = 0, a;
+
+	for (a = lo; a < hi; a += 4)
+		s = (s << 1 | s >> 31) ^ *(volatile unsigned long *) a;
+	return s;
+}
+static void spare_fail(const char *what, int *bad)
+{
+	con_puts("SPARE: FAIL ");
+	con_puts(what);
+	con_puts("\n");
+	(*bad)++;
+}
+static void app_spare_selftest(void)
+{
+	unsigned long base = 0, end = 0, pb = 0, pe = 0, a, bytes, x0, x1, g0, g1, pages = 0;
+	unsigned char sec[512];
+	long h, hp;
+	int bad = 0;
+
+	x0 = spare_sum(XFER_BASE, XFER_BASE + XFER_SIZE);
+	g0 = spare_sum(DEVICE_BASE + DEVICE_SIZE, SPARE_BASE);
+	h = region_alloc(&app_pool, SPARE_END - SPARE_BASE, 0x7FFEu);
+	if (h <= 0) {
+		spare_fail("allocation", &bad);
+		return;
+	}
+	if (region_range(&app_pool, h, &base, &end) != REGION_OK || base != SPARE_BASE ||
+	    end != SPARE_END)
+		spare_fail("range", &bad);
+	if (!region_check(&app_pool))
+		spare_fail("invariants while held", &bad);
+	/* With the spare held, a further page must land outside it (in a profile span). */
+	hp = region_alloc(&app_pool, 0x1000ul, 0x7FFDu);
+	if (hp <= 0 || region_range(&app_pool, hp, &pb, &pe) != REGION_OK ||
+	    (pb < SPARE_END && SPARE_BASE < pe))
+		spare_fail("probe page", &bad);
+	if (hp > 0 && region_release(&app_pool, hp, 0x7FFDu) != REGION_OK)
+		spare_fail("probe release", &bad);
+	for (a = base; a < end; a += 0x1000ul) {
+		*(volatile unsigned long *) a = a ^ 0xA5A5A5A5ul;
+		*(volatile unsigned long *) (a + 0xFFCul) = ~a;
+	}
+	for (a = base; a < end; a += 0x1000ul) {
+		if (*(volatile unsigned long *) a != (a ^ 0xA5A5A5A5ul) ||
+		    *(volatile unsigned long *) (a + 0xFFCul) != ~a) {
+			spare_fail("pattern", &bad);
+			break;
+		}
+		pages++;
+	}
+	x1 = spare_sum(XFER_BASE, XFER_BASE + XFER_SIZE);
+	g1 = spare_sum(DEVICE_BASE + DEVICE_SIZE, SPARE_BASE);
+	if (x0 != x1)
+		spare_fail("transfer area changed", &bad);
+	if (g0 != g1)
+		spare_fail("0x801000..0x8FFFFF changed", &bad);
+	if (disk_read_sector(0u, sec) != 0 || sec[510] != 0x55 || sec[511] != 0xAA)
+		spare_fail("block device after the pattern", &bad);
+	/* Device boundaries seen by the guest backend: last valid sector reads, the first invalid
+	 * one is refused with a zeroed buffer, and three reads of one sector agree. */
+	{
+		unsigned long ns = disk_sector_count(), ck0 = 0, ck;
+		unsigned int r, k;
+
+		if (ns == 0ul || disk_read_sector((unsigned int) (ns - 1ul), sec) != 0)
+			spare_fail("last valid sector", &bad);
+		if (disk_read_sector((unsigned int) ns, sec) >= 0)
+			spare_fail("first invalid sector accepted", &bad);
+		for (r = 0; r < 3u; r++) {
+			if (disk_read_sector(1u, sec) != 0)
+				spare_fail("repeated read", &bad);
+			ck = 0;
+			for (k = 0; k < 512u; k++)
+				ck = ck * 31ul + sec[k];
+			if (r == 0)
+				ck0 = ck;
+			else if (ck != ck0)
+				spare_fail("repeated read differs", &bad);
+		}
+		con_puts("BLKT: sectors ");
+		con_putdec(ns);
+		con_puts(" (last, first invalid, repeat x3 checked)\n");
+	}
+	if (region_release(&app_pool, h, 0x7FFFu) != REGION_ERR_OWNER)
+		spare_fail("foreign release accepted", &bad);
+	if (region_release(&app_pool, h, 0x7FFEu) != REGION_OK)
+		spare_fail("release", &bad);
+	if (region_release(&app_pool, h, 0x7FFEu) != REGION_ERR_HANDLE)
+		spare_fail("stale handle accepted", &bad);
+	if (!region_check(&app_pool) || region_live(&app_pool, &bytes) != 0 || bytes != 0)
+		spare_fail("pool not empty after release", &bad);
+	con_puts("SPARE: base ");
+	con_putdec(base);
+	con_puts(" end ");
+	con_putdec(end);
+	con_puts(" pages ");
+	con_putdec(pages);
+	con_puts(bad ? "\nSPARE: FAIL\n" : "\nSPARE: PASS\n");
+}
+#endif
+
 /* R11H: the application-region pool, built once from the profiles.  FREE spans
  * are exactly the profile ranges, so only a profile origin can be reserved.
  * Everything else (kernel, heap, transfer area, stacks, RAM disk) stays outside
  * the pool and cannot be claimed. */
 static int app_pool_init(void)
 {
+#ifdef QDOS_I386VM_BLOCK
+	struct region_span sp[APP_PROFILES + 1];
+#else
 	struct region_span sp[APP_PROFILES];
+#endif
 	int n = 0, i, rc;
 
 	if (app_pool_ready)
@@ -44,10 +159,20 @@ static int app_pool_init(void)
 		sp[n].kind = REGION_SPAN_FREE;
 		n++;
 	}
+#ifdef QDOS_I386VM_BLOCK
+	/* R11I: the former RAM-disk span is spare RAM, a FREE span with no profile origin in it. */
+	sp[n].base = SPARE_BASE;
+	sp[n].end = SPARE_END;
+	sp[n].kind = REGION_SPAN_FREE;
+	n++;
+#endif
 	rc = region_init(&app_pool, sp, n);
 	if (rc != REGION_OK)
 		return APP_ERR_LAYOUT;
 	app_pool_ready = 1;
+#if defined(QDOS_I386VM_BLOCK) && defined(QDOS_TEST_SPARE)
+	app_spare_selftest();
+#endif
 	return APP_OK;
 }
 

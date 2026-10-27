@@ -1,3 +1,55 @@
+# QDOS/386 R11I - host-backed i386VM block device
+
+R11I (branch `r11i-block`, from frozen R11H-FIX1 `4affc37`) lets the standalone i386VM harness
+read the FAT16 `WIN1_` volume from a **separate host file**, read-only, through a small byte-wide
+sector device at `0x800010..0x80001A`.  The i386VM image no longer has to carry the 3 MiB volume in
+guest RAM; in that build the former RAM-disk span `0x900000..0xFFFFFF` is spare RAM held by the
+region allocator.  The legacy RAM-disk build, the Tiny386 PC and QEMU IDE paths, FAT16 parsing, the
+R11H concurrent loader, the SDK and the GCC 1.40 toolchain are unchanged (legacy i386VM and PC images
+are byte-identical to R11H-FIX1).  No paging.
+
+Documents: `docs/R11I-BLOCK-AUDIT.md`, `docs/R11I-BLOCK-PROTOCOL.md`, `docs/R11I-MEMORY-MAP.md`,
+`docs/R11I-RUNTIME-REPORT.md`.
+
+## Build
+
+    export I386VM=/path/to/i386vm-tree            # historical tree: bin/i386-gcc, emulator-tiny386/
+    export QDOS386_TOOLS=$I386VM
+    sh scripts/r11i-build-harness.sh build/harness  # builds i386vm-r9 and i386vm-r9-block
+    make r11h-i386vm                                # legacy RAM-disk images (unchanged)
+    make r11i-i386vm-block                          # kernel-only block image
+    sh tests/host/r11i/run.sh                       # host unit tests (strict C89)
+
+The block harness by hand: copy `$I386VM/emulator-tiny386`, apply `patches/i386vm-input-status.patch`,
+`patches/i386vm-r9-ram16.patch` and `patches/i386vm-block.patch` (`patch -p1`), copy
+`harness/i386vm-block/blockdev.{c,h}` into `emulator-tiny386/`, then
+
+    cc -O2 -DI386_ENABLE_FPU -fwrapv -fno-strict-aliasing -DRAM_MB=16 \
+       emulator-tiny386/i386.c emulator-tiny386/fpu.c emulator-tiny386/machine.c \
+       emulator-tiny386/blockdev.c -lm -o i386vm-r9-block
+
+## Launch recipe 1 - legacy RAM disk (unchanged)
+
+    build/harness/i386vm-r9 build/i386vm-r11h-rel/qdos386-r11h-rel.bin
+
+The 12 MiB image contains the kernel and the volume.  It runs on the stock R9 harness and also on
+the block harness started without a disk argument; the legacy kernel never touches the block ports.
+
+## Launch recipe 2 - host-backed disk (new)
+
+    build/harness/i386vm-r9-block build/r11i/block/qdos386-r11i-block.bin build/fat16/win1-r11h.img
+
+The 3.5 MiB image is the kernel and transfer area only; the second argument is any 512-byte-aligned
+FAT16 image, opened read-only.  An unopenable, empty or unaligned file is refused before boot.  The
+block kernel needs the block harness: on the stock harness it stops at once with
+`read outside RAM: 00800017`.
+
+Scripted runs: `scripts/r11i-run-i386vm-block.sh`, the full matrix `scripts/r11i-matrix.sh`,
+failure cases `scripts/r11i-negdisks.sh` and `scripts/r11i-shortread.sh`, descriptor check
+`scripts/r11i-fdcheck.sh`.
+
+---
+
 # QDOS/386 R9 - a 1 MiB child slot, 16 MiB i386VM, and a C89 libc subset
 
 R9 keeps the R8 kernel and shell and adds:

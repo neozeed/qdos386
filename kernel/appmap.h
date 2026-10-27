@@ -76,9 +76,20 @@
 /* i386VM only: device page and RAM disk.  RAM top is the guest RAM size. */
 #define DEVICE_BASE    0x00800000u
 #define DEVICE_SIZE    0x00001000u
+#define RAM_TOP        0x01000000u   /* i386VM guest RAM: 16 MiB */
+#ifdef QDOS_I386VM_BLOCK
+/* R11I: the FAT16 volume is a host file behind the device page (platform/i386vm/disk.c).
+ * 0x900000..0xFFFFFF is not a RAM disk.  It is SPARE: the allocator holds it as a FREE span,
+ * but no profile origin lies in it, so the loader (which reserves only profile origins) cannot
+ * place an image there.  RAMDISK_* are defined as empty so no code can use them by mistake. */
+#define RAMDISK_BASE   0x00000000u
+#define RAMDISK_SIZE   0x00000000u
+#define SPARE_BASE     0x00900000u
+#define SPARE_END      RAM_TOP
+#else
 #define RAMDISK_BASE   0x00900000u
 #define RAMDISK_SIZE   0x00300000u
-#define RAM_TOP        0x01000000u   /* i386VM guest RAM: 16 MiB */
+#endif
 
 #else /* default: R5-R8 map */
 
