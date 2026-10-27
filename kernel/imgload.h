@@ -15,7 +15,11 @@
 #ifndef QDOS386_IMGLOAD_H
 #define QDOS386_IMGLOAD_H
 
+#ifdef QDOS_LAYOUT_R9
+#define IMG_FILE_MAX (2048u * 1024u)   /* R9: 1 MiB image plus symbols */
+#else
 #define IMG_FILE_MAX (512u * 1024u)
+#endif
 
 int img_load_request(unsigned int name_addr, unsigned int args_addr, unsigned int args_len);
 

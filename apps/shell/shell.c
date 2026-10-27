@@ -384,13 +384,13 @@ static void cmd_run(char *arg)
 	if (id < 0) {
 		switch (id) {
 		case E_TOOBIG:
-			outs("too large: the limit is 524288 bytes\n");
+			outs("too large: over the loader file limit\n");
 			break;
 		case E_NOTSLOT1:
 			outs("not a slot 1 program (RUN loads slot 1 only)\n");
 			break;
 		case E_IMG_LAYOUT:
-			outs("not a valid a.out image (code -24): text, data and BSS must fit in 229376 bytes\n");
+			outs("not a valid a.out image (code -24): text, data and BSS are over the slot limit\n");
 			break;
 		case E_ARGS:
 			outs("arguments refused by the loader (code -34)\n");

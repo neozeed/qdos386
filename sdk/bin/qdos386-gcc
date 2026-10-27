@@ -1,5 +1,5 @@
 #!/bin/sh
-# qdos386-gcc - build a QDOS/386 R8 application (an i386 a.out, OMAGIC 0407)
+# qdos386-gcc - build a QDOS/386 R8/R9 application (an i386 a.out, OMAGIC 0407)
 # with the historical toolchain: GCC 1.40 (C89), GAS 1.38, i386-ld 1.94.
 #
 # Usage:  qdos386-gcc [-slot 0|1] [-O] [-I dir] [-D name[=value]] -o out.aout src.c ...
@@ -66,8 +66,14 @@ for s in $srcs; do
 	objs="$objs $work/$base.o"
 done
 "$QDOS386_TOOLS/bin/as" -o "$work/crt0.o" "$SDK/lib/crt0.s" || die "assemble crt0"
+# Link order: crt0, the objects, libc.a (the C89 subset, R9), libqdos.a (the
+# QDOS trap wrappers that libc uses).  libc.a is optional: an R8-style program
+# that uses only qd_* still links without it, and the archive is only read for
+# the symbols it needs.
 lib="$SDK/lib/libqdos.a"
 [ -f "$lib" ] || die "missing $lib (run: make -C $SDK/lib)"
+libc="$SDK/lib/libc.a"
+[ -f "$libc" ] || libc=
 "$QDOS386_TOOLS/bin/i386-ld" -N -T "$SDK/ld/slot$slot.ld" -e _start -o "$out" \
-	"$work/crt0.o" $objs "$lib" || die "link failed"
+	"$work/crt0.o" $objs $libc "$lib" || die "link failed"
 echo "qdos386-gcc: $out (slot $slot)"

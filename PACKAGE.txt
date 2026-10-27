@@ -1,0 +1,38 @@
+QDOS/386 R9 package
+===================
+
+Layout
+  (repo root)   R9 source tree: kernel/, platform/, sdk/, apps/, tests/, tools/,
+                tests/interactive/, scripts/, docs/, patches/, logs/, Makefile.
+                Taken from git branch r9, commit ee38a8b (see git log).
+  images/       Built disk images and kernel images, used by the matrix.
+                i386vm-r9-*  need the 16 MiB i386VM harness (patches/i386vm-r9-ram16.patch).
+                i386vm-r8-*  and r6-suite need the 8 MiB harness (stock + input-status patch).
+                pc-*.img     run under Tiny386 with the matching pc-*-run.ini.
+                win1*.img    FAT16 volumes built from the R9 tree. win1.img is the volume used by the
+                             R2-R7 suites, win1-r8.img by R8, win1-r9.img by R9. These are rebuilt
+                             copies, not the R8 archive bytes (see docs/R9-RUNTIME-REPORT.md).
+                pc-r9-boot.bin  PC boot sector with the R9 transfer address.
+  aout/         Built applications (a.out, OMAGIC 0407). BIGAPP, CATFIL, HEAPEX,
+                LIBHEL, MEMSTR (R9 libc); SDK*, args, large, shell, hello, prep.
+  logs/         Matrix and session logs (logs/r9/matrix, logs/r9/frozen-r8,
+                logs/r9/probe), matrix summary logs/r9-matrix.txt.
+                logs/verify: runs of this extracted package (R9 sessions and
+                R9 kernel suites on both targets), with firmware from outside the package.
+  SHA256SUMS    SHA-256 of every file in this package except SHA256SUMS itself.
+
+External inputs (not included; hashes in docs/R9-RUNTIME-REPORT.md)
+  firmware      bios.bin, vgabios.bin (SeaBIOS-compatible). Put them in firmware/
+                next to images/ before running the PC images.
+  toolchain     historical GCC 1.40 / GAS 1.38 / i386-ld tree (QDOS386_TOOLS / I386VM).
+  harness       stock i386VM plus patches/i386vm-input-status.patch and
+                patches/i386vm-r9-ram16.patch (RAM_MB=16).
+  emulator      tiny386_headless, unmodified.
+
+Run a PC image (from this package root):
+  tiny386_headless images/pc-r9-shell-run.ini
+
+scripts/r9-matrix.sh reads the external binaries from environment variables
+(I386VM, VMP, VMR9, TINY, FW); set them to your local paths before running it.
+The image hash lists in logs/r9/matrix/images.sha256 were recorded with
+absolute scratchpad paths in that session and are for reference.

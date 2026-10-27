@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Negative R8 a.out fixtures, derived from a good image (LARGE.AOU).
 
-Usage: make-r8-fixtures.py good.aout outdir
+Usage: make-r8-fixtures.py good.aout outdir [over_bss]
+
+over_bss (default 0x40000, 256 KiB) is the BSS written into OVER.AOU.  The R8
+volume uses the default; the R9 volume passes 0x100000 so that OVER.AOU is over
+the 1 MiB slot-1 limit.
 
   OVER.AOU   header BSS raised so text+data+BSS exceeds 224 KiB  -> LAYOUT -24
   TRUNC.AOU  last 4096 bytes removed                              -> SIZE -20
@@ -15,6 +19,7 @@ import pathlib, struct, sys
 def main():
     src = pathlib.Path(sys.argv[1]).read_bytes()
     out = pathlib.Path(sys.argv[2])
+    over_bss = int(sys.argv[3], 0) if len(sys.argv) > 3 else 0x40000
     out.mkdir(parents=True, exist_ok=True)
     magic, text, data, bss, syms, entry = struct.unpack('<6I', src[:24])
     assert magic == 0o407, 'source is not OMAGIC'
@@ -23,7 +28,7 @@ def main():
         return struct.pack('<6I', m, t, d, b, s, e) + src[24:32]
 
     body = src[32:]
-    (out / 'OVER.AOU').write_bytes(hdr(b=0x40000) + body)
+    (out / 'OVER.AOU').write_bytes(hdr(b=over_bss) + body)
     (out / 'TRUNC.AOU').write_bytes(hdr() + body[:-4096])
     (out / 'LONG.AOU').write_bytes(hdr() + body + b'\0' * 16)
     (out / 'ENTRY.AOU').write_bytes(hdr(e=text + data + 0x10000) + body)

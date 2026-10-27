@@ -112,8 +112,10 @@ $(I386D)/kernel-raw.bin: $(I386VM_SRC) $(wildcard kernel/*.h) $(wildcard tests/*
 	mkdir -p $(I386D)
 	$(GCC) --raw $(I386FLAGS) $(INC) $(I386VM_SRC) -o $@
 
+# IMGENV selects the image layout for make-vm-image.py (R9: QDOS_LAYOUT=r9).
+IMGENV ?=
 $(I386D)/$(I386IMG): $(I386D)/kernel-raw.bin build/xfer.bin $(I386WIN) tools/make-vm-image.py
-	python3 tools/make-vm-image.py $(I386D)/kernel-raw.bin build/xfer.bin $@ $(I386WIN)
+	$(IMGENV) python3 tools/make-vm-image.py $(I386D)/kernel-raw.bin build/xfer.bin $@ $(I386WIN)
 
 i386vm: $(I386D)/$(I386IMG)
 
@@ -162,8 +164,11 @@ $(PCD)/kernel.aout: $(PCD)/entry.o $(PC_OBJS) platform/pc/kernel.ld
 $(PCD)/kernel.raw: $(PCD)/kernel.aout
 	python3 platform/pc/extract-kernel.py $< $@ 0x100000
 
-$(PCD)/$(PCIMG): $(PCD)/kernel.raw build/xfer.bin platform/pc/boot.bin platform/pc/make-image.py
-	python3 platform/pc/make-image.py platform/pc/boot.bin $(PCD)/kernel.raw build/xfer.bin $@
+# PCBOOT is the boot sector: the R5-R8 one, or the R9 copy whose transfer
+# address is 0x340000 (see the R9 section).
+PCBOOT ?= platform/pc/boot.bin
+$(PCD)/$(PCIMG): $(PCD)/kernel.raw build/xfer.bin $(PCBOOT) platform/pc/make-image.py
+	python3 platform/pc/make-image.py $(PCBOOT) $(PCD)/kernel.raw build/xfer.bin $@
 
 platform/pc/boot.bin: platform/pc/boot.s
 	cd platform/pc && $(AS) -o boot.o boot.s && $(LD) -N -T boot.ld -e start -o boot.aout boot.o && python3 $(I386VM)/tools/aout-to-raw.py boot.aout boot.bin
@@ -216,6 +221,7 @@ r8-apps: build/apps/args.aout build/apps/large.aout build/apps/shell.aout build/
 # The SDK examples (sdk/examples) are built with qdos386-gcc from sdk/.
 sdk-examples:
 	$(MAKE) -C sdk/lib QDOS386_TOOLS=$(I386VM)
+	$(MAKE) -C sdk/libc QDOS386_TOOLS=$(I386VM)
 	$(MAKE) -C sdk/examples QDOS386_TOOLS=$(I386VM)
 
 build/fat16/win1-r8.img: r8-apps sdk-examples tools/make-fat16.py fs/README.TXT build/fat16/fixtures/big.bin build/fat16/fixtures/bad.bin build/fat16/fixtures/empty.bin
@@ -238,4 +244,54 @@ i386vm-r8-shell-notimer:
 	$(MAKE) i386vm I386D=build/i386vm-r8-notimer I386FLAGS="-DR7_SHELL_MODE -DQDOS_NO_TIMER" I386IMG=qdos386-r8-shell-notimer.bin I386WIN=build/fat16/win1-r8.img
 pc-r8-shell: build/fat16/win1-r8.img
 	$(MAKE) pc PCD=build/pc-r8 PCFLAGS=-DR7_SHELL_MODE PCIMG=r8shell.img PCWIN=build/fat16/win1-r8.img
+
+# ---- R9: 16 MiB i386VM guest, 1 MiB child slot (kernel/appmap.h) ----------
+# Build with QDOS_LAYOUT_R9 in every kernel object and with QDOS_LAYOUT=r9 for
+# the image builder.  The R8 targets above are unchanged and still build the
+# R8 map.  The i386VM run needs the R9 harness (x/i386vm-r9, 16 MiB), which is
+# not the 8 MiB harness; see patches/i386vm-r9-ram16.patch.
+R9_FLAGS = -DR7_SHELL_MODE -DQDOS_LAYOUT_R9
+I386VM_R9 ?= build/i386vm-r9/i386vm-r9
+
+r9-i386vm-shell: build/fat16/win1-r9.img
+	$(MAKE) i386vm I386D=build/i386vm-r9 I386FLAGS="$(R9_FLAGS)" I386IMG=qdos386-r9-shell.bin I386WIN=build/fat16/win1-r9.img IMGENV="QDOS_LAYOUT=r9"
+
+r9-i386vm-shell-notimer:
+	$(MAKE) i386vm I386D=build/i386vm-r9-notimer I386FLAGS="$(R9_FLAGS) -DQDOS_NO_TIMER" I386IMG=qdos386-r9-shell-notimer.bin I386WIN=build/fat16/win1-r9.img IMGENV="QDOS_LAYOUT=r9"
+
+# The PC boot sector with the R9 transfer address.
+build/pc-r9/boot.bin: platform/pc/boot.s
+	mkdir -p build/pc-r9
+	sed 's/movl $$0x280000,%edi/movl $$0x340000,%edi/' platform/pc/boot.s > build/pc-r9/boot.s
+	$(AS) -o build/pc-r9/boot.o build/pc-r9/boot.s
+	$(LD) -N -T platform/pc/boot.ld -e start -o build/pc-r9/boot.aout build/pc-r9/boot.o
+	python3 $(I386VM)/tools/aout-to-raw.py build/pc-r9/boot.aout build/pc-r9/boot.bin
+
+r9-pc-shell: build/pc-r9/boot.bin build/fat16/win1-r9.img
+	$(MAKE) pc PCD=build/pc-r9 PCFLAGS="$(R9_FLAGS)" PCIMG=r9shell.img PCBOOT=build/pc-r9/boot.bin PCWIN=build/fat16/win1-r9.img
+
+# R9 negative fixtures: OVER.AOU has BSS 1 MiB (over the slot-1 limit).
+build/fat16/r9fix/OVER.AOU: build/apps/large.aout tools/make-r8-fixtures.py
+	python3 tools/make-r8-fixtures.py build/apps/large.aout build/fat16/r9fix 0x100000
+build/fat16/r9fix/TRUNC.AOU build/fat16/r9fix/LONG.AOU build/fat16/r9fix/ENTRY.AOU build/fat16/r9fix/MAGIC.AOU: build/fat16/r9fix/OVER.AOU
+
+r9-apps: build/apps/args.aout build/apps/large.aout build/apps/shell.aout build/apps/hello1.aout build/fat16/r9fix/OVER.AOU
+
+# The R9 volume: the R8 files, the R9 OVER fixture, the SDK examples and the
+# C library proofs.  Its names stay 8.3-safe (10 characters with the dot).
+r9-fat16: build/fat16/win1-r9.img
+
+build/fat16/win1-r9.img: r9-apps sdk-examples tools/make-fat16.py fs/README.TXT build/fat16/fixtures/big.bin build/fat16/fixtures/bad.bin build/fat16/fixtures/empty.bin build/fat16/r9fix/TRUNC.AOU build/fat16/r9fix/LONG.AOU build/fat16/r9fix/ENTRY.AOU build/fat16/r9fix/MAGIC.AOU
+	mkdir -p build/fat16
+	python3 tools/make-fat16.py $@ SHELL.AOU=build/apps/shell.aout ARGS.AOU=build/apps/args.aout \
+	  LARGE.AOU=build/apps/large.aout HELLO.AOU=build/apps/hello1.aout README.TXT=fs/README.TXT \
+	  SDKHEL.AOU=sdk/examples/SDKHEL.aout SDKARG.AOU=sdk/examples/SDKARG.aout \
+	  SDKSTM.AOU=sdk/examples/SDKSTM.aout SDKSTS.AOU=sdk/examples/SDKSTS.aout \
+	  LIBHEL.AOU=sdk/examples/LIBHEL.aout CATFIL.AOU=sdk/examples/CATFIL.aout \
+	  MEMSTR.AOU=sdk/examples/MEMSTR.aout BIGAPP.AOU=sdk/examples/BIGAPP.aout \
+	HEAPEX.AOU=sdk/examples/HEAPEX.aout \
+	  BIG.AOU=build/fat16/fixtures/big.bin BAD.AOU=build/fat16/fixtures/bad.bin \
+	  EMPTY.TXT=build/fat16/fixtures/empty.bin OVER.AOU=build/fat16/r9fix/OVER.AOU \
+	  TRUNC.AOU=build/fat16/r9fix/TRUNC.AOU LONG.AOU=build/fat16/r9fix/LONG.AOU \
+	  ENTRY.AOU=build/fat16/r9fix/ENTRY.AOU MAGIC.AOU=build/fat16/r9fix/MAGIC.AOU
 

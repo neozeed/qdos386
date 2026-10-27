@@ -43,7 +43,13 @@
 /* R8 limits.  Text + data + BSS of one image may not exceed APP_IMAGE_LIMIT;
  * the slot's top APP_ARG_BYTES hold the argument block, so the limit is below
  * the slot size minus the block.  See docs/R8-LOADER-DESIGN.md. */
-#define APP_IMAGE_LIMIT  0x00038000u     /* 224 KiB */
+#ifdef QDOS_LAYOUT_R9
+/* R9: slot 0 keeps the 224 KiB shell limit; slot 1 takes a 1 MiB image less
+ * the argument block at the top of the slot. */
+#define APP_IMAGE_LIMIT_OF(n) ((n) == 0 ? 0x00038000u : 0x000FFE00u)
+#else
+#define APP_IMAGE_LIMIT_OF(n) 0x00038000u     /* 224 KiB, both slots */
+#endif
 #define APP_ARG_BYTES    512u            /* argument block at the top of the slot */
 #define APP_ARG_MAX      16u             /* argc, including argv[0] */
 #define APP_ARG_STR_OFF  80u             /* strings start here inside the block */

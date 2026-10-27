@@ -179,7 +179,7 @@ int aout_check_src(app_rd_fn rd, void *ctx, unsigned int len, struct app_image *
 {
 	unsigned char hb[AOUT_HDR_BYTES];
 	unsigned int magic, text, data, bss, syms, entry, trs, drs;
-	unsigned int slot, off_sym, off_str, strsz;
+	unsigned int slot, off_sym, off_str, strsz, lim;
 	int found;
 	int rc;
 
@@ -211,8 +211,8 @@ int aout_check_src(app_rd_fn rd, void *ctx, unsigned int len, struct app_image *
 
 	if (text == 0 || (text & 15u) || (data & 15u) || (bss & 15u))
 		return APP_ERR_LAYOUT;
-	if (text > APP_IMAGE_LIMIT || data > APP_IMAGE_LIMIT - text ||
-	    bss > APP_IMAGE_LIMIT - text - data)
+	lim = APP_IMAGE_LIMIT_OF(slot);
+	if (text > lim || data > lim - text || bss > lim - text - data)
 		return APP_ERR_LAYOUT;
 
 	if (syms % AOUT_SYM_BYTES != 0)
@@ -420,7 +420,7 @@ int app_load_src(app_rd_fn rd, void *ctx, unsigned int len, int want_slot,
 	if (slot_owner[info.slot] != 0)
 		return APP_ERR_SLOTBUSY;
 	flags = irq_save();
-	base = APP_SLOT0_BASE + info.slot * APP_SLOT_SIZE;
+	base = APP_SLOT_BASE_OF(info.slot);
 	dst = (unsigned char *) base;
 	id = job_alloc_sized(names[info.slot], app_not_started, 0, APP_STACK_BYTES);
 	if (id < 0) {
@@ -441,10 +441,10 @@ int app_load_src(app_rd_fn rd, void *ctx, unsigned int len, int want_slot,
 		irq_restore(flags);
 		return rc;
 	}
-	args_write(dst + APP_SLOT_SIZE - APP_ARG_BYTES, argc_n, packed, plen);
+	args_write(dst + APP_SLOT_SIZE_OF(info.slot) - APP_ARG_BYTES, argc_n, packed, plen);
 
 	jobs[js].entry = (void (*)(void)) info.entry;
-	jobs[js].args = base + APP_SLOT_SIZE - APP_ARG_BYTES;
+	jobs[js].args = base + APP_SLOT_SIZE_OF(info.slot) - APP_ARG_BYTES;
 	jobs[js].prio_inc = 2;
 	slot_owner[info.slot] = id;
 	irq_restore(flags);

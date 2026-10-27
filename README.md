@@ -1,3 +1,58 @@
+# QDOS/386 R9 - a 1 MiB child slot, 16 MiB i386VM, and a C89 libc subset
+
+R9 keeps the R8 kernel and shell and adds:
+
+- **Memory.**  The child slot (slot 1) is 1 MiB, so an application of up to
+  about 1 MiB (text + data + BSS) can run while the shell stays resident in
+  slot 0 (224 KiB limit).  The i386VM harness can be built with 16 MiB of guest
+  RAM through an isolated patch, `patches/i386vm-r9-ram16.patch`; Tiny386 stays
+  at 8 MiB and the Tiny386 core is not modified.  The R5-R8 default map is kept
+  unchanged for the regression.  See `docs/R9-MEMORY-AUDIT.md`.
+- **libc.a.**  A separate C89 library (`sdk/libc/`): malloc/free/calloc/realloc,
+  string and memory functions, printf/puts/putchar/getchar, exit, and read-only
+  fopen/fread/fseek/ftell/fclose.  It is kept apart from `libqdos.a`.  See
+  `docs/R9-LIBC-PORT-MAP.md` and `docs/R9-LIBC-ABI.md`.
+- **Applications run as QDOS jobs.**  `BIGAPP` (479,904 bytes, above the slot 0
+  limit), `MEMSTR`, `CATFIL` (FAT16 read through the C library), `LIBHEL`
+  (argc/argv), `HEAPEX` (allocator reclaim at exit).  The R9 volume holds 23
+  entries.  See `docs/R9-RUNTIME-REPORT.md`.
+
+Verification: `scripts/r9-matrix.sh` with `ROUNDS=3` passed on both targets:
+R8 regression and R9 suites, scripted and PS/2 (`-term`) sessions, the EOF
+session and the timer-off negative.  The archived R8 artifacts also still pass
+on their own harness.  The matrix used input that was scripted through the
+harness or through `session.py`; no human keyboard testing was done.
+
+## R9 build and run
+
+    export I386VM=/path/to/i386vm-tree           # bin/i386-gcc, as, i386-ld, stock i386vm
+    # 16 MiB i386VM harness: stock source + patches/i386vm-input-status.patch
+    #   + patches/i386vm-r9-ram16.patch, then:
+    cc -O2 -DI386_ENABLE_FPU -fwrapv -fno-strict-aliasing -DRAM_MB=16 \
+       emulator-tiny386/i386.c emulator-tiny386/fpu.c emulator-tiny386/machine.c -lm
+    make r9-fat16                                # R9 volume (build/fat16/win1-r9.img)
+    make r9-i386vm-shell r9-pc-shell             # R9 shell images
+    sh scripts/r9-matrix.sh                      # ROUNDS=3 by default
+
+The R9 shell image on i386VM expects the 16 MiB harness; the R8 default images
+expect the 8 MiB harness.
+
+## Known limitations
+
+- The shell banner still reads "QDOS/386 R8 shell".  Not changed in R9.
+- libc is read-only for files; there is no `SEEK_END`, no writes, and no
+  `fprintf`, `fgets`, `fputs` or `scanf`.  `getchar` is linked but has no
+  runtime test.  Floating point is not tested.
+- Tiny386 runs 8 MiB only.  The 16 MiB RAM configuration is an i386VM patch.
+- Timer preemption is observed by one check in `BIGAPP`, not by a dedicated
+  test.  The timer-off negative is a weak check (budget stop, not a clean halt).
+- The per-slot untouched-memory check in `tests/test_app.c` still samples only
+  the first 256 KiB of slot 1.
+- The i386VM harness source is not in the repository; only the patches are.
+
+Other R9 documents: `docs/R9-MEMORY-AUDIT.md`, `docs/R9-LIBC-PORT-MAP.md`,
+`docs/R9-LIBC-ABI.md`, `docs/R9-RUNTIME-REPORT.md`, `sdk/README.md`.
+
 # QDOS/386 R8 - larger applications, argv, and an SDK foundation
 
 R8 keeps the R7 kernel and shell and adds three things:

@@ -9,11 +9,16 @@ guest address: transfer at 0x280000 (padded to XFER_SIZE), the RAM disk at
 0x2c0000.  Padding is zeros and is never read as data (the directory and the
 FAT give all lengths).
 """
-import pathlib, sys
+import os, pathlib, sys
 
-XFER_BASE = 0x280000
+# QDOS_LAYOUT=r9 selects the R9 map (see kernel/appmap.h); default is R5-R8.
+if os.environ.get('QDOS_LAYOUT', '') == 'r9':
+    XFER_BASE = 0x340000
+    RAMDISK_BASE = 0x900000
+else:
+    XFER_BASE = 0x280000
+    RAMDISK_BASE = 0x2c0000
 XFER_SIZE = 0x40000
-RAMDISK_BASE = 0x2c0000
 RAMDISK_SIZE = 0x300000
 
 if len(sys.argv) not in (4, 5):
@@ -29,7 +34,8 @@ if disk and len(disk) != RAMDISK_SIZE:
     raise SystemExit('RAM disk must be exactly %d bytes, got %d' % (RAMDISK_SIZE, len(disk)))
 out = kern + b'\0' * (XFER_BASE - len(kern)) + xfer.ljust(XFER_SIZE, b'\0')
 if disk:
-    out += disk
+    # The RAM disk sits at its guest address; the gap is zero padding.
+    out += b'\0' * (RAMDISK_BASE - len(out)) + disk
 pathlib.Path(sys.argv[3]).write_bytes(out)
 print('vm image: kernel=%d xfer@0x%x disk@0x%x total=%d' %
       (len(kern), XFER_BASE, RAMDISK_BASE if disk else 0, len(out)))
