@@ -23,6 +23,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <errno.h>
+#include "fpbig.h"
 #include "qdos386.h"
 
 #define KIND_CON   1
@@ -178,10 +180,218 @@ static int to_base(unsigned long v, unsigned int base, int upper, char *buf)
 	return n;
 }
 
+/* ---- floating-point conversions (R11C) -------------------------------------
+ * %f, %e, %E, %g and %G of a double.  The digits are the exact decimal value
+ * of the double (fpbig.c); rounding is to nearest, ties to even, on those
+ * exact digits, as glibc does in the C locale.  The precision is limited to
+ * FMT_MAXPREC digits: a larger request is cut to that (documented). */
+#define FMT_MAXPREC 500
+#define FMT_MAXDIG  800
+
+/* Round dig (ndig digits, decimal point after dp) to keep digits.  Returns
+ * the new decimal point position; *ndig becomes the digit count (0 when the
+ * value rounds to zero). */
+static int fp_round(char *dig, int *ndig, int dp, int keep)
+{
+	int i, up;
+	char c;
+	int rest = 0;
+
+	if (keep >= *ndig)
+		return dp;
+	if (keep < 0) {
+		*ndig = 0;
+		return dp;
+	}
+	c = dig[keep];
+	for (i = keep + 1; i < *ndig; i++)
+		if (dig[i] != '0') {
+			rest = 1;
+			break;
+		}
+	if (c > '5')
+		up = 1;
+	else if (c < '5')
+		up = 0;
+	else if (rest)
+		up = 1;
+	else
+		up = keep > 0 ? (dig[keep - 1] - '0') & 1 : 0;   /* ties to even */
+	*ndig = keep;
+	if (up) {
+		i = keep - 1;
+		while (i >= 0 && dig[i] == '9')
+			i--;
+		if (i < 0) {
+			dig[0] = '1';
+			*ndig = 1;
+			dp++;
+		} else {
+			dig[i]++;
+			*ndig = i + 1;
+		}
+	}
+	return dp;
+}
+
+/* Digit at position idx of a digit string, '0' outside it. */
+static char fp_at(const char *dig, int ndig, int idx)
+{
+	return (idx >= 0 && idx < ndig) ? dig[idx] : '0';
+}
+
+/* Write the body of %f (no sign) with prec fraction digits. */
+static int fp_fixed(char *out, const char *dig0, int ndig0, int dp0, int prec, int alt)
+{
+	char wd[FMT_MAXDIG];
+	int nd = ndig0, dp = dp0, n = 0, i;
+
+	memcpy(wd, dig0, ndig0 > 0 ? ndig0 : 0);
+	if (nd > 0)
+		dp = fp_round(wd, &nd, dp, dp + prec);
+	if (dp <= 0)
+		out[n++] = '0';
+	for (i = 0; i < dp; i++)
+		out[n++] = fp_at(wd, nd, i);
+	if (prec > 0 || alt)
+		out[n++] = '.';
+	for (i = 0; i < prec; i++)
+		out[n++] = fp_at(wd, nd, dp + i);
+	return n;
+}
+
+/* The mantissa of %e (no sign, no exponent) with prec fraction digits.  The
+ * decimal exponent of the rounded value is returned in *xexp. */
+static int fp_mant(char *out, const char *dig0, int ndig0, int dp0, int prec, int alt, int *xexp)
+{
+	char wd[FMT_MAXDIG];
+	int nd = ndig0, dp = 1, n = 0, i, x;
+
+	if (nd == 0) {
+		x = 0;
+	} else {
+		memcpy(wd, dig0, nd);
+		dp = fp_round(wd, &nd, dp0, prec + 1);
+		x = dp - 1;
+	}
+	out[n++] = fp_at(wd, nd, 0);
+	if (prec > 0 || alt)
+		out[n++] = '.';
+	for (i = 1; i <= prec; i++)
+		out[n++] = fp_at(wd, nd, i);
+	*xexp = x;
+	return n;
+}
+
+/* Append the exponent part "e+05" (upper selects 'E'); returns its length. */
+static int fp_expsuffix(char *out, int x, int upper)
+{
+	int n = 0;
+
+	out[n++] = upper ? 'E' : 'e';
+	out[n++] = x < 0 ? '-' : '+';
+	if (x < 0)
+		x = -x;
+	if (x >= 100)
+		out[n++] = (char) ('0' + x / 100);
+	out[n++] = (char) ('0' + (x / 10) % 10);
+	out[n++] = (char) ('0' + x % 10);
+	return n;
+}
+
+/* Remove the trailing zeros of the fraction in body[0..n), and the point
+ * when nothing is left after it.  Returns the new length. */
+static int fp_strip(char *body, int n)
+{
+	int point = -1, i, m;
+
+	for (i = 0; i < n; i++)
+		if (body[i] == '.') {
+			point = i;
+			break;
+		}
+	if (point < 0)
+		return n;
+	m = n;
+	while (m > point + 1 && body[m - 1] == '0')
+		m--;
+	if (m == point + 1)
+		m = point;
+	return m;
+}
+
+/* The body (no sign) of a conversion of the magnitude of v. */
+static int fp_body(char *body, double v, char conv, int prec, int alt)
+{
+	union {
+		double d;
+		unsigned long w[2];
+	} u;
+	char dig[FMT_MAXDIG];
+	int ndig = 0, dp = 0, n, x, p;
+
+	u.d = v;
+	u.w[1] &= 0x7fffffffUL;               /* magnitude only */
+	if (u.d != 0.0)
+		qd_fp_exact(u.d, dig, &ndig, &dp);
+
+	if (conv == 'f')
+		return fp_fixed(body, dig, ndig, dp, prec, alt);
+	if (conv == 'e' || conv == 'E') {
+		n = fp_mant(body, dig, ndig, dp, prec, alt, &x);
+		return n + fp_expsuffix(body + n, x, conv == 'E');
+	}
+
+	/* %g and %G: P significant digits; %f style when -4 <= X < P, else %e */
+	p = prec == 0 ? 1 : prec;
+	if (ndig == 0) {
+		x = 0;
+	} else {
+		char tmp[FMT_MAXDIG];
+		int nd = ndig, dpr;
+		memcpy(tmp, dig, ndig);
+		dpr = fp_round(tmp, &nd, dp, p);
+		x = dpr - 1;
+	}
+	if (x < p && x >= -4) {
+		n = fp_fixed(body, dig, ndig, dp, p - 1 - x, alt);
+		if (!alt)
+			n = fp_strip(body, n);
+		return n;
+	}
+	n = fp_mant(body, dig, ndig, dp, p - 1, alt, &x);
+	if (!alt)
+		n = fp_strip(body, n);
+	return n + fp_expsuffix(body + n, x, conv == 'G');
+}
+
+static void out_fp(struct qd_out *o, double v, char conv, int width, int left, int zero,
+                   int plus, int space, int prec, int alt)
+{
+	char body[FMT_MAXDIG + 16];
+	union {
+		double d;
+		unsigned long w[2];
+	} u;
+	int n;
+	const char *sign = NULL;
+
+	u.d = v;
+	if (u.w[1] & 0x80000000UL)
+		sign = "-";
+	else if (plus)
+		sign = "+";
+	else if (space)
+		sign = " ";
+	n = fp_body(body, v, conv, prec, alt);
+	out_field(o, body, n, width, left, zero && !left, sign);
+}
+
 static int qd_vformat(struct qd_out *o, const char *fmt, va_list ap)
 {
 	for (; *fmt != '\0'; fmt++) {
-		int left = 0, zero = 0, width = 0;
+		int left = 0, zero = 0, plus = 0, space = 0, alt = 0;
+		int width = 0, prec = -1;
 		char digits[16];
 		int len;
 
@@ -195,12 +405,29 @@ static int qd_vformat(struct qd_out *o, const char *fmt, va_list ap)
 				left = 1;
 			else if (*fmt == '0')
 				zero = 1;
+			else if (*fmt == '+')
+				plus = 1;
+			else if (*fmt == ' ')
+				space = 1;
+			else if (*fmt == '#')
+				alt = 1;
 			else
 				break;
 		}
 		while (*fmt >= '0' && *fmt <= '9')
 			width = width * 10 + (*fmt++ - '0');
-		if (*fmt == 'l' || *fmt == 'h')    /* int and long are both 32 bits */
+		if (*fmt == '.') {              /* precision (R11C) */
+			fmt++;
+			prec = 0;
+			while (*fmt >= '0' && *fmt <= '9') {
+				if (prec < FMT_MAXPREC)
+					prec = prec * 10 + (*fmt - '0');
+				fmt++;
+			}
+			if (prec > FMT_MAXPREC)
+				prec = FMT_MAXPREC;
+		}
+		if (*fmt == 'l' || *fmt == 'h' || *fmt == 'L')    /* int and long are both 32 bits */
 			fmt++;
 		switch (*fmt) {
 		case 'd':
@@ -208,7 +435,8 @@ static int qd_vformat(struct qd_out *o, const char *fmt, va_list ap)
 			long v = va_arg(ap, long);
 			unsigned long m = v < 0 ? 0UL - (unsigned long) v : (unsigned long) v;
 			len = to_base(m, 10, 0, digits);
-			out_field(o, digits, len, width, left, zero && !left, v < 0 ? "-" : NULL);
+			out_field(o, digits, len, width, left, zero && !left,
+			          v < 0 ? "-" : plus ? "+" : space ? " " : NULL);
 			break;
 		}
 		case 'u':
@@ -231,7 +459,18 @@ static int qd_vformat(struct qd_out *o, const char *fmt, va_list ap)
 			if (s == NULL)
 				s = "(null)";
 			len = (int) strlen(s);
+			if (prec >= 0 && len > prec)
+				len = prec;
 			out_field(o, s, len, width, left, 0, NULL);
+			break;
+		}
+		case 'f':
+		case 'e':
+		case 'E':
+		case 'g':
+		case 'G': {
+			double v = va_arg(ap, double);
+			out_fp(o, v, *fmt, width, left, zero, plus, space, prec < 0 ? 6 : prec, alt);
 			break;
 		}
 		case '%':

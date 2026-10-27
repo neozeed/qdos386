@@ -7,10 +7,10 @@ endif
 WRAP = ../bin/qdos386-gcc
 # Every example depends on the libraries it links (and the wrapper's startup
 # object), so rebuilding libc.a or libqdos.a relinks the examples.
-LIBS = ../lib/libc.a ../lib/libqdos.a ../lib/crt0_libc.s ../lib/crt0.s ../bin/qdos386-gcc
+LIBS = ../lib/libc.a ../lib/libgcc-qd.a ../lib/libqdos.a ../lib/crt0_libc.s ../lib/crt0.s ../bin/qdos386-gcc
 export QDOS386_TOOLS
 
-all: SDKHEL.aout SDKARG.aout SDKSTM.aout SDKSTS.aout LIBHEL.aout CATFIL.aout MEMSTR.aout BIGAPP.aout HEAPEX.aout CTYPE.aout STRTST.aout FTEST.aout STREAM.aout FORMAT.aout CONSOL.aout LIBQDO.aout REPEAT.aout EXITFL.aout
+all: HELPER.aout FPARSE.aout FMATH.aout FPRINT.aout FPMULT.aout FPCOMB.aout SDKHEL.aout SDKARG.aout SDKSTM.aout SDKSTS.aout LIBHEL.aout CATFIL.aout MEMSTR.aout BIGAPP.aout HEAPEX.aout CTYPE.aout STRTST.aout FTEST.aout STREAM.aout FORMAT.aout CONSOL.aout LIBQDO.aout REPEAT.aout EXITFL.aout
 
 # R11A: C89 library expansion tests.  Output names are 8.3 and at most 10
 # characters with the dot, the limit of the WIN1_ channel name (see README).
@@ -79,3 +79,27 @@ clean:
 	rm -f *.aout bigapp/table.c
 
 .PHONY: all clean
+
+# R11C: compiler support (libgcc-qd.a) conformance, run before any FP test.
+HELPER.aout: r11c/helpers/helpers.c r11c/check.h $(LIBS)
+	../bin/qdos386-gcc -O -o $@ r11c/helpers/helpers.c
+
+FPARSE.aout: r11c/fparse/fparse.c r11c/check.h r11c/tables/parse.h $(LIBS)
+	../bin/qdos386-gcc -O -o $@ r11c/fparse/fparse.c
+
+FMATH.aout: r11c/fmath/fmath.c r11c/check.h r11c/tables/libm.h $(LIBS)
+	../bin/qdos386-gcc -O -o $@ r11c/fmath/fmath.c
+
+FPRINT.aout: r11c/fprint/fprint.c r11c/check.h r11c/tables/printf.h $(LIBS)
+	../bin/qdos386-gcc -O -o $@ r11c/fprint/fprint.c
+
+# FPMULT: two jobs with live x87 state (the FPJOB protocol, R11C banner).
+FPMULT.aout: r11c/fpmult/fpmult.c $(LIBS)
+	../bin/qdos386-gcc -O -o $@ r11c/fpmult/fpmult.c
+
+FPCOMB.aout: r11c/fpcomb/fpcomb.c r11c/check.h $(LIBS)
+	../bin/qdos386-gcc -O -o $@ r11c/fpcomb/fpcomb.c
+
+# The compiler support archive, built from the historical gnulib sources.
+../lib/libgcc-qd.a:
+	$(MAKE) -C ../compiler

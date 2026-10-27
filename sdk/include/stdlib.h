@@ -20,4 +20,6 @@ void qsort(void *base, size_t nmemb, size_t size, int (*cmp)(const void *, const
 void *bsearch(const void *key, const void *base, size_t nmemb, size_t size,
               int (*cmp)(const void *, const void *));
 unsigned long strtoul(const char *s, char **end, int base);
+double strtod(const char *s, char **end);
+double atof(const char *s);
 #endif

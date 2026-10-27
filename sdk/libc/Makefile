@@ -9,14 +9,14 @@ GCC = $(QDOS386_TOOLS)/bin/i386-gcc
 AR  = ar
 INC = -I../include
 
-OBJS = string.o malloc.o stdlib.o stdio.o ctype.o
+OBJS = string.o malloc.o stdlib.o stdio.o ctype.o errno.o strtod.o fpbig.o
 
 ../lib/libc.a: $(OBJS)
 	mkdir -p ../lib
 	rm -f $@
 	$(AR) rc $@ $(OBJS)
 
-%.o: %.c ../include/qdos386.h ../include/stdio.h ../include/stdlib.h ../include/string.h ../include/stdarg.h
+%.o: %.c ../include/qdos386.h ../include/stdio.h ../include/stdlib.h ../include/string.h ../include/stdarg.h ../include/errno.h ../include/float.h fpbig.h
 	$(GCC) -c -O $(INC) $< -o $@
 
 clean:

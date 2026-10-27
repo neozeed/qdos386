@@ -76,6 +76,13 @@ if [ -f "$libc" ]; then crt0src="$SDK/lib/crt0_libc.s"; else crt0src="$SDK/lib/c
 # the symbols it needs.
 lib="$SDK/lib/libqdos.a"
 [ -f "$lib" ] || die "missing $lib (run: make -C $SDK/lib)"
+# Math (R11C): libm.a sets errno, which is in libc.a, so it comes before libc.
+# Compiler support (R11C): the GCC 1.40 helpers for double <-> integer
+# conversions, from sdk/compiler, after libc.a and before libqdos.a.
+libm="$SDK/lib/libm.a"
+[ -f "$libm" ] || libm=
+gcclib="$SDK/lib/libgcc-qd.a"
+[ -f "$gcclib" ] || gcclib=
 "$QDOS386_TOOLS/bin/i386-ld" -N -T "$SDK/ld/slot$slot.ld" -e _start -o "$out" \
-	"$work/crt0.o" $objs $libc "$lib" || die "link failed"
+	"$work/crt0.o" $objs $libm $libc $gcclib "$lib" || die "link failed"
 echo "qdos386-gcc: $out (slot $slot)"
