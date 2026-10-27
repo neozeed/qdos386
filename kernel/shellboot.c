@@ -7,6 +7,7 @@
 #include "fpu.h"
 #include "memory.h"
 #include "platform.h"
+#include "clock_boot.h"
 #include "aout.h"
 #include "imgload.h"
 #include "win1.h"
@@ -72,9 +73,11 @@ int shell_boot(void)
 
 	cin_enable_poll();             /* i386VM: pull bytes from input_poll */
 #ifndef QDOS_NO_TIMER
+	clock_boot(1);
 	timer_start(SHELL_TIMER_UNITS);
 	con_puts("SHELL: running\n\n");
 #else
+	clock_boot(0);
 	/* Negative build: no timer, so no tick polls input and the shell never
 	 * reads a byte.  The run must stall; see docs/R7-RUNTIME-REPORT.md. */
 	con_puts("SHELL: timer disabled (negative test build)\n\n");

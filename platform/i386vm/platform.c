@@ -35,6 +35,16 @@ void con_putdec(unsigned long v)
 		con_putc((unsigned char) buf[i]);
 }
 
+/* i386VM has no real-time timer: a tick is 1024 executed steps.  The rate
+ * below is nominal (100 ticks per second) so that the clock has a definite
+ * unit; it is NOT wall time.  Clock values on i386VM are tick-derived, and
+ * the advancing clock is not a real-time claim there. */
+void timer_rate(unsigned long *num, unsigned long *den)
+{
+	*num = 100UL;
+	*den = 1UL;
+}
+
 /* period in units of 1024 executed steps; the harness counts steps. */
 void timer_start(unsigned int period_units)
 {

@@ -40,6 +40,13 @@ unsigned long qd_ticks(void)
 	return (unsigned long) qtrap(QD_TRAP_TICKS, 0, 0, 0);
 }
 
+/* R11F: the kernel wall clock (see docs/R11F-TIME-ABI.md).  0xFFFFFFFF means
+ * unavailable: no clock is configured in this kernel build, or it overflowed. */
+unsigned long qd_wall_time(void)
+{
+	return (unsigned long) qtrap(QD_TRAP_WALL, 0, 0, 0);
+}
+
 void qd_yield(unsigned int ticks)
 {
 	qtrap(QD_TRAP_SUSPEND, ticks, 0, 0);

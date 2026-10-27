@@ -9,6 +9,10 @@ void con_putc(unsigned char c);
 void con_puts(const char *s);
 void con_putdec(unsigned long v);
 
+/* The timer tick rate in ticks per second, as num/den (R11F).  Used by the
+ * wall clock; each platform reports what it actually programs. */
+void timer_rate(unsigned long *num, unsigned long *den);
+
 /* Start periodic IRQ0.  Units are platform-defined; see each platform. */
 void timer_start(unsigned int period_units);
 void timer_stop(void);

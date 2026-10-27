@@ -79,6 +79,13 @@ void pic_init(void)
 	pic_ready = 1;
 }
 
+/* The PIT input clock divided by the programmed divisor (about 100.0017 Hz). */
+void timer_rate(unsigned long *num, unsigned long *den)
+{
+	*num = PIT_CLOCK;
+	*den = (unsigned long) pit_divisor;
+}
+
 /* Period units are ignored on the PC: 1 unit = 10 ms (100 Hz). */
 void timer_start(unsigned int period_units)
 {

@@ -39,6 +39,7 @@
 #include "cin.h"
 #include "imgload.h"
 #include "fpu.h"
+#include "clock_boot.h"
 
 struct job jobs[JOB_MAX];
 int job_current = JOB_SYSTEM;
@@ -227,6 +228,7 @@ static unsigned int schedule(unsigned int sp, int fmt, int from_irq)
 unsigned int sched_irq_tick(unsigned int sp)
 {
 	sched_ticks++;
+	clock_tick();                          /* R11F: wall clock */
 	timer_ack();
 	sv_pollm++;
 	cin_poll_tick();                       /* R7: bounded, no-op unless enabled */
@@ -631,6 +633,11 @@ unsigned int trap_dispatch(unsigned int sp)
 
 	case QT_TICKS:
 		result = (int) (unsigned int) sched_ticks;
+		break;
+
+	case QT_WALL_TIME:
+		/* R11F: the wall clock, or CLOCK_UNAVAILABLE (-1 as int). */
+		result = (int) kernel_wall_time();
 		break;
 
 	case QT_JOB_SELF:

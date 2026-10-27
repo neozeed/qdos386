@@ -33,6 +33,7 @@ int qtrap(unsigned int fn, unsigned int a, unsigned int b, unsigned int c);
 #define QD_TRAP_MEM_VALIDATE 0x13u
 #define QD_TRAP_APP_ARGS     0x1Fu
 #define QD_TRAP_TICKS        0x20u
+#define QD_TRAP_WALL         0x23u   /* R11F: wall clock, 0xFFFFFFFF if unavailable */
 #define QD_TRAP_JOB_INFO     0x0Cu   /* R11E wrappers below use these existing traps */
 #define QD_TRAP_JOB_ACTIVATE 0x0Au
 #define QD_TRAP_JOB_CHPRIO   0x0Bu
@@ -56,6 +57,7 @@ int qtrap(unsigned int fn, unsigned int a, unsigned int b, unsigned int c);
 void qd_exit(int status);                   /* does not return */
 int qd_args(char ***argv);                  /* argc; *argv = the argument vector */
 unsigned long qd_ticks(void);               /* timer ticks since boot (low 32 bits) */
+unsigned long qd_wall_time(void);          /* R11F: epoch seconds, or 0xFFFFFFFF if no clock is configured */
 void qd_yield(unsigned int ticks);          /* sleep for about this many ticks */
 
 /* Heap (QDOS-specific; not malloc semantics: no realloc, no calloc, and the

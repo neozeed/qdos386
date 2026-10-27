@@ -57,6 +57,7 @@
 #define QT_TICKS      0x20        /* -> sched_ticks, low 32 bits (timer ticks since boot) */
 #define QT_JOB_SELF   0x21        /* R11E: -> tagged job id of the calling job */
 #define QT_JOB_SLOT   0x22        /* R11E: a = slot index -> tagged job id of the job in that slot, or -2 */
+#define QT_WALL_TIME  0x23        /* R11F: -> wall time (epoch seconds), or -1 (0xFFFFFFFF) if unavailable */
 #define QT_CON_WAIT   0x1C        /* b = flag byte, set when console input arrives -> 0.
                                      Returns at once if input or end is pending; otherwise
                                      the job sleeps.  The caller retries its CON read. */

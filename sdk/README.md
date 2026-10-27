@@ -1,4 +1,41 @@
-# QDOS/386 SDK (R11E)
+# QDOS/386 SDK (R11F)
+
+R11F adds calendar time to the C89 library and a kernel wall-clock service, and
+brings up the Phoon moon-phase program as the first real application that uses
+them.  Everything from R11E still applies.
+
+## R11F: calendar time
+
+- `time_t` is unsigned 32-bit seconds since 1970-01-01 00:00:00 UTC, valid to
+  2106-02-07 06:28:14 UTC.  The policy is UTC only: `localtime` equals `gmtime`,
+  `tm_isdst` is 0, and `%Z` is `UTC`.
+- `time`, `gmtime`, `localtime`, `mktime`, `ctime`, `asctime` and `strftime` work
+  when the kernel has a clock.  Without one, `time()` returns `(time_t) -1`.
+- `clock()` is unavailable and returns `(clock_t) -1`.  It is not CPU time.
+- Kernel builds choose the clock with `-DQDOS_CLOCK_EPOCH=<seconds>`, optionally
+  with `-DQDOS_CLOCK_PINNED`.  See `docs/R11F-FIXED-CLOCK.md`.
+- Read `docs/R11F-TIME-ABI.md` for the contract and `docs/R11F-PHOON-PORT.md` for
+  the Phoon portability patch.
+
+New in R11F: the `QT_WALL_TIME` (0x23) trap and `qd_wall_time()` in
+`include/qdos386.h`; `timer_rate()` in the platform layer.  Examples: `TMABIN`,
+`TMABIP`, `TMABIA`, `TMABII` (calendar tests, one per clock mode), `PHCHK`
+(heap and channel check), and `PHOON.AOU` built from `third_party/phoon/`.
+
+Build and run: `scripts/r11f-volume.sh` builds the SDK, examples, Phoon and the
+volume; `scripts/r11f-images.sh` builds the clock-mode kernels;
+`scripts/r11f-run-all.sh` runs the scripted matrix; `scripts/r11f-qemu-smoke.sh`
+runs the scripted QEMU VGA smoke test.
+
+Read first:
+- `docs/R11F-TIME-ABI.md` (time_t, UTC policy, function behaviour, clock modes)
+- `docs/R11F-FIXED-CLOCK.md` (building and launching with a fixed clock)
+- `docs/R11F-PHOON-PORT.md` (Phoon changes, preserved behaviour, known defect)
+- `docs/R11F-C89-COVERAGE.md` / `.csv` (per-function status and guest tests)
+- `docs/R11F-RUNTIME-REPORT.md` (what was run, where, and the results)
+- `docs/R11F-KNOWN-LIMITATIONS.md` (what is not done or not verified)
+
+## R11E (previous milestone)
 
 R11E makes `libqdos.a` a documented native service library and extends the
 filename limit to the full 8.3 spelling.  It does not change the C89 library

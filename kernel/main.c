@@ -25,6 +25,7 @@
 #include "aout.h"
 #include "irq.h"
 #include "shellboot.h"
+#include "clock_boot.h"
 
 #define TIMER_PERIOD_UNITS 16        /* i386VM: 16 * 1024 steps.  PC: see platform */
 
@@ -257,9 +258,11 @@ int test_main(void)
 
 	con_puts("SCHEDULER: preemption enabled\n");
 #ifndef QDOS_NO_TIMER
+	clock_boot(1);
 	timer_start(TIMER_PERIOD_UNITS);
 	con_puts("TIMER: IRQ0 active\n\n");
 #else
+	clock_boot(0);
 	con_puts("TIMER: disabled (negative test build)\n\n");
 #endif
 
