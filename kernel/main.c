@@ -18,6 +18,7 @@
 #include "test_channels.h"
 #include "channel.h"
 #include "test_app.h"
+#include "test_r8.h"
 #include "test_fs.h"
 #include "test_console.h"
 #include "aout.h"
@@ -297,6 +298,9 @@ int test_main(void)
 
 	/* R5: guest a.out loader, two applications, malformed images. */
 	app_phase();
+
+	/* R8: loader negative checks (reader faults, short images, argument blocks). */
+	r8_loader_phase();
 
 	/* R6: FAT16 volume, WIN1_ file channel, a.out from a file. */
 	fs_phase();

@@ -1,0 +1,73 @@
+#!/bin/sh
+# qdos386-gcc - build a QDOS/386 R8 application (an i386 a.out, OMAGIC 0407)
+# with the historical toolchain: GCC 1.40 (C89), GAS 1.38, i386-ld 1.94.
+#
+# Usage:  qdos386-gcc [-slot 0|1] [-O] [-I dir] [-D name[=value]] -o out.aout src.c ...
+#
+#   -slot N   link for application slot N (default 1; origin 0x240000 or
+#             0x200000).  Each slot is 256 KiB, the argument block sits at its top.
+#   -O        pass -O to GCC 1.40 (the only optimisation level it has)
+#   -I, -D    as GCC 1.40
+#   -o        output a.out file (required)
+#
+# Environment:
+#   QDOS386_TOOLS   the historical tree: $QDOS386_TOOLS/bin has i386-gcc, as,
+#                   i386-ld (required; no default, so no path is assumed)
+#   QDOS386_SDK     this SDK directory (default: the directory above bin/)
+#
+# Refused, because the historical compiler cannot honour them and a silent
+# difference would produce a wrong image: -m* (other machine models), -std=c99
+# and later, -fpic/-fPIC, -shared, -pie, -static, -nostdlib, -nostartfiles,
+# -g and any option not listed above.  Only C89 sources (.c) are accepted.
+set -eu
+
+die() { echo "qdos386-gcc: $*" >&2; exit 2; }
+
+[ -n "${QDOS386_TOOLS:-}" ] || die "set QDOS386_TOOLS to the GCC 1.40 / GAS / i386-ld tree"
+for t in i386-gcc as i386-ld; do
+	[ -x "$QDOS386_TOOLS/bin/$t" ] || die "missing $QDOS386_TOOLS/bin/$t"
+done
+SDK=${QDOS386_SDK:-$(cd "$(dirname "$0")/.." && pwd)}
+
+slot=1
+out=
+optO=
+incs=
+defs=
+srcs=
+while [ $# -gt 0 ]; do
+	case "$1" in
+	-slot)  [ $# -ge 2 ] || die "-slot needs 0 or 1"; slot=$2; shift ;;
+	-O)     optO=-O ;;
+	-I)     [ $# -ge 2 ] || die "-I needs a directory"; incs="$incs -I$2"; shift ;;
+	-I*)    incs="$incs $1" ;;
+	-D)     [ $# -ge 2 ] || die "-D needs a name"; defs="$defs -D$2"; shift ;;
+	-D*)    defs="$defs $1" ;;
+	-o)     [ $# -ge 2 ] || die "-o needs a file"; out=$2; shift ;;
+	-m*|-std=c99|-std=c11|-std=c17|-std=gnu99|-std=gnu11|-fpic|-fPIC|-shared|-pie|-static|-nostdlib|-nostartfiles|-g|-g*)
+		die "refused option: $1 (see the header of this script)" ;;
+	-*)     die "unknown option: $1" ;;
+	*.c)    [ -f "$1" ] || die "no such source: $1"; srcs="$srcs $1" ;;
+	*)      die "unsupported input (only .c sources): $1" ;;
+	esac
+	shift
+done
+case "$slot" in 0|1) ;; *) die "-slot must be 0 or 1" ;; esac
+[ -n "$out" ] || die "-o is required"
+[ -n "$srcs" ] || die "no source files"
+
+work=$(mktemp -d "${TMPDIR:-/tmp}/qdos386-gcc.XXXXXX")
+trap 'rm -rf "$work"' EXIT
+objs=
+for s in $srcs; do
+	base=$(basename "$s" .c)
+	"$QDOS386_TOOLS/bin/i386-gcc" -c $optO $incs -I"$SDK/include" $defs \
+		"$s" -o "$work/$base.o" || die "compile failed: $s"
+	objs="$objs $work/$base.o"
+done
+"$QDOS386_TOOLS/bin/as" -o "$work/crt0.o" "$SDK/lib/crt0.s" || die "assemble crt0"
+lib="$SDK/lib/libqdos.a"
+[ -f "$lib" ] || die "missing $lib (run: make -C $SDK/lib)"
+"$QDOS386_TOOLS/bin/i386-ld" -N -T "$SDK/ld/slot$slot.ld" -e _start -o "$out" \
+	"$work/crt0.o" $objs "$lib" || die "link failed"
+echo "qdos386-gcc: $out (slot $slot)"

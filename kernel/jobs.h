@@ -49,6 +49,9 @@
 #define QT_CH_SEEK    0x1B        /* a = channel id, b = byte position -> 0, or negative */
 #define QT_IMG_LOAD   0x1D        /* a = name pointer (WIN1_ root name) -> job id, or negative */
 #define QT_JOB_RECLAIMED 0x1E     /* a = job id -> 1 if the job slot is free again, else 0 */
+/* R8: application arguments and time. */
+#define QT_APP_ARGS   0x1F        /* a = pointer to a word -> argc; the word gets the argv array address (0 if none) */
+#define QT_TICKS      0x20        /* -> sched_ticks, low 32 bits (timer ticks since boot) */
 #define QT_CON_WAIT   0x1C        /* b = flag byte, set when console input arrives -> 0.
                                      Returns at once if input or end is pending; otherwise
                                      the job sleeps.  The caller retries its CON read. */
@@ -82,6 +85,8 @@ struct job {
 	unsigned int stack_base;      /* heap block; 0 for the boot stack */
 	unsigned int stack_top;
 	unsigned int stack_hwm;       /* deepest stack use seen at reclaim, bytes */
+	unsigned int stack_bytes;     /* R8: stack size of this job */
+	unsigned int args;            /* R8: argument block address in the slot, 0 if none */
 	unsigned long preempts;
 	unsigned long dispatches;
 };
@@ -109,6 +114,9 @@ extern unsigned long bytes_reclaimed;               /* heap bytes freed by recla
 
 void sched_init(void);
 int job_alloc(const char *name, void (*entry)(void), unsigned char inc);
+/* R8: as job_alloc, with a stack of stack_bytes (16-byte multiple, 4 KiB..64 KiB). */
+int job_alloc_sized(const char *name, void (*entry)(void), unsigned char inc, unsigned int stack_bytes);
+void job_cancel(unsigned int id);            /* R8: free a job that never ran */
 int job_lookup(unsigned int id);            /* -1 if the id is stale or invalid */
 unsigned int job_current_id(void);
 int stack_canary_ok(int slot);

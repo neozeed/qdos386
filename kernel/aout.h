@@ -38,6 +38,22 @@
 #define APP_ERR_TOOBIG    (-31)  /* RUN: file larger than IMG_MAX (imgload.h) */
 #define APP_ERR_NOTSLOT1  (-32)  /* RUN: image is not linked for slot 1 */
 #define APP_ERR_NOTSLOT0  (-33)  /* boot: image is not linked for slot 0 */
+#define APP_ERR_ARGS     (-34)  /* argument block: too many, too long, or not NUL-terminated */
+
+/* R8 limits.  Text + data + BSS of one image may not exceed APP_IMAGE_LIMIT;
+ * the slot's top APP_ARG_BYTES hold the argument block, so the limit is below
+ * the slot size minus the block.  See docs/R8-LOADER-DESIGN.md. */
+#define APP_IMAGE_LIMIT  0x00038000u     /* 224 KiB */
+#define APP_ARG_BYTES    512u            /* argument block at the top of the slot */
+#define APP_ARG_MAX      16u             /* argc, including argv[0] */
+#define APP_ARG_STR_OFF  80u             /* strings start here inside the block */
+#define APP_ARG_STR_MAX  (APP_ARG_BYTES - APP_ARG_STR_OFF)
+#define APP_STACK_BYTES  16384u          /* job stack for applications */
+#define APP_RESERVED     (-1)            /* slot reserved while its image is copied */
+
+/* Source-neutral reader: fill dst with n bytes at offset off of the image.
+ * Returns APP_OK, or a negative code (APP_ERR_SIZE, or a FAT error). */
+typedef int (*app_rd_fn)(void *ctx, unsigned int off, unsigned char *dst, unsigned int n);
 
 struct app_image {
 	const unsigned char *img;   /* exact file bytes (in the transfer area) */
@@ -74,6 +90,16 @@ int app_load(int index);
 /* The same load from a byte buffer (R6: a file read through a channel).  The
  * buffer is checked exactly as a transfer image is; see aout_check. */
 int app_load_bytes(const unsigned char *img, unsigned int len);
+
+/* R8: validate and load an image from any reader, with its argument block.
+ * want_slot: 0 or 1 to require that slot, -1 for either.  packed holds plen
+ * bytes of NUL-terminated strings (argv[0] first); plen 0 means argc 0.
+ * Validation reads only; the slot is reserved only after it passes. */
+int app_load_src(app_rd_fn rd, void *ctx, unsigned int len, int want_slot,
+                 const unsigned char *packed, unsigned int plen);
+
+/* Argument block address for a job (0 if none). */
+unsigned int app_args_of(int job_slot);
 
 int app_slot_owner(int slot);                  /* job id, or 0 if free */
 void app_release_owner(unsigned int job_id);   /* called from job reclaim */

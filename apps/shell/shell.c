@@ -1,7 +1,12 @@
 /*
- * QDOS/386 R7 - the shell (slot 0; application-owned, not part of the kernel).
+ * QDOS/386 R8 - the shell (slot 0; application-owned, not part of the kernel).
  *
- * Commands:  HELP   DIR   TYPE <name>   RUN <name>   EXIT
+ * Commands:  HELP   DIR   TYPE <name>   RUN <name> [arguments]   EXIT
+ *
+ * RUN arguments: separated by spaces; a double-quoted argument may hold spaces;
+ * there is no escape character.  argv[0] is the program name.  At most 15
+ * arguments, 432 bytes of argument text including the name.  Only the command
+ * word and the RUN or TYPE name are folded to upper case; arguments keep case.
  *
  * Names are 8.3 on the WIN1_ volume.  Input is folded to uppercase, so
  * "hello.aou" is HELLO.AOU.  Names are limited to 10 characters, because a
@@ -24,6 +29,7 @@
 #include "appcalls.h"
 
 #define SH_LINE_MAX  80
+#define SH_RUN_MAX_ARGS 15         /* user arguments; argv[0] is the name */
 #define SH_PATH_MAX  16            /* "WIN1_" plus a name, NUL included */
 #define SH_NAME_MAX  10            /* longest name the channel prefix allows */
 #define SH_CAP_MAX   1024
@@ -46,6 +52,7 @@
 #define E_NOJOB     (-29)
 #define E_NOMEM     (-30)
 #define E_TOOBIG    (-31)
+#define E_ARGS      (-34)
 #define E_NOTSLOT1  (-32)
 #define E_CHAIN     (-43)
 #define E_NOFILE    (-44)
@@ -209,7 +216,7 @@ static void cmd_help(void)
 	outs("HELP          this list\n");
 	outs("DIR           list the files on the data disk\n");
 	outs("TYPE <name>   print a file\n");
-	outs("RUN <name>    run an a.out program (slot 1), wait, show its status\n");
+	outs("RUN <name> [arguments]   run an a.out program (slot 1), show its status\n");
 	outs("EXIT          leave the shell\n");
 }
 
@@ -267,9 +274,10 @@ static int make_path(const char *name)
 	return 0;
 }
 
-static void cmd_type(const char *name)
+static void cmd_type(char *name)
 {
 	int ch, n;
+	fold(name);
 	if (slen(name) == 0) {
 		outs("usage: TYPE <name>\n");
 		return;
@@ -309,31 +317,88 @@ static int wait_job(int id)
 	return st;
 }
 
-static void cmd_run(const char *name)
+/* Packed argument strings for RUN: the arguments after the name, each
+ * NUL-terminated.  The kernel adds argv[0] (the name) itself. */
+static unsigned char runargs[APP_ARG_STR_MAX];
+
+static void cmd_run(char *arg)
 {
+	char *p = arg, *tok, *name;
+	unsigned int plen = 0, argc = 0, n, k, nlen;
 	int id, st;
-	if (slen(name) == 0) {
-		outs("usage: RUN <name>\n");
+
+	if (*p == 0) {
+		outs("usage: RUN <name> [arguments]\n");
 		return;
 	}
+	name = p;
+	while (*p && *p != ' ')
+		p++;
+	if (*p) {
+		*p++ = 0;
+		while (*p == ' ')
+			p++;
+	}
+	fold(name);
 	if (slen(name) > SH_NAME_MAX) {
 		outs("invalid name\n");
 		return;
 	}
-	id = (int) qtrap(APP_QT_IMG_LOAD, (unsigned int) name, 0, 0);
+	nlen = slen(name) + 1;                     /* argv[0] with its NUL */
+
+	while (*p) {
+		if (argc + 2 > APP_ARG_MAX) {          /* argv[0] counts too */
+			outs("too many arguments (limit 15)\n");
+			return;
+		}
+		if (*p == '"') {
+			tok = ++p;
+			while (*p && *p != '"')
+				p++;
+			if (*p == 0) {
+				outs("unterminated quote\n");
+				return;
+			}
+			n = (unsigned int) (p - tok);
+			p++;                              /* the closing quote */
+		} else {
+			tok = p;
+			while (*p && *p != ' ')
+				p++;
+			n = (unsigned int) (p - tok);
+		}
+		if (plen + n + 1 + nlen > APP_ARG_STR_MAX) {
+			outs("arguments too long (limit 432 bytes with the name)\n");
+			return;
+		}
+		for (k = 0; k < n; k++)
+			runargs[plen + k] = (unsigned char) tok[k];
+		runargs[plen + n] = 0;
+		plen += n + 1;
+		argc++;
+		while (*p == ' ')
+			p++;
+	}
+
+	id = (int) qtrap(APP_QT_IMG_LOAD, (unsigned int) name, (unsigned int) runargs, plen);
 	if (id < 0) {
 		switch (id) {
 		case E_TOOBIG:
-			outs("too large: the limit is 8192 bytes\n");
+			outs("too large: the limit is 524288 bytes\n");
 			break;
 		case E_NOTSLOT1:
 			outs("not a slot 1 program (RUN loads slot 1 only)\n");
+			break;
+		case E_IMG_LAYOUT:
+			outs("not a valid a.out image (code -24): text, data and BSS must fit in 229376 bytes\n");
+			break;
+		case E_ARGS:
+			outs("arguments refused by the loader (code -34)\n");
 			break;
 		case E_IMG_SIZE:
 		case E_IMG_MAGIC:
 		case E_IMG_RELOC:
 		case E_IMG_FORMAT:
-		case E_IMG_LAYOUT:
 		case E_IMG_ENTRY:
 		case E_IMG_XFER:
 			outs("not a valid a.out image (code ");
@@ -378,7 +443,6 @@ static int exec_line(char *s)
 		w++;
 	if (*w == 0)
 		return 0;
-	fold(w);
 	arg = w;
 	while (*arg && *arg != ' ')
 		arg++;
@@ -387,6 +451,7 @@ static int exec_line(char *s)
 		while (*arg == ' ')
 			arg++;
 	}
+	fold(w);                  /* only the command word; arguments keep case */
 	e = slen(arg);
 	while (e > 0 && arg[e - 1] == ' ')
 		arg[--e] = 0;
@@ -416,7 +481,7 @@ int main(void)
 	con_ch = (int) qtrap(APP_QT_CH_OPEN, (unsigned int) "CON", 0, 0);
 	if (con_ch <= 0)
 		return 1;
-	outs("QDOS/386 R7 shell. Type HELP.\n");
+	outs("QDOS/386 R8 shell. Type HELP.\n");
 	for (;;) {
 		outs("> ");
 		if (!read_line()) {
@@ -501,7 +566,8 @@ static int selftest(void)
 	run_text("RUN BAD.AOU");
 	check("RUN of a non-a.out file refused", has("not a valid a.out image"));
 	run_text("RUN BIG.AOU");
-	check("RUN of an 8200-byte file refused by the size cap", has("too large"));
+	check("RUN of an 8200-byte non-a.out file: not a valid a.out (code -21)",
+	      has("not a valid a.out image (code -21)"));
 	run_text("RUN SLOT0.AOU");
 	check("RUN of a slot 0 image refused", has("not a slot 1 program"));
 	run_text("RUN EMPTY.TXT");
@@ -529,7 +595,7 @@ static int selftest(void)
 	outnum(fails);
 	outs(" failed\n");
 	if (fails == 0) {
-		outs("QDOS/386 R7 SHELL SELFTEST PASS\n");
+		outs("QDOS/386 R8 SHELL SELFTEST PASS\n");
 		return 0;
 	}
 	return 1;

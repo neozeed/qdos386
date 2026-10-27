@@ -1,3 +1,44 @@
+# QDOS/386 R8 - larger applications, argv, and an SDK foundation
+
+R8 keeps the R7 kernel and shell and adds three things:
+
+- **A streaming a.out loader.**  An application is validated from its file
+  before any slot is touched, then copied into slot 1 in 512-byte chunks.
+  Text + data + BSS may be up to 224 KiB (`LARGE.AOU` is about 175 KiB).
+  See `docs/R8-LOADER-DESIGN.md`.
+- **A startup and argument ABI.**  `main(int argc, char **argv)`, arguments
+  from `RUN <name> "quoted words"` (15 user arguments, 432 bytes), and
+  `QT_APP_ARGS` / `QT_TICKS` traps.  See `docs/R8-APP-ABI.md`.
+- **An SDK foundation, not a libc.**  Headers, crt0, `libqdos.a`, slot link
+  scripts, the `qdos386-gcc` wrapper and four examples.  See `sdk/README.md`
+  and `docs/R8-SDK-INVENTORY.md` (which also audits the attached C68 libc).
+
+Other R8 documents: `docs/R8-AUDIT.md` (Phase 0), `docs/R8-RUNTIME-REPORT.md`
+(results, limits, and what was not tested).
+
+## R8 build and run
+
+    export I386VM=/path/to/i386vm-tree           # provides bin/i386-gcc, as, i386-ld, i386vm
+    make i386vm pc apps fat16                    # R2-R7 images and the R7 volume
+    make r8-fat16 sdk-examples                   # R8 volume (builds r8-apps and the SDK samples)
+    make i386vm-r8-shell pc-r8-shell             # R8 shell images on the R8 volume
+    sh scripts/r8-matrix.sh                      # ROUNDS=3 by default
+
+- `build/fat16/win1-r8.img` is the R8 volume (17 files; `DIR` shows 18 with
+  `CHAIN.AOU`).  The R7 volume `build/fat16/win1.img` is kept for the R2-R7
+  regression and is not modified by the R8 build.
+- `build/i386vm-r8/qdos386-r8-shell.bin` is the i386VM R8 shell image (its
+  FAT16 is `win1-r8.img`).  `build/pc-r8/r8shell.img` is the Tiny386 R8 shell
+  image, with `run.ini` in the same directory.
+- The SDK samples are built by `make sdk-examples` (it runs `sdk/lib` and
+  `sdk/examples` with `QDOS386_TOOLS=$(I386VM)`); see `sdk/README.md`.
+
+The matrix runs the R2-R8 kernel tests and the R8 shell session on both
+emulators, scripted (i386VM pipe) or through the PS/2 path of Tiny386 driven by
+`tests/interactive/session.py`.  These are not human keyboard tests.
+
+---
+
 # QDOS/386 R7 - a diagnostic shell on the native kernel
 
 R7 adds a small shell. At a `> ` prompt a user types `HELP`, `DIR`, `TYPE`,

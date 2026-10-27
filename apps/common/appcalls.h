@@ -14,5 +14,16 @@ int qtrap(unsigned int fn, unsigned int a, unsigned int b, unsigned int c);
 #define APP_QT_CH_CLOSE  0x15u
 #define APP_QT_CH_WRITE  0x16u
 #define APP_QT_EXIT      0x18u
+#define APP_QT_APP_ARGS 0x1Fu     /* R8: argc; the word at a gets the argv array address */
+#define APP_QT_TICKS    0x20u     /* R8: timer ticks since boot */
+#define APP_QT_MEM_ALLOC      0x10u
+#define APP_QT_MEM_FREE       0x11u
+#define APP_QT_MEM_FREE_BYTES 0x12u
+#define APP_QT_MEM_VALIDATE   0x13u
+
+/* R8 argument limits (kernel/aout.h): argc includes argv[0] and is at most 16;
+ * the packed argument strings are at most 432 bytes, name included. */
+#define APP_ARG_MAX      16u
+#define APP_ARG_STR_MAX  432u
 
 #endif

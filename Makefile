@@ -26,17 +26,20 @@ I386FLAGS ?=
 PCD      ?= build/pc
 PCIMG    ?= r6pc.img
 PCFLAGS  ?=
+# R8: the FAT16 volume each boot image uses (R7 volume by default).
+I386WIN  ?= build/fat16/win1.img
+PCWIN    ?= build/fat16/win1.img
 
 INC = -Ikernel -Itests -Iplatform
 KCORE = kernel/main.c kernel/jobs.c kernel/memory.c kernel/channel.c kernel/irq.c kernel/descriptors.c \
         kernel/aout.c kernel/fat16.c kernel/win1.c kernel/cin.c kernel/kbd.c kernel/imgload.c kernel/shellboot.c \
         tests/test_jobs.c tests/test_memory.c tests/test_channels.c tests/test_app.c tests/test_fs.c \
-        tests/test_console.c tests/test_dir.c tests/test_shell.c
+        tests/test_console.c tests/test_dir.c tests/test_shell.c tests/test_r8.c
 
 all: i386vm pc
 
 # ---- applications (independently linked; the kernel never links them) ------
-APPS = build/apps/hello.aout build/apps/prep.aout build/apps/hello1.aout build/apps/shell.aout build/apps/shellt.aout
+APPS = build/apps/hello.aout build/apps/prep.aout build/apps/hello1.aout build/apps/shell.aout build/apps/shellt.aout build/apps/args.aout
 
 build/apps/%.o: apps/hello/%.c apps/common/appcalls.h
 	mkdir -p build/apps
@@ -75,6 +78,13 @@ build/apps/shell.aout: build/apps/shell.o build/apps/app_start.o build/apps/qtra
 build/apps/shellt.aout: build/apps/shellt.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
 	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shellt.o build/apps/qtrap.o
 
+# R8: ARGS.AOU, slot 1, prints and validates argc/argv (apps/args/args.c).
+build/apps/args.o: apps/args/args.c apps/common/appcalls.h
+	mkdir -p build/apps
+	$(GCC) -c -O -Iapps/common $< -o $@
+build/apps/args.aout: build/apps/args.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot1.ld
+	$(LD) -N -T apps/common/slot1.ld -e _start -o $@ build/apps/app_start.o build/apps/args.o build/apps/qtrap.o
+
 apps: $(APPS) build/apps/hello1.aout build/apps/shell.aout build/apps/shellt.aout
 
 # WIN1_ volume (R6): the same bytes go on the Tiny386 hdb disk and into the
@@ -102,8 +112,8 @@ $(I386D)/kernel-raw.bin: $(I386VM_SRC) $(wildcard kernel/*.h) $(wildcard tests/*
 	mkdir -p $(I386D)
 	$(GCC) --raw $(I386FLAGS) $(INC) $(I386VM_SRC) -o $@
 
-$(I386D)/$(I386IMG): $(I386D)/kernel-raw.bin build/xfer.bin build/fat16/win1.img tools/make-vm-image.py
-	python3 tools/make-vm-image.py $(I386D)/kernel-raw.bin build/xfer.bin $@ build/fat16/win1.img
+$(I386D)/$(I386IMG): $(I386D)/kernel-raw.bin build/xfer.bin $(I386WIN) tools/make-vm-image.py
+	python3 tools/make-vm-image.py $(I386D)/kernel-raw.bin build/xfer.bin $@ $(I386WIN)
 
 i386vm: $(I386D)/$(I386IMG)
 
@@ -123,17 +133,20 @@ PC_OBJS = $(PCD)/main.o $(PCD)/jobs.o $(PCD)/memory.o $(PCD)/channel.o $(PCD)/ir
           $(PCD)/descriptors.o $(PCD)/test_jobs.o $(PCD)/test_memory.o $(PCD)/test_channels.o \
           $(PCD)/aout.o $(PCD)/test_app.o $(PCD)/context.o $(PCD)/platform.o \
           $(PCD)/fat16.o $(PCD)/win1.o $(PCD)/test_fs.o $(PCD)/disk.o \
-          $(PCD)/cin.o $(PCD)/kbd.o $(PCD)/test_console.o $(PCD)/i8042.o $(PCD)/test_dir.o $(PCD)/imgload.o $(PCD)/shellboot.o $(PCD)/test_shell.o
+          $(PCD)/cin.o $(PCD)/kbd.o $(PCD)/test_console.o $(PCD)/test_r8.o $(PCD)/i8042.o $(PCD)/test_dir.o $(PCD)/imgload.o $(PCD)/shellboot.o $(PCD)/test_shell.o
 
 pc: $(PCD)/$(PCIMG)
 
-$(PCD)/%.o: kernel/%.c
+# Every object depends on every header: the R8 change to a shared struct
+# (struct job) must rebuild all users, or the Tiny386 image runs stale layouts.
+PC_HDR = $(wildcard kernel/*.h) $(wildcard tests/*.h) $(wildcard platform/*.h) $(wildcard platform/pc/*.h)
+$(PCD)/%.o: kernel/%.c $(PC_HDR)
 	mkdir -p $(PCD)
 	$(GCC) -c $(INC) $(PCFLAGS) $< -o $@
-$(PCD)/%.o: tests/%.c
+$(PCD)/%.o: tests/%.c $(PC_HDR)
 	mkdir -p $(PCD)
 	$(GCC) -c $(INC) $(PCFLAGS) $< -o $@
-$(PCD)/%.o: platform/pc/%.c
+$(PCD)/%.o: platform/pc/%.c $(PC_HDR)
 	mkdir -p $(PCD)
 	$(GCC) -c $(INC) $(PCFLAGS) $< -o $@
 $(PCD)/context.o: kernel/context.s
@@ -155,9 +168,9 @@ $(PCD)/$(PCIMG): $(PCD)/kernel.raw build/xfer.bin platform/pc/boot.bin platform/
 platform/pc/boot.bin: platform/pc/boot.s
 	cd platform/pc && $(AS) -o boot.o boot.s && $(LD) -N -T boot.ld -e start -o boot.aout boot.o && python3 $(I386VM)/tools/aout-to-raw.py boot.aout boot.bin
 
-$(PCD)/run.ini: $(PCD)/$(PCIMG) build/fat16/win1.img
+$(PCD)/run.ini: $(PCD)/$(PCIMG) $(PCWIN)
 	printf '[pc]\nbios = %s/bios.bin\nvga_bios = %s/vgabios.bin\nmem_size = 8M\nhda = %s\nhdb = %s\n' \
-	  "$(SEABIOS)" "$(SEABIOS)" "$(CURDIR)/$(PCD)/$(PCIMG)" "$(CURDIR)/build/fat16/win1.img" > $@
+	  "$(SEABIOS)" "$(SEABIOS)" "$(CURDIR)/$(PCD)/$(PCIMG)" "$(CURDIR)/$(PCWIN)" > $@
 
 run-pc: $(PCD)/run.ini
 	cd $(PCD) && $(TINY386) run.ini
@@ -178,4 +191,51 @@ i386vm-shell-notimer:
 clean:
 	rm -rf build platform/pc/boot.o platform/pc/boot.aout platform/pc/boot.bin
 
-.PHONY: all apps fat16 i386vm pc run-i386vm run-pc clean notimer i386vm-shell pc-shell i386vm-shell-notimer
+.PHONY: all apps fat16 i386vm pc run-i386vm run-pc clean notimer i386vm-shell pc-shell i386vm-shell-notimer i386vm-r8-shell pc-r8-shell r8-apps r8-fat16
+
+# ---- R8: large applications, ARGS.AOU and the R8 volume -------------------
+# LARGE.AOU is generated (tools/make-large.py): about 175 KiB of text, data and
+# BSS, in slot 1, with argv and heap, timer and table checks.  Its expected
+# dispatcher value is written to build/apps/large-expected.txt.
+build/apps/large.c build/apps/large-expected.txt: tools/make-large.py
+	mkdir -p build/apps
+	python3 tools/make-large.py build/apps/large.c build/apps/large-expected.txt
+build/apps/large.o: build/apps/large.c apps/common/appcalls.h
+	$(GCC) -c -O -Iapps/common $< -o $@
+build/apps/large.aout: build/apps/large.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot1.ld
+	$(LD) -N -T apps/common/slot1.ld -e _start -o $@ build/apps/app_start.o build/apps/large.o build/apps/qtrap.o
+
+# Negative fixtures derived from LARGE.AOU (read-only; see the script).
+build/fat16/r8fix/OVER.AOU: build/apps/large.aout tools/make-r8-fixtures.py
+	python3 tools/make-r8-fixtures.py build/apps/large.aout build/fat16/r8fix
+build/fat16/r8fix/TRUNC.AOU build/fat16/r8fix/LONG.AOU build/fat16/r8fix/ENTRY.AOU build/fat16/r8fix/MAGIC.AOU: build/fat16/r8fix/OVER.AOU
+
+r8-apps: build/apps/args.aout build/apps/large.aout build/apps/shell.aout build/apps/hello1.aout build/fat16/r8fix/OVER.AOU
+
+# The R8 volume (separate from the R7 volume, which keeps its 10-file listing).
+# The SDK examples (sdk/examples) are built with qdos386-gcc from sdk/.
+sdk-examples:
+	$(MAKE) -C sdk/lib QDOS386_TOOLS=$(I386VM)
+	$(MAKE) -C sdk/examples QDOS386_TOOLS=$(I386VM)
+
+build/fat16/win1-r8.img: r8-apps sdk-examples tools/make-fat16.py fs/README.TXT build/fat16/fixtures/big.bin build/fat16/fixtures/bad.bin build/fat16/fixtures/empty.bin
+	mkdir -p build/fat16
+	python3 tools/make-fat16.py $@ SHELL.AOU=build/apps/shell.aout ARGS.AOU=build/apps/args.aout \
+	  LARGE.AOU=build/apps/large.aout HELLO.AOU=build/apps/hello1.aout README.TXT=fs/README.TXT \
+	  SDKHEL.AOU=sdk/examples/SDKHEL.aout SDKARG.AOU=sdk/examples/SDKARG.aout \
+	  SDKSTM.AOU=sdk/examples/SDKSTM.aout SDKSTS.AOU=sdk/examples/SDKSTS.aout \
+	  BIG.AOU=build/fat16/fixtures/big.bin BAD.AOU=build/fat16/fixtures/bad.bin \
+	  EMPTY.TXT=build/fat16/fixtures/empty.bin OVER.AOU=build/fat16/r8fix/OVER.AOU \
+	  TRUNC.AOU=build/fat16/r8fix/TRUNC.AOU LONG.AOU=build/fat16/r8fix/LONG.AOU \
+	  ENTRY.AOU=build/fat16/r8fix/ENTRY.AOU MAGIC.AOU=build/fat16/r8fix/MAGIC.AOU
+r8-fat16: build/fat16/win1-r8.img
+
+# R8 boot images: the R7 shell mode on the R8 volume.
+i386vm-r8-shell:
+	$(MAKE) i386vm I386D=build/i386vm-r8 I386FLAGS=-DR7_SHELL_MODE I386IMG=qdos386-r8-shell.bin I386WIN=build/fat16/win1-r8.img
+# Negative test: the R8 shell image with the timer never started.
+i386vm-r8-shell-notimer:
+	$(MAKE) i386vm I386D=build/i386vm-r8-notimer I386FLAGS="-DR7_SHELL_MODE -DQDOS_NO_TIMER" I386IMG=qdos386-r8-shell-notimer.bin I386WIN=build/fat16/win1-r8.img
+pc-r8-shell: build/fat16/win1-r8.img
+	$(MAKE) pc PCD=build/pc-r8 PCFLAGS=-DR7_SHELL_MODE PCIMG=r8shell.img PCWIN=build/fat16/win1-r8.img
+

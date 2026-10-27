@@ -294,12 +294,20 @@ int stack_canary_ok(int slot)
  */
 int job_alloc(const char *name, void (*entry)(void), unsigned char inc)
 {
+	return job_alloc_sized(name, entry, inc, JOB_STACK_BYTES);
+}
+
+int job_alloc_sized(const char *name, void (*entry)(void), unsigned char inc, unsigned int stack_bytes)
+{
 	int i;
 	struct job *j;
 	unsigned int newtag;
 	unsigned int id;
 	unsigned int base;
 	void *stk;
+
+	if (stack_bytes < JOB_STACK_BYTES || stack_bytes > 65536u || (stack_bytes & 15u) != 0)
+		return MEM_ERR_OVERFLOW;
 
 	for (i = 1; i < JOB_MAX; i++) {
 		if (!jobs[i].in_use && !(dead_mask & (1u << i)))
@@ -314,7 +322,7 @@ int job_alloc(const char *name, void (*entry)(void), unsigned char inc)
 		newtag = 1;
 	id = (newtag << 16) | (unsigned int) i;
 
-	stk = mem_alloc(JOB_STACK_BYTES, id);
+	stk = mem_alloc(stack_bytes, id);
 	if (mem_is_error((unsigned int) stk))
 		return (int) (unsigned int) stk;
 	base = (unsigned int) stk;
@@ -336,13 +344,36 @@ int job_alloc(const char *name, void (*entry)(void), unsigned char inc)
 	j->preempts = 0;
 	j->dispatches = 0;
 	j->stack_base = base;
-	j->stack_top = base + JOB_STACK_BYTES;
+	j->stack_top = base + stack_bytes;
+	j->stack_bytes = stack_bytes;
+	j->args = 0;
 	j->stack_hwm = 0;
 	exit_rec[i].id = id;
 	exit_rec[i].exited = 0;
 	exit_rec[i].status = 0;
 	init_frame(j);
 	return (int) id;
+}
+
+/* R8: release a job that never ran (its image copy failed).  Its heap blocks
+ * are freed, and the slot is free at once: no frame was ever saved for it. */
+void job_cancel(unsigned int id)
+{
+	int i = job_lookup(id);
+	struct job *j;
+
+	if (i == JOB_NONE)
+		return;
+	j = &jobs[i];
+	(void) mem_reclaim_owner(j->id);
+	j->in_use = 0;
+	j->dead = 0;
+	j->prio_inc = 0;
+	j->stack_base = 0;
+	j->stack_top = 0;
+	j->args = 0;
+	exit_rec[i].id = 0;
+	exit_rec[i].exited = 0;
 }
 
 void job_idle_set(int slot)
@@ -562,7 +593,29 @@ unsigned int trap_dispatch(unsigned int sp)
 		break;
 
 	case QT_IMG_LOAD:
-		result = img_load_request(a);
+		result = img_load_request(a, b, c);
+		break;
+
+	case QT_APP_ARGS:
+		/* R8: argc of the calling job, and the argv array address through a.
+		 * A job with no argument block has argc 0. */
+		if (a != 0 && !chan_user_range_ok(a, 4)) {
+			result = CHAN_ERR_RANGE;
+			break;
+		}
+		if (jobs[job_current].args == 0) {
+			if (a != 0)
+				*(unsigned int *) a = 0;
+			result = 0;
+			break;
+		}
+		if (a != 0)
+			*(unsigned int *) a = *(unsigned int *) (jobs[job_current].args + 4);
+		result = (int) *(unsigned int *) jobs[job_current].args;
+		break;
+
+	case QT_TICKS:
+		result = (int) (unsigned int) sched_ticks;
 		break;
 
 	case QT_JOB_RECLAIMED:

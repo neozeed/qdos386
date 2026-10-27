@@ -1,16 +1,47 @@
 /*
- * QDOS/386 R7 - QT_IMG_LOAD.  See imgload.h.
+ * QDOS/386 R8 - streaming RUN and boot loads.  See imgload.h.
  */
 #include "imgload.h"
 #include "aout.h"
 #include "channel.h"
 #include "fat16.h"
-#include "memory.h"
 #include "win1.h"
 
 #define IMG_NAME_MAX 16u           /* name, NUL included */
 
-/* Copy a NUL-terminated user name (at most IMG_NAME_MAX-1 characters). */
+/* Name plus arguments, as the kernel passes them to the loader.  Kernel static:
+ * only the trap that fills it uses it, and traps do not nest. */
+static unsigned char img_packed[APP_ARG_STR_MAX];
+
+/* Byte source for the loader: a FAT16 file, read at any offset. */
+struct fat_src {
+	struct fat16_file *f;
+};
+
+static int fat_rd(void *ctx, unsigned int off, unsigned char *dst, unsigned int n)
+{
+	struct fat_src *s = (struct fat_src *) ctx;
+	unsigned int got = 0;
+	int rc;
+
+	if (n == 0)
+		return APP_OK;
+	rc = fat16_seek(s->f, (unsigned long) off);
+	if (rc != FAT_OK)
+		return rc;
+	while (n > 0) {
+		rc = fat16_read(s->f, dst, n, &got);
+		if (rc != FAT_OK)
+			return rc;
+		if (got == 0)                    /* chain shorter than the size */
+			return FAT_ERR_SIZE;
+		dst += got;
+		n -= got;
+	}
+	return APP_OK;
+}
+
+/* Copy a user name (at most IMG_NAME_MAX-1 characters). */
 static int copy_user_name(unsigned int addr, char *out)
 {
 	unsigned int i;
@@ -24,71 +55,71 @@ static int copy_user_name(unsigned int addr, char *out)
 	return 0;
 }
 
-/* The loader proper.  Name is a kernel string, at most IMG_NAME_MAX-1 bytes. */
-static int img_load_named(const char *name, unsigned int want_slot)
+/* Load the file called name into want_slot, with packed as its arguments. */
+static int img_load_named(const char *name, unsigned int want_slot,
+                          const unsigned char *packed, unsigned int plen)
 {
 	struct fat16_vol *v;
 	struct fat16_file f;
-	struct app_image info;
-	unsigned char *buf;
-	unsigned int off = 0, got = 0;
-	int rc, id;
+	struct fat_src src;
+	int rc;
 
 	v = win1_volume();
 	if (v == 0)
 		return CHAN_ERR_NOVOL;
-
 	rc = fat16_open_root(v, name, &f);
 	if (rc != FAT_OK)
 		return rc;
 	if (f.size == 0)
 		return APP_ERR_SIZE;
-	if (f.size > IMG_MAX)
+	if (f.size > IMG_FILE_MAX)
 		return APP_ERR_TOOBIG;
-
-	buf = (unsigned char *) mem_alloc((unsigned int) f.size, 0);
-	if (mem_is_error((int) (unsigned int) buf))
-		return APP_ERR_NOMEM;
-
-	while (off < (unsigned int) f.size) {
-		rc = fat16_read(&f, buf + off, (unsigned int) f.size - off, &got);
-		if (rc != FAT_OK) {
-			mem_free(buf, 0);
-			return rc;
-		}
-		if (got == 0) {                 /* chain shorter than the size */
-			mem_free(buf, 0);
-			return FAT_ERR_SIZE;
-		}
-		off += got;
-	}
-
-	rc = aout_check(buf, (unsigned int) f.size, &info);
-	if (rc != APP_OK) {
-		mem_free(buf, 0);
-		return rc;
-	}
-	if (info.slot != want_slot) {
-		mem_free(buf, 0);
-		return (want_slot == 1) ? APP_ERR_NOTSLOT1 : APP_ERR_NOTSLOT0;
-	}
-	id = app_load_bytes(buf, (unsigned int) f.size);
-	mem_free(buf, 0);
-	return id;
+	src.f = &f;
+	return app_load_src(fat_rd, &src, (unsigned int) f.size, (int) want_slot, packed, plen);
 }
 
 int img_load_kernel(const char *name, unsigned int want_slot)
 {
-	return img_load_named(name, want_slot);
+	unsigned int n = 0;
+
+	while (name[n] != 0 && n < IMG_NAME_MAX - 1)
+		n++;
+	if (name[n] != 0)
+		return FAT_ERR_NAME;
+	/* argv = { name }: the name, its NUL. */
+	{
+		unsigned int i;
+		for (i = 0; i <= n; i++)
+			img_packed[i] = (unsigned char) name[i];
+		return img_load_named(name, want_slot, img_packed, n + 1);
+	}
 }
 
-int img_load_request(unsigned int name_addr)
+int img_load_request(unsigned int name_addr, unsigned int args_addr, unsigned int args_len)
 {
 	char name[IMG_NAME_MAX];
-	int rc;
+	unsigned int n = 0, i, total;
 
 	if (!copy_user_name(name_addr, name))
 		return FAT_ERR_NAME;
-	rc = img_load_named(name, 1);   /* RUN loads into slot 1 only */
-	return rc;
+	while (name[n] != 0)
+		n++;
+	if (args_len == 0) {
+		for (i = 0; i <= n; i++)
+			img_packed[i] = (unsigned char) name[i];
+		return img_load_named(name, 1, img_packed, n + 1);
+	}
+	if (args_len > APP_ARG_STR_MAX || n + 1 + args_len > APP_ARG_STR_MAX)
+		return APP_ERR_ARGS;
+	if (!chan_user_range_ok(args_addr, args_len))
+		return CHAN_ERR_RANGE;
+	if (*(unsigned char *) (args_addr + args_len - 1) != 0)
+		return APP_ERR_ARGS;          /* arguments must end with NUL */
+	for (i = 0; i <= n; i++)
+		img_packed[i] = (unsigned char) name[i];
+	total = n + 1;
+	for (i = 0; i < args_len; i++)
+		img_packed[total + i] = *(unsigned char *) (args_addr + i);
+	total += args_len;
+	return img_load_named(name, 1, img_packed, total);
 }

@@ -6,6 +6,8 @@ external/
 disk/
 images/
 *.o
+*.a
+*.aout
 __pycache__/
 sdk/examples/*.aout
 sdk/lib/*.o
