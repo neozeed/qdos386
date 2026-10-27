@@ -1,3 +1,40 @@
+# QDOS/386 R7 - a diagnostic shell on the native kernel
+
+R7 adds a small shell. At a `> ` prompt a user types `HELP`, `DIR`, `TYPE`,
+`RUN` or `EXIT`. `DIR` and `TYPE` read the WIN1_ FAT16 volume, and `RUN` loads an
+a.out program from it into slot 1, waits for it, and prints its exit status.
+The shell stays running across commands, and the console is read through a
+blocking wait that never spins.
+
+Input on the PC is the emulated i8042 keyboard (set-1 scan codes, IRQ1). On
+i386VM it is a status register added to the harness (`patches/`). Both paths
+are described in `docs/R7-CONSOLE-ABI.md`.
+
+Documents:
+
+- `docs/R7-CONSOLE-ABI.md`: keyboard path, input polling, EOF, CON channel,
+  `QT_CON_WAIT`, `QT_IMG_LOAD`, error codes, the directory channel, name limits.
+- `docs/R7-SHELL-DESIGN.md`: boot, commands, waiting, RUN, self-test, limits.
+- `docs/R7-RUNTIME-REPORT.md`: what was built, how it was verified, results,
+  hashes, decisions, corrections, and what has not been tested.
+- `docs/R7-AUDIT.md`: the Phase 0 audit.
+
+Verification: `scripts/r7-matrix.sh` (three rounds on both emulators, plus the
+EOF and timer-off negatives). The sessions are scripted (i386VM pipe) or
+driven through the PS/2 path by `tests/interactive/session.py`. They are not
+human-interactive tests; the report says so.
+
+## R7 build and run
+
+    make i386vm pc apps fat16 i386vm-shell pc-shell I386VM=... TINY386=... SEABIOS=...
+    sh scripts/r7-matrix.sh
+
+The shell images are `build/i386vm-shell/qdos386-r7-shell.bin` (needs the
+patched harness) and `build/pc-shell/r7shell.img` (`hdb` is `build/fat16/win1.img`).
+The default `make i386vm pc` images are the R2–R7 regression build.
+
+---
+
 # QDOS/386 R6 - native kernel that loads a.out programs from a FAT16 disk
 
 R6 adds read-only FAT16 files. A WIN1_ volume is mounted from the platform disk

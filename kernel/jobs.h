@@ -47,10 +47,16 @@
 /* R6 file channels (WIN1_ names; see docs/R6-ABI.md). */
 #define QT_CH_READ    0x1A        /* a = channel id, b = buffer, c = length (<= 256) -> bytes read, 0 at end */
 #define QT_CH_SEEK    0x1B        /* a = channel id, b = byte position -> 0, or negative */
+#define QT_IMG_LOAD   0x1D        /* a = name pointer (WIN1_ root name) -> job id, or negative */
+#define QT_JOB_RECLAIMED 0x1E     /* a = job id -> 1 if the job slot is free again, else 0 */
+#define QT_CON_WAIT   0x1C        /* b = flag byte, set when console input arrives -> 0.
+                                     Returns at once if input or end is pending; otherwise
+                                     the job sleeps.  The caller retries its CON read. */
 
 /* QT_JOB_EXIT errors.  -2 is the existing "no such job" code (QT_INFO). */
 #define JOB_ERR_RUNNING  (-16)    /* job exists and has not ended */
 #define JOB_ERR_NOSTATUS (-17)    /* job ended without calling QT_EXIT */
+#define CON_ERR_BUSY    (-50)    /* QT_CON_WAIT: another job is already waiting */
 
 #define TRAP_VECTOR 0x30
 

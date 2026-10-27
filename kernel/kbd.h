@@ -1,0 +1,24 @@
+/*
+ * QDOS/386 R7 - keyboard scancode decoder (pure, shared by all platforms).
+ *
+ * Input is scancode set 1, the form the i8042 delivers with its translation
+ * bit set (command byte bit 6).  Only what the shell needs is decoded:
+ * printable US ASCII, Shift, Enter, Backspace and Tab.  Releases, E0 extended
+ * keys (except keypad Enter) and E1 Pause sequences produce no byte.
+ */
+#ifndef QDOS386_KBD_H
+#define QDOS386_KBD_H
+
+struct kbd_decoder {
+	unsigned char shift;    /* a Shift key is down */
+	unsigned char ext;      /* the previous byte was E0 */
+	unsigned char skip;     /* bytes of an E1 (Pause) sequence still to skip */
+};
+
+void kbd_reset(struct kbd_decoder *d);
+
+/* Feed one scancode.  Returns 1 and sets *out when it yields a byte (Enter
+ * gives '\r', Backspace gives 0x08, Tab gives '\t'), otherwise 0. */
+int kbd_feed(struct kbd_decoder *d, unsigned char sc, unsigned char *out);
+
+#endif

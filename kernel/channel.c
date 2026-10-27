@@ -14,6 +14,7 @@
  * memory calls protect themselves with irq_save/irq_restore as usual.
  */
 #include "channel.h"
+#include "cin.h"
 #include "memory.h"
 #include "platform.h"
 
@@ -52,6 +53,22 @@ static int con_drv_write(struct chan_object *ch, const unsigned char *buf, unsig
 	return (int) n;
 }
 
+/* CON read (R7): takes what is waiting, never blocks.  0 at end of input,
+ * CHAN_ERR_AGAIN when nothing is waiting yet. */
+static int con_drv_read(struct chan_object *ch, unsigned char *buf, unsigned int n)
+{
+	unsigned int got = 0;
+	unsigned char c;
+	(void) ch;
+	while (got < n && cin_get(&c))
+		buf[got++] = c;
+	if (got != 0)
+		return (int) got;
+	if (cin_at_eof())
+		return 0;
+	return CHAN_ERR_AGAIN;
+}
+
 extern struct chan_driver win1_driver;   /* win1.c: WIN1_ file channels */
 
 static struct chan_driver con_driver;
@@ -61,7 +78,7 @@ static void drivers_init(void)
 {
 	con_driver.name = "CON";
 	con_driver.prefix = 0;
-	con_driver.read = 0;
+	con_driver.read = con_drv_read;
 	con_driver.seek = 0;
 	con_driver.open = con_drv_open;
 	con_driver.close = con_drv_close;
@@ -111,7 +128,8 @@ static int name_match(const struct chan_driver *d, const char *name)
 		return name_eq(d->name, name);
 	while (d->name[k] != 0 && d->name[k] == name[k])
 		k++;
-	return d->name[k] == 0 && name[k] != 0;
+	/* R7: the bare prefix is allowed; the driver reads it as its root listing */
+	return d->name[k] == 0;
 }
 
 /* Exact match of two NUL-terminated names. */

@@ -35,6 +35,9 @@
 #define APP_ERR_SLOTBUSY (-28)  /* the slot for this image is in use */
 #define APP_ERR_NOJOB    (-29)  /* no free job slot */
 #define APP_ERR_NOMEM    (-30)  /* no heap memory for the job stack */
+#define APP_ERR_TOOBIG    (-31)  /* RUN: file larger than IMG_MAX (imgload.h) */
+#define APP_ERR_NOTSLOT1  (-32)  /* RUN: image is not linked for slot 1 */
+#define APP_ERR_NOTSLOT0  (-33)  /* boot: image is not linked for slot 0 */
 
 struct app_image {
 	const unsigned char *img;   /* exact file bytes (in the transfer area) */

@@ -54,6 +54,16 @@ struct fat16_file {
 	unsigned long cur_idx;
 	unsigned long dir_lba;           /* where the directory entry lives (tests) */
 	unsigned int dir_off;
+	unsigned int is_dir;             /* R7: an enumeration cursor, not a file */
+	unsigned int dir_next;           /* R7: next root entry index to examine */
+};
+
+/* One listed root-directory file (R7).  name is "BASE.EXT" in 12 bytes,
+ * zero-padded; a full 12-character name has no terminator.  The record that
+ * channels return is these 16 bytes: name[12], then size as little-endian u32. */
+struct fat16_dirent {
+	char name[12];
+	unsigned long size;
 };
 
 /* Validate the boot sector and FAT16 classification.  device_sectors is the
@@ -75,5 +85,17 @@ int fat16_read(struct fat16_file *f, unsigned char *dst, unsigned int n, unsigne
 
 /* Set the position; positions past the end are refused. */
 int fat16_seek(struct fat16_file *f, unsigned long pos);
+
+/* Root-directory enumeration (R7).  fat16_dir_open starts a cursor at the
+ * first entry.  fat16_dir_next returns 1 with the next regular file in
+ * directory order, 0 at the end, or a negative error.  The end is the first
+ * entry whose first byte is 0x00, and it is sticky.  Skipped without a
+ * count: deleted (0xE5), volume labels, long-name entries and subdirectories.
+ * Counted in fat16_dir_skipped: a regular entry whose 8.3 name is not valid
+ * (name bytes outside A-Z 0-9 _, or a space inside the name).  The listing
+ * never checks cluster chains; fat16_open_root does. */
+int fat16_dir_open(struct fat16_vol *v, struct fat16_file *f);
+int fat16_dir_next(struct fat16_file *f, struct fat16_dirent *out);
+extern volatile unsigned long fat16_dir_skipped;
 
 #endif

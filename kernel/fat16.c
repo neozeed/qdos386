@@ -219,6 +219,8 @@ int fat16_open_root(struct fat16_vol *v, const char *name, struct fat16_file *f)
 				continue;
 
 			f->vol = v;
+			f->is_dir = 0;
+			f->dir_next = 0;
 			f->first = rd16(p + 26);
 			f->size = rd32(p + 28);
 			f->dir_lba = v->root_start + s;
@@ -233,6 +235,101 @@ int fat16_open_root(struct fat16_vol *v, const char *name, struct fat16_file *f)
 		}
 	}
 	return FAT_ERR_NOFILE;
+}
+
+volatile unsigned long fat16_dir_skipped = 0;
+
+static int name_byte_ok(unsigned char c)
+{
+	return (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+}
+
+int fat16_dir_open(struct fat16_vol *v, struct fat16_file *f)
+{
+	if (!v->mounted)
+		return FAT_ERR_BPB;
+	f->vol = v;
+	f->first = 0;
+	f->size = 0;
+	f->pos = 0;
+	f->cur = 0;
+	f->cur_idx = 0;
+	f->dir_lba = 0;
+	f->dir_off = 0;
+	f->is_dir = 1;
+	f->dir_next = 0;
+	return FAT_OK;
+}
+
+int fat16_dir_next(struct fat16_file *f, struct fat16_dirent *out)
+{
+	struct fat16_vol *v = f->vol;
+	unsigned int per_sector = FAT_SECTOR_BYTES / 32;
+	unsigned int total = v->root_sectors * per_sector;
+	unsigned char sec[FAT_SECTOR_BYTES];
+
+	while (f->dir_next < total) {
+		unsigned int idx = f->dir_next;
+		unsigned int s = idx / per_sector;
+		unsigned int e = idx % per_sector;
+		unsigned char *p;
+		unsigned int blen = 8, elen = 3, i, k;
+		int rc;
+
+		rc = rd_sector(v, v->root_start + s, sec);
+		if (rc != FAT_OK)
+			return rc;
+		p = sec + 32 * e;
+		f->dir_next++;
+
+		if (p[0] == 0x00) {              /* end of directory: sticky */
+			f->dir_next = total;
+			return 0;
+		}
+		if (p[0] == 0xe5)                /* deleted */
+			continue;
+		if (p[11] == 0x0f)               /* long-name fragment */
+			continue;
+		if (p[11] & 0x18)                /* volume label or subdirectory */
+			continue;
+
+		while (blen > 0 && p[blen - 1] == ' ')
+			blen--;
+		while (elen > 0 && p[8 + elen - 1] == ' ')
+			elen--;
+		if (blen == 0) {
+			fat16_dir_skipped++;
+			continue;
+		}
+		for (i = 0; i < blen; i++)
+			if (!name_byte_ok(p[i]))
+				break;
+		if (i != blen) {
+			fat16_dir_skipped++;
+			continue;
+		}
+		for (i = 0; i < elen; i++)
+			if (!name_byte_ok(p[8 + i]))
+				break;
+		if (i != elen) {
+			fat16_dir_skipped++;
+			continue;
+		}
+
+		k = 0;
+		for (i = 0; i < blen; i++)
+			out->name[k++] = (char) p[i];
+		if (elen != 0) {
+			out->name[k++] = '.';
+			for (i = 0; i < elen; i++)
+				out->name[k++] = (char) p[8 + i];
+		}
+		while (k < 12)
+			out->name[k++] = 0;
+		out->size = rd32(p + 28);
+		return 1;
+	}
+	return 0;
 }
 
 int fat16_read(struct fat16_file *f, unsigned char *dst, unsigned int n, unsigned int *got)

@@ -60,6 +60,17 @@ resume_ctx:
 	ret
 
 /*
+ * IRQ1 (vector 0x21, keyboard).  The body reads the i8042 and sends the EOI;
+ * it never schedules, so it returns by popal/iret.
+ */
+.globl _irq1_stub
+_irq1_stub:
+	pushal
+	call _input_irq1
+	popal
+	iret
+
+/*
  * IRQ7 (vector 0x27, master) and IRQ15 (vector 0x2F, slave).  The C
  * dispatchers in kernel/irq.c read the in-service registers and send an EOI
  * only for a genuine interrupt.  A spurious IRQ7 or IRQ15 returns by iret

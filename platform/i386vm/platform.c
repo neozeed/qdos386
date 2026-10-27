@@ -61,6 +61,37 @@ void timer_ack(void)
 	/* no interrupt controller in the harness */
 }
 
+/* R7 console input.  Harness input: 0x800002 is the byte (blocking read, as
+ * before); 0x800004 is the status register added by the input patch:
+ * bit 0 = a byte is waiting, so reading 0x800002 will not block;
+ * bit 1 = end of input.  Polling never blocks. */
+#define INPUT_DATA   ((volatile unsigned char *) 0x800002)
+#define INPUT_STATUS ((volatile unsigned char *) 0x800004)
+
+void input_init(void)
+{
+}
+
+void input_irq1(void)
+{
+	/* no interrupt controller in the harness: IRQ1 never arrives */
+}
+
+void input_tick(void)
+{
+	/* no aux device in the harness */
+}
+
+int input_poll(void)
+{
+	unsigned char st = *INPUT_STATUS;
+	if ((st & 0x01) != 0)
+		return (int) *INPUT_DATA;
+	if ((st & 0x02) != 0)
+		return INPUT_EOF;
+	return INPUT_NONE;
+}
+
 /* The harness has no PIC: classification treats every IRQ7 as spurious. */
 int pic_present(void)
 {

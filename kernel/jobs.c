@@ -36,6 +36,8 @@
 #include "memory.h"
 #include "channel.h"
 #include "aout.h"
+#include "cin.h"
+#include "imgload.h"
 
 struct job jobs[JOB_MAX];
 int job_current = JOB_SYSTEM;
@@ -220,8 +222,32 @@ unsigned int sched_irq_tick(unsigned int sp)
 	sched_ticks++;
 	timer_ack();
 	sv_pollm++;
+	cin_poll_tick();                       /* R7: bounded, no-op unless enabled */
 	run_tasks(poll_list, &poll_runs);
 	return schedule(sp, 1, 1);
+}
+
+/* Console waiter (R7): the one job asleep in QT_CON_WAIT, or JOB_NONE.  Only
+ * one job may wait on the console at a time.  A second job that asks while
+ * the first is still asleep is refused with CON_ERR_BUSY; it does not replace
+ * the waiter, so the first is never left asleep without a wake. */
+static int con_waiter = JOB_NONE;
+
+/* Called by cin_put and cin_set_eof (IRQ1 or a trap, IF off).  It only marks
+ * the waiter runnable and releases its flag, so it never schedules. */
+void con_input_arrived(void)
+{
+	struct job *j;
+
+	if (con_waiter == JOB_NONE)
+		return;
+	j = &jobs[con_waiter];
+	if (j->in_use && j->status < 0) {
+		j->status = 0;
+		if (j->hold != 0)
+			*j->hold = 0xff;
+	}
+	con_waiter = JOB_NONE;
 }
 
 /* Cooperative yield path, called from yield_asm with IF off. */
@@ -534,6 +560,33 @@ unsigned int trap_dispatch(unsigned int sp)
 	case QT_CH_SEEK:
 		result = chan_seek(a, job_current_id(), b);
 		break;
+
+	case QT_IMG_LOAD:
+		result = img_load_request(a);
+		break;
+
+	case QT_JOB_RECLAIMED:
+		result = (job_lookup(a) == JOB_NONE) ? 1 : 0;
+		break;
+
+	case QT_CON_WAIT:
+		/* b = flag byte.  Input or end already pending: return at once and let
+		 * the caller read.  Otherwise sleep indefinitely; the arrival wakes us
+		 * and clears the flag.  The trap returns 0 in both cases. */
+		if (cin_count() != 0 || cin_at_eof()) {
+			result = 0;
+			break;
+		}
+		if (con_waiter != JOB_NONE && con_waiter != job_current &&
+		    jobs[con_waiter].in_use && jobs[con_waiter].status < 0) {
+			result = CON_ERR_BUSY;
+			break;
+		}
+		con_waiter = job_current;
+		jobs[job_current].status = -1;
+		jobs[job_current].hold = (unsigned char *) b;
+		f[7] = 0;
+		return schedule(sp, 1, 0);
 
 	default:
 		result = -1;

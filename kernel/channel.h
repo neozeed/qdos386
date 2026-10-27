@@ -31,6 +31,7 @@
 #define CHAN_ERR_RANGE  (-14)        /* buffer outside the arena or too long */
 #define CHAN_ERR_NOTSUP (-15)        /* operation not supported by this driver */
 #define CHAN_ERR_NOVOL  (-18)        /* WIN1_ volume not mounted */
+#define CHAN_ERR_AGAIN  (-19)        /* CON: no input yet; wait with QT_CON_WAIT, then retry */
 
 #include "fat16.h"
 

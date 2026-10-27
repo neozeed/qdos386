@@ -43,14 +43,14 @@ void con_putdec(unsigned long v)
 		con_putc((unsigned char) buf[i]);
 }
 
-static void pic_init(void)
+void pic_init(void)
 {
-	/* Master 8259 at 0x20/0x21: IRQ0 -> vector 0x20, only IRQ0 unmasked. */
+	/* Master 8259 at 0x20/0x21: IRQ0 -> vector 0x20; IRQ0 and IRQ1 unmasked. */
 	outb(0x20, 0x11);      /* ICW1: edge, cascade, ICW4 needed */
 	outb(0x21, 0x20);      /* ICW2: vector base 0x20 */
 	outb(0x21, 0x04);      /* ICW3: slave on IRQ2 */
 	outb(0x21, 0x01);      /* ICW4: 8086 mode */
-	outb(0x21, 0xfe);      /* OCW1: mask all but IRQ0 */
+	outb(0x21, 0xfc);      /* OCW1: IRQ0 (timer) and IRQ1 (keyboard) */
 	/* Slave 8259 at 0xA0/0xA1: all masked. */
 	outb(0xa0, 0x11);
 	outb(0xa1, 0x28);

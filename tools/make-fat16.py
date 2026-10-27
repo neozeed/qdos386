@@ -1,9 +1,20 @@
 #!/usr/bin/env python3
-"""Build the R6 WIN1_ FAT16 volume: a 3 MiB image with 512-byte sectors and
-one sector per cluster, two FAT copies, a 512-entry root directory, and the
-given files in the root directory.
+"""Build the WIN1_ FAT16 volume (R7 layout): a 3 MiB image with 512-byte
+sectors and one sector per cluster, two FAT copies, a 512-entry root
+directory, and the given files.
 
 Usage: make-fat16.py out.img NAME.EXT=path [NAME.EXT=path ...]
+
+Root directory, in order:
+  1. volume label "WIN1" (attribute 0x08)
+  2. a deleted entry GONE.TXT (first byte 0xE5)
+  3. a long-name fragment (attribute 0x0F)
+  4. the given files, in command-line order (zero-length files are allowed)
+  5. SUBDIR, a subdirectory (attribute 0x10)
+  6. BAD*NAME.TXT, a regular entry with an invalid name
+  7. CHAIN.AOU, first cluster out of range with a nonzero size
+  8. the end-of-directory marker (first byte 0x00)
+  9. TRAILER.TXT, after the marker: must never be listed or opened
 
 The volume is FAT16 by construction: 6144 sectors give about 6000 clusters,
 inside the 4085..65524 range that the kernel uses to classify the volume.
@@ -18,12 +29,26 @@ NFATS = 2
 ROOT_ENTRIES = 512
 ROOT_SECTORS = ROOT_ENTRIES * 32 // BPS
 NAME_RE = re.compile(r'^[A-Z0-9_]{1,8}\.[A-Z0-9_]{1,3}$')
+TRAILER = b'TRAILER: listed only if the end-of-directory marker were ignored\n'
 
 def sectors_per_fat(clusters):
     spf = 1
     while spf * (BPS // 2) < clusters + 2:
         spf += 1
     return spf
+
+def entry(name11, attr, first, size, first_byte=None):
+    e = bytearray(32)
+    e[0:11] = name11
+    e[11] = attr
+    e[26:28] = (first & 0xffff).to_bytes(2, 'little')
+    e[28:32] = (size & 0xffffffff).to_bytes(4, 'little')
+    if first_byte is not None:
+        e[0] = first_byte
+    return e
+
+def pad11(base, ext=''):
+    return (base.ljust(8) + ext.ljust(3)).encode('ascii')
 
 def main():
     if len(sys.argv) < 3:
@@ -35,11 +60,10 @@ def main():
         if not NAME_RE.match(name):
             raise SystemExit('not an uppercase 8.3 name: %r' % name)
         data = pathlib.Path(path).read_bytes()
-        if len(data) == 0:
-            raise SystemExit('empty file: %s' % name)
         files.append((name, data))
-    if len(files) > ROOT_ENTRIES:
-        raise SystemExit('too many files')
+    names = [n for n, _ in files] + ['TRAILER.TXT']
+    if len(set(names)) != len(names):
+        raise SystemExit('duplicate name')
 
     spf = sectors_per_fat(TOTAL - RESERVED - NFATS * 1 - ROOT_SECTORS)
     while True:
@@ -52,7 +76,6 @@ def main():
         raise SystemExit('cluster count %d is not FAT16' % clusters)
 
     img = bytearray(TOTAL * BPS)
-    # Boot sector / BPB
     b = img
     b[0:3] = b'\xeb\x3c\x90'
     b[3:11] = b'QDOS386 '
@@ -76,16 +99,19 @@ def main():
     b[510] = 0x55
     b[511] = 0xaa
 
-    # FAT: entries 0 and 1 reserved; each file gets a contiguous run of clusters.
     fat = bytearray(spf * BPS)
     fat[0:4] = b'\xf8\xff\xff\xff'
     root = bytearray(ROOT_SECTORS * BPS)
     data_start = RESERVED + NFATS * spf + ROOT_SECTORS
     data = bytearray(clusters * BPS)
-    next_cluster = 2
-    for i, (name, content) in enumerate(files):
+    next_cluster = [2]
+
+    def place(content):
+        """Allocate a contiguous run for content; return (first cluster, size)."""
         n = (len(content) + BPS - 1) // BPS
-        first = next_cluster
+        if n == 0:
+            return 0, 0
+        first = next_cluster[0]
         if first + n - 1 > clusters + 1:
             raise SystemExit('files do not fit in the volume')
         for k in range(n):
@@ -95,14 +121,28 @@ def main():
             chunk = content[k * BPS:(k + 1) * BPS]
             off = (c - 2) * BPS
             data[off:off + len(chunk)] = chunk
-        e = bytearray(32)
+        next_cluster[0] = first + n
+        return first, len(content)
+
+    records = []
+    records.append(entry(b'WIN1       ', 0x08, 0, 0))                     # 1 label
+    records.append(entry(pad11('GONE', 'TXT'), 0x20, 0, 10, first_byte=0xe5))  # 2 deleted
+    records.append(entry(b'LFNFRAGMENT', 0x0f, 0, 0))                    # 3 long name
+    for name, content in files:                                           # 4 files
         base, ext = name.split('.')
-        e[0:11] = (base.ljust(8) + ext.ljust(3)).encode('ascii')
-        e[11] = 0x20                                  # archive
-        e[26:28] = first.to_bytes(2, 'little')
-        e[28:32] = len(content).to_bytes(4, 'little')
-        root[32 * i:32 * i + 32] = e
-        next_cluster = first + n
+        first, size = place(content)
+        records.append(entry(pad11(base, ext), 0x20, first, size))
+    records.append(entry(pad11('SUBDIR'), 0x10, 0, 0))                    # 5 subdir
+    records.append(entry(b'BAD*NAME' + b'TXT', 0x20, 0, 0))              # 6 invalid name
+    records.append(entry(pad11('CHAIN', 'AOU'), 0x20, 0x7ff0, 100))      # 7 bad chain
+    records.append(bytearray(32))                                         # 8 end marker
+    tf, ts = place(TRAILER)                                               # 9 after the end
+    records.append(entry(pad11('TRAILER', 'TXT'), 0x20, tf, ts))
+
+    if len(records) > ROOT_ENTRIES:
+        raise SystemExit('too many root entries')
+    for i, r in enumerate(records):
+        root[32 * i:32 * i + 32] = r
 
     fat_block = bytes(fat)
     img[RESERVED * BPS:(RESERVED + spf) * BPS] = fat_block

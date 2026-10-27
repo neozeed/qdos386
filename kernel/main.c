@@ -19,8 +19,10 @@
 #include "channel.h"
 #include "test_app.h"
 #include "test_fs.h"
+#include "test_console.h"
 #include "aout.h"
 #include "irq.h"
+#include "shellboot.h"
 
 #define TIMER_PERIOD_UNITS 16        /* i386VM: 16 * 1024 steps.  PC: see platform */
 
@@ -48,7 +50,7 @@ static int apps_done(void)
 {
 	return test_results[0].exited && test_results[1].exited &&
 	       test_results[2].exited && test_results[0].coop_resumed == 1 &&
-	       r3_phase_done && r4_phase_done && r6_phase_done;
+	       r3_phase_done && r4_phase_done && r6_phase_done && r7c_phase_done;
 }
 
 static void finish(void)
@@ -197,7 +199,7 @@ static void idle_entry(void)
 	}
 }
 
-int main(void)
+int test_main(void)
 {
 	unsigned int cr0 = read_cr0();
 	unsigned long t0;
@@ -212,6 +214,7 @@ int main(void)
 	                             : "Paging: disabled\n");
 
 	descriptors_init();
+	input_init();                  /* R7: i8042 and IRQ1 before the timer */
 	sched_init();
 
 	arena = ((unsigned int) bss_end + MEM_ALIGN - 1) & ~(MEM_ALIGN - 1);
@@ -298,9 +301,23 @@ int main(void)
 	/* R6: FAT16 volume, WIN1_ file channel, a.out from a file. */
 	fs_phase();
 
+	/* R7: console input (decoder, ring, CON read, blocking wait). */
+	console_phase();
+
 	/* Nothing left for SYSTEM: suspend indefinitely.  IDLE finishes the run. */
 	for (i = 0; ; i++) {
 		qtrap(QT_SUSPEND, -1, 0, 0);
 	}
 	return 0;
+}
+
+/* R7 shell images (-DR7_SHELL_MODE) boot the shell; the default images run
+ * the R2..R7 test suite as before. */
+int main(void)
+{
+#ifdef R7_SHELL_MODE
+	return shell_boot();
+#else
+	return test_main();
+#endif
 }

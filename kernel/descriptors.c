@@ -10,6 +10,7 @@
 extern void irq0_stub(void);
 extern void trap_stub(void);
 extern void irq7_stub(void);
+extern void irq1_stub(void);
 extern void irq15_stub(void);
 extern void load_descriptors(unsigned int gdtr, unsigned int idtr);
 
@@ -59,6 +60,7 @@ void descriptors_init(void)
 		idt[i] = 0;
 	set_gate(IRQ0_VECTOR, (unsigned long) irq0_stub);
 	set_gate(TRAP_VECTOR, (unsigned long) trap_stub);
+	set_gate(0x21, (unsigned long) irq1_stub);          /* master IRQ1: keyboard */
 	set_gate(0x27, (unsigned long) irq7_stub);          /* master IRQ7 */
 	set_gate(0x2f, (unsigned long) irq15_stub);         /* slave IRQ7 = IRQ15 */
 	put16(idtr, 256 * 8 - 1);

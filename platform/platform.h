@@ -35,6 +35,22 @@ void pic_eoi_slave(void);
 int disk_read_sector(unsigned int lba, unsigned char *buf);
 unsigned long disk_sector_count(void);
 
+/* Console input (R7).  input_init configures the keyboard device before
+ * interrupts are enabled; on PC it sets up the i8042 and unmasks IRQ1.
+ * input_irq1 is the IRQ1 body (PC; empty on i386VM, which has no PIC).
+ * input_poll returns the next raw byte without blocking, INPUT_NONE when
+ * none is waiting, or INPUT_EOF at end of input.  The PC always returns
+ * INPUT_NONE: its bytes arrive by IRQ1. */
+#define INPUT_NONE  (-1)
+#define INPUT_EOF   (-2)
+void input_init(void);
+void input_irq1(void);
+int input_poll(void);
+/* Called on every timer tick, interrupts off.  The PC discards stale mouse
+ * output that would otherwise hold the shared i8042 output buffer, and
+ * with it the keyboard's IRQ1.  i386VM does nothing. */
+void input_tick(void);
+
 /* Stop the machine: finish the run with the given status. */
 void halt_with(int status);
 
