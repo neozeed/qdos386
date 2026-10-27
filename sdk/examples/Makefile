@@ -57,8 +57,8 @@ SDKSTS.aout: stress/stress.c $(LIBS)
 
 # R11B: buffered stdio, the libqdos wrappers, and the repeated-run proof.
 # Names are 8.3 and at most 10 characters with the dot (see README).
-STREAM.aout: r11b/stream/stream.c r11b/check.h $(LIBS)
-	$(WRAP) -o $@ r11b/stream/stream.c
+STREAM.aout: r11e/stream/stream.c r11e/check.h $(LIBS)
+	$(WRAP) -o $@ r11e/stream/stream.c
 
 FORMAT.aout: r11b/format/format.c r11b/check.h $(LIBS)
 	$(WRAP) -o $@ r11b/format/format.c
@@ -69,8 +69,8 @@ CONSOL.aout: r11b/console/consol.c r11b/check.h $(LIBS)
 LIBQDO.aout: r11b/libqdo/libqdo.c r11b/check.h $(LIBS)
 	$(WRAP) -o $@ r11b/libqdo/libqdo.c
 
-REPEAT.aout: r11b/repeat/repeat.c r11b/check.h $(LIBS)
-	$(WRAP) -o $@ r11b/repeat/repeat.c
+REPEAT.aout: r11e/repeat/repeat.c r11e/check.h $(LIBS)
+	$(WRAP) -o $@ r11e/repeat/repeat.c
 
 EXITFL.aout: r11b/exitfl/exitfl.c $(LIBS)
 	$(WRAP) -o $@ r11b/exitfl/exitfl.c
@@ -116,3 +116,24 @@ SCANTS.aout: r11d/scants/scants.c r11d/check.h $(LIBS)
 
 MATHX.aout: r11d/mathx/mathx.c r11d/tables/mathx.h r11d/check.h $(LIBS)
 	../bin/qdos386-gcc -O -o $@ r11d/mathx/mathx.c
+
+# ---- R11E: libqdos API tests and their child programs (wrapper: qdos386-gcc) ----
+R11E_APPS = QDOSAPI PS C89EDGE CHILD1 CHILD2 CONWAIT EXITX EXITR
+r11e-apps: $(addsuffix .aout,$(R11E_APPS))
+
+QDOSAPI.aout: r11e/qdosapi/qdosapi.c r11e/check.h $(LIBS)
+	$(WRAP) -o $@ r11e/qdosapi/qdosapi.c
+PS.aout: r11e/jobs/jobs.c $(LIBS)
+	$(WRAP) -o $@ r11e/jobs/jobs.c
+C89EDGE.aout: r11e/c89edge/c89edge.c r11e/check.h $(LIBS)
+	$(WRAP) -o $@ r11e/c89edge/c89edge.c
+CHILD1.aout: r11e/children/child1.c $(LIBS)
+	$(WRAP) -o $@ r11e/children/child1.c
+CHILD2.aout: r11e/children/child2.c $(LIBS)
+	$(WRAP) -o $@ r11e/children/child2.c
+CONWAIT.aout: r11e/children/conwait.c $(LIBS)
+	$(WRAP) -o $@ r11e/children/conwait.c
+EXITX.aout: r11e/exits/exitx.c $(LIBS)
+	$(WRAP) -o $@ r11e/exits/exitx.c
+EXITR.aout: r11e/exits/exitr.c $(LIBS)
+	$(WRAP) -o $@ r11e/exits/exitr.c

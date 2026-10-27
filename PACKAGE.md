@@ -1,16 +1,13 @@
-# QDOS/386 R11D package
+# QDOS/386 R11E package
 
-Source commit: 2d409fbb3f8fe86b201e422a6bba496b5de8e14f (branch r11d, from the frozen R11C checkpoint 8b55cbf).
+Source commit: 7a62af13c0fdfd971a6be1a03dc15815003c9c6a (branch r11e, from the frozen R11D checkpoint 2d409fb).
 Contents: source tree (git archive of the commit), built SDK libraries and example
-applications, disk images, i386VM shell image, run/ directories, logs/, SHA256SUMS.
+applications, disk images, i386VM shell image, run/ directories, SHA256SUMS.
+FAT16 volume (images/win1-r11e.img) sha256: b36a52aee33facf916136e78f70181db402a9046bd6672017f914c9480acb05c
 
 Run (interactive VGA, Tiny386): cd run/interactive && tiny386_headless interactive.ini
 Run (diagnostic, Tiny386): cd run/diagnostic && tiny386_headless diagnostic.ini
 
-Rebuild the data volume: QDOS386_TOOLS=<GCC 1.40 tree> sh scripts/r11d-volume.sh <LGTEST4.aout>
-Expected win1-r11d.img sha256 (with LGTEST4): see logs/r11d/volume.txt
-
-Runtime matrix: QDOS386_TOOLS=... TINY386=... FW=... I386VM=... I386VM_HARNESS=... LGTEST=... sh scripts/r11d-run-all.sh
-QEMU smoke: DISPLAY=:99 FW=... sh scripts/r11d-qemu-smoke.sh OUTDIR
-
-Tests are SCRIPTED. Results: docs/R11D-RUNTIME-REPORT.md. Coverage: docs/R11D-C89-COVERAGE.md.
+Evidence and limits: docs/R11E-RUNTIME-REPORT.md, docs/R11E-KNOWN-LIMITATIONS.md,
+docs/R11E-LIBQDOS-ABI.md, docs/R11E-QDOS-API-MAP.md, docs/R11E-C89-COVERAGE.md.
+All runs were scripted.

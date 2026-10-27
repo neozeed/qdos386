@@ -1,0 +1,103 @@
+c68_symbol,c68_source,c68_prototype,group,r11e_status,qdos386_equivalent,notes
+c_extop,trap3/Cextop.x,"long c_extop(chid_t chid, long timeout, void (*rout)",other,unsupported,,external operation trap
+cn_date,vect/cndate.s,"char *cn_date(char * buffer, long qdos_date)",date,unsupported,,no date service
+cn_day,vect/cndate.s,"char *cn_day(char * buffer, long_qdos_date)",date,unsupported,,no date service
+fs_date,trap3/fsdate.s,"int fs_date( chanid_t chan, timeout_t timeout, char type, long *sr_date )",file system,unsupported,,no date service
+fs_headr,trap3/iomisc.s,"int fs_headr( chanid_t chan, timeout_t timeout, void *buf, short len )",file system,unsupported,,file header read; no header records on WIN1_
+fs_heads,trap3/iomisc.s,"int fs_heads( chanid_t chan, timeout_t timeout, void *buf, short len)",file system,unsupported,,file header write; FAT16 volume is read only
+fs_load,trap3/fsldsv.s,"int fs_load( chanid_t chanid, char *buf, long len)",file system,unsupported,,no binary load primitive; use qd_read
+fs_mdinf,trap3/fsmdinf.s,"int fs_mdinf( chanid_t chan, timeout_t timeout, char *medname, ; short *unusecs, short *goodsecs )",file system,unsupported,,medium information not exposed
+fs_mkdir,trap3/fsmkdir.s,int fs_mkdir( chanid_t chan ),file system,unsupported,,FAT16 volume is read only
+fs_pos,trap3/fspos.s,"long fs_pos( long chan, long pos, int mode)",file system,approximate,qd_seek,absolute positions only
+fs_posab,trap3/fsposab.s,"int fs_posab(chanid_t chan, timeout_t, timeout, long *pos)",file system,approximate,qd_seek,absolute positions only
+fs_posre,trap3/fsposab.s,"int fs_posre(chanid_t chan, timeout_t, timeout, long *pos)",file system,unsupported,,relative positioning not provided
+fs_save,trap3/fsldsv.s,"int fs_save( chanid_t chanid, char ;buf, long len)",file system,unsupported,,FAT16 volume is read only
+fs_vers,trap3/fsdate.s,"int fs_vers( chanid_t chid, timeout_t timeout, long *key )",file system,unsupported,,no file version key
+io_close,trap2/ioclose.s,int io_close( chanid_t chan ),channel I/O,semantic,qd_close,
+io_delete,trap2/iodelete.s,int io_delete( char *name ),channel I/O,unsupported,,FAT16 volume is read only
+io_edlin,trap3/ioedlin.s,"int io_edlin( chanid_t chan, timeout_t timeout, char **cptr, short bufsize, ; short crnt_offset, short *crnt_linelen)",channel I/O,unsupported,,console line editor not exposed
+io_fbyte,trap3/iofbyte.s,"int io_fbyte( chanid_t chan, timeout_t timeout, char *cptr)",channel I/O,approximate,qd_read,one byte through qd_read; no timeout argument
+io_fline,trap3/iomisc.s,"int io_fline( chanid_t chan, timeout_t timeout, void *buf, short len)",channel I/O,unsupported,,line read of the C68 kind; use fgets
+io_format,trap2/ioformat.s,"int io_format( char *device, int *totsecs, int *goodsecs)",channel I/O,unsupported,,no medium formatting
+io_fstrg,trap3/iomisc.s,"int io_fstrg( chanid_t chan, timeout_t timeout, void *buf, short len)",channel I/O,unsupported,,string read of the C68 kind; use fread
+io_open,trap2/ioopen.s,"long io_open( char *name, int mode)",channel I/O,approximate,qd_open,read only; write and append modes do not exist on WIN1_
+io_qeof,vect/ioqueue.s,void io_qeof(char *queue_pointer),channel I/O,unsupported,,queue primitive of the C68 kernel
+io_qin,vect/ioqueue.s,"int io_qin(char *queue_pointer, int byte_value)",channel I/O,unsupported,,queue primitive of the C68 kernel
+io_qout,vect/ioqueue.s,"void io_qout(char *queue_pointer, char * next_byte)",channel I/O,unsupported,,queue primitive of the C68 kernel
+io_qset,vect/ioqueue.s,"void io_qset(char *queue_pointer, long queue_length)",channel I/O,unsupported,,queue primitive of the C68 kernel
+io_qtest,vect/ioqueue.s,"void io_qtest(char *queue_pointer, char * next_byte, long_ * free_space)",channel I/O,unsupported,,queue primitive of the C68 kernel
+io_rename,trap3/fsrename.s,"int io_rename( char *old, char *new )",channel I/O,unsupported,,FAT16 volume is read only
+io_serq,vect/ioserio.s,"int io_serq( chanid_t chanid, timeout_t timeout, int routine, ; long * D1, long * D2, char ** A1, ((int *)",channel I/O,unsupported,,serial queue primitive
+io_sstrg,trap3/iomisc.s,"int io_sstrg( chanid_t chan, timeout_t timeout, void *buf, short len)",channel I/O,unsupported,,string write; use qd_write on CON
+ioa_sown,trap2/ioa_sown.s,"int ioa_sown( chanid_t channel, jobid_t new_owner )",channel I/O,unsupported,,channel owner change
+iow_xtop,trap3/Cextop.x,"long iow_xtop(long chid, long timeout, void (*rout)",channel I/O,unsupported,,external operation trap
+mm_alchp,vect/mmalchp.s,"char *mm_alchp( long size, long *sizegot)",multitasking/heap,approximate,qd_alloc,one heap; the size-got result is not returned
+mm_alloc,vect/mmalloc.s,"char *mm_alloc( char **ptr, int *len)",multitasking/heap,native-only,qd_alloc,one heap; no common/user split
+mm_lnkfr,vect/mmlnkfr.s,"void mm_lnkfr( char *base, char **ptr, int len)",multitasking/heap,unsupported,,no heap link-back trap
+mm_rechp,vect/mmrechp.s,void mm_rechp( char *area ),multitasking/heap,approximate,qd_free,one heap; release by block address
+mt_activ,trap1/mtactiv.s,"jobid_t mt_activ( jobid_t jobid, unsigned char priority, timeout_t timeout)",multitasking/heap,approximate,qd_job_activate,"activation without timeout; returns status, not job id"
+mt_alchp,trap1/mtalchp.s,"void * mt_alchp(long size, long *sizegot, jobid_t jobid)",multitasking/heap,approximate,qd_alloc,one heap; the size-got result is not returned
+mt_alloc,trap1/mtalloc.s,"char *mt_alloc( char **ptr, int *len)",multitasking/heap,native-only,qd_alloc,single heap; C68 pointer-pair convention not provided
+mt_alres,trap1/mtalres.s,char *mt_alres( long size),multitasking/heap,unsupported,,no resident-procedure area
+mt_baud,trap1/mtbaud.s,int mt_baud( long rate ),multitasking/heap,unsupported,,no serial port service
+mt_cjob,trap1/mtcjob.s,"jobid_t mt_cjob( long codespace, long dataspace, char *startadd, ; jobid_t owner, char **jobadd)",multitasking/heap,unsupported,,kernel job creation takes a raw code address; deferred (see R11E-QDOS-API-MAP)
+mt_dmode,trap1/mtdmode.s,"void mt_dmode( short * s_mode, short * d_type)",multitasking/heap,unsupported,,no display-mode service
+mt_free,trap1/mtclock.s,long mt_free(),multitasking/heap,unsupported,,free space query of the C68 kind; use qd_free_bytes (native-only)
+mt_frjob,trap1/mtrjob.s,"int mt_frjob( jobid_t jobid, int code)",multitasking/heap,unsupported,,no job removal trap
+mt_inf,trap1/mtinf.s,"jobid_t mt_inf( char **sys_vars, long ver_ascii)",multitasking/heap,unsupported,,system variable block not exposed
+mt_ipcom,trap1/mtipcom.s,int mt_ipcom( char *param ),multitasking/heap,unsupported,,no second processor
+mt_jinf,trap1/mtjinf.s,"int mt_jinf( long *jobid, long *topjob, long *jobp, char **jobloc)",multitasking/heap,unsupported,,job pointer and location not exposed
+mt_ldd,trap1/mtlink.s,void mt_ldd( struct ql_ddevd *lnk),multitasking/heap,unsupported,,kernel link list
+mt_liod,trap1/mtlink.s,void mt_liod( struct ql_link *lnk),multitasking/heap,unsupported,,kernel link list
+mt_lnkfr,trap1/mtlnkfr.s,"void mt_lnkfr( char *base, char **ptr, long len)",multitasking/heap,unsupported,,no heap link-back trap
+mt_lpoll,trap1/mtlink.s,void mt_lpoll( struct ql_link *lnk),multitasking/heap,unsupported,,kernel link list
+mt_lschd,trap1/mtlink.s,void mt_lschd( struct ql_link *lnk),multitasking/heap,unsupported,,kernel link list
+mt_lxint,trap1/mtlink.s,void mt_lxint( struct ql_link *lnk),multitasking/heap,unsupported,,kernel link list
+mt_prior,trap1/mtprior.s,"int mt_prior( jobid_t jobid, unsigned char new_priority)",multitasking/heap,approximate,qd_job_chprio,"returns 0, not the old priority; read it with qd_job_info first"
+mt_rdd,trap1/mtlink.s,void mt_rdd( struct ql_ddevd *lnk),multitasking/heap,unsupported,,kernel link list
+mt_rechp,trap1/mtrechp.s,void mt_rechp( char *area ),multitasking/heap,approximate,qd_free,one heap; release by block address
+mt_reljb,trap1/mtreljb.s,char *mt_reljb( jobid ),multitasking/heap,approximate,qd_job_reactivate,releases a job suspended by QT_SUSPEND
+mt_riod,trap1/mtlink.s,void mt_riod( struct ql_link *lnk),multitasking/heap,unsupported,,kernel link list
+mt_rjob,trap1/mtrjob.s,"int mt_rjob( jobid_t jobid, int code)",multitasking/heap,unsupported,,no job removal trap
+mt_rpoll,trap1/mtlink.s,void mt_rpoll( struct ql_link *lnk),multitasking/heap,unsupported,,kernel link list
+mt_rschd,trap1/mtlink.s,void mt_rschd( struct ql_link *lnk),multitasking/heap,unsupported,,kernel link list
+mt_rxint,trap1/mtlink.s,void mt_rxint( struct ql_link *lnk),multitasking/heap,unsupported,,kernel link list
+mt_shrink,trap1/mtshrink.s,"int mt_shrink( char *block, long newsize)",multitasking/heap,unsupported,,no heap shrink trap
+mt_susjb,trap1/mtsusjb.s,"int mt_susjb( jobid_t jobid, timeout_t time, char *zero)",multitasking/heap,approximate,qd_job_suspend,suspends the calling job only; hold pointer not used
+mt_trans,trap1/mttrans.s,"int mt_trans( char * trans_table, char * msg_table)",multitasking/heap,unsupported,,no translation table
+mt_trapv,trap1/mttrapv.s,"int mt_trapv( long jobid, qlvectable *table)",multitasking/heap,unsupported,,no job vector table
+sd_arc,trap3/sdgraph.s,"int sd_arc( chanid_t chan, timeout_t timeout, ; double x_start, double y_start, ; double x_end, double y_end, double angle)",screen/graphics,unsupported,,screen graphics
+sd_extop,trap3/sdextop.s,"int sd_extop( long chan, int timeout, int (*rtn)",screen/graphics,unsupported,,screen graphics
+sd_fount,trap3/sdfount.s,"int sd_fount( long chan, int timeout, char *font1, char *font2)",screen/graphics,unsupported,,screen font
+sd_gcur,trap3/sdgraph.s,"int sd_gcur( chanid_t chan, timeout_t timeout, ; double vert_offset, double horiz_offset, ; double x_pos, double y_pos )",screen/graphics,unsupported,,screen graphics cursor
+sd_iarc,trap3/sdigraph.s,"int sd_iarc( chanid_t chan, timeout_t timeout, ; int x_start, int y_start, int x_end, int y_end, int angle)",screen/graphics,unsupported,,screen graphics
+sd_ielipse,trap3/sdgraph.s,"int sd_ielipse( chanid_t chan, timeout_t timeout, ; double x_centre, double y_centre, ; double eccentricity, double radius, ; double angle_of_rotation)",screen/graphics,unsupported,,screen graphics
+sd_igcur,trap3/sdigraph.s,"int sd_igcur( chanid_t chan, timeout_t timeout, int vert_offset, ; int horiz_offset, int x_pos, int y_pos )",screen/graphics,unsupported,,screen graphics cursor
+sd_iline,trap3/sdigraph.s,"int sd_iline( chanid_t chan, timeout_t timeout, ; int x_start, int y_start, int x_end, int y_end )",screen/graphics,unsupported,,screen graphics
+sd_ipoint,trap3/sdigraph.s,"int sd_ipoint( chanid_t chan, timeout_t timeout, int x, int y)",screen/graphics,unsupported,,screen graphics
+sd_iscale,trap3/sdgraph.s,"int sd_iscale( chanid_t chan, timeout_t timeout, ; double scale, ; double x_origin,double y_origin)",screen/graphics,unsupported,,screen graphics
+sd_line,trap3/sdgraph.s,"int sd_line( chanid_t chan, timeout_t timeout, ; double x_start, double y_start, ; double x_end, double y_end )",screen/graphics,unsupported,,screen graphics
+sd_point,trap3/sdgraph.s,"int sd_point( chanid_t chan, timeout_t timeout, ; double x, double y)",screen/graphics,unsupported,,screen graphics
+sd_routine,trap3/fsmisc.s,"int sd_routine( chanid_t chan, timeout_t timeout, ....)",screen/graphics,unsupported,,screen graphics
+sms_achp,trap1/mtalchp.s,"void * sms_achp(long size, long *sizegot, jobid_t jobid)",multitasking/heap,approximate,qd_alloc,one heap; the size-got result is not returned
+sms_achp_acsi,trap1/mtalchp.s,"void * sms_achp_acsi(long size, long *sizegot, jobid_t jobid)",multitasking/heap,unsupported,,ACSI-specific common heap
+sms_cach,trap1/smscach.s,void sms_cach( int flag),multitasking/heap,unsupported,,SMS cache control
+sms_dmod,trap1/mtdmode.s,"void sms_dmod( short * s_mode, short * d_type)",multitasking/heap,unsupported,,no display-mode service
+sms_iopr,trap1/smsiopr.s,void sms_iopr( short priority),multitasking/heap,unsupported,,SMS I/O priority
+sms_lenq,trap1/smslset.s,"void sms_lenq( long * language_code, char * car_registration)",multitasking/heap,unsupported,,SMS queue
+sms_lldm,trap1/smslldm.s,void sms_lldm( struct SMS_LDM * ),multitasking/heap,unsupported,,SMS device loading
+sms_lset,trap1/smslset.s,"void sms_lset( long * language_code, char * car_registration)",multitasking/heap,unsupported,,SMS setting
+sms_mptr,trap1/smsmptr.s,char * sms_mptr( long message_code),multitasking/heap,unsupported,,SMS pointer
+sms_pset,trap1/smspset.s,void sms_pset( long printer_translate_code),multitasking/heap,unsupported,,SMS pointer setting
+sms_schp,trap1/mtalchp.s,"void * sms_schp(long newsize, long * sizegot, char * base_address)",multitasking/heap,unsupported,,SMS common heap shrink
+sms_sevt,trap1/smssevt.s,"int sms_sevt( jobid_t, event_t )",multitasking/heap,unsupported,,SMS event
+sms_wevt,trap1/smswevt.s,"void sms_wevt( event_t *, timeout_t )",multitasking/heap,unsupported,,SMS event wait
+ut_con,vect/utopen.s,chanid_t ut_con( char * paramblock),window/utility,unsupported,,window and console definition
+ut_cstr,vect/utcstr.s,"int ut_cstr(string1, string2, mode)",window/utility,unsupported,,string comparison of the C68 kind; use strcmp
+ut_err,vect/uterr.s,void ut_err(long errorcodem chanid_t channel),window/utility,unsupported,,error text; C89 perror/strerror are provided instead
+ut_link,vect/utlink.s,"void ut_link(char *previtem, char * newitem)",window/utility,unsupported,,utility link list of the C68 kernel
+ut_mint,vect/utmint.s,"int ut_mint(chanid_t channel, short value)",window/utility,unsupported,,text output of integers to a window
+ut_mtext,vect/utmtext.s,"int ut_mtext(chanid_t channel, char * message)",window/utility,unsupported,,text output to a window; use qd_puts or qd_write on CON
+ut_scr,vect/utopen.s,chanid_t ut_scr( char * paramblock),window/utility,unsupported,,screen definition
+ut_unlnk,vect/utunlnk.s,"void ut_unlnk(char *previtem, char * olditem)",window/utility,unsupported,,utility link list of the C68 kernel
+ut_windowf,vect/utwind.s,"chanid_t ut_windowf( char * name, char *params)",window/utility,unsupported,,window formatting

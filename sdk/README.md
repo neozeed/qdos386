@@ -1,4 +1,43 @@
-# QDOS/386 SDK (R11D)
+# QDOS/386 SDK (R11E)
+
+R11E makes `libqdos.a` a documented native service library and extends the
+filename limit to the full 8.3 spelling.  It does not change the C89 library
+except for the fixes listed in `docs/R11E-RUNTIME-REPORT.md`.
+
+New in R11E:
+- `qd_*` wrappers (declared in `include/qdos386.h`): job identity and information
+  (`qd_self`, `qd_job_slot`, `qd_job_info`, `qd_job_activate`, `qd_job_chprio`,
+  `qd_job_reactivate`, `qd_job_suspend`, `qd_job_exit_status`, `qd_job_reclaimed`),
+  `qd_run`, `qd_con_wait`, heap with failure codes (`qd_alloc_ex`, `qd_mem_validate`),
+  `qd_getc`, and the WIN1_ root directory (`qd_dir_open`, `qd_dir_next`).
+- `qd_exit` and `exit` end the job by unwinding to the entry frame; a program no
+  longer has to return from `main` after `exit`.
+- Names: `FILENAME_MAX` is 18, so a full 8.3 name (12 characters with its dot) opens
+  through `WIN1_`.  A 13-character name is refused.
+- Two new kernel traps: `QT_JOB_SELF` (0x21) and `QT_JOB_SLOT` (0x22).  The lower
+  bound of user pointers is the heap arena base.
+
+Read first:
+- `docs/R11E-QDOS-API-MAP.md` (C68 cross-reference and what is mapped)
+- `docs/R11E-LIBQDOS-ABI.md` (wrappers, error codes, traps, exit unwind)
+- `docs/R11E-KNOWN-LIMITATIONS.md` (what is not done or not verified)
+- `docs/R11E-C89-COVERAGE.md` / `.csv` (per-function status and guest tests)
+- `docs/R11E-RUNTIME-REPORT.md` (what was run, where, and the results)
+- `docs/R11E-LICENSE-PROVENANCE.md` (new components and their notices)
+
+Build and run: `scripts/r11e-volume.sh [LGTEST4.aout]` builds the volume;
+`scripts/r11e-run-all.sh` runs the scripted Tiny386 and i386VM matrix;
+`scripts/r11e-qemu-smoke.sh` runs the scripted QEMU VGA smoke test;
+`sh tests/host/r11e/run.sh` builds and runs the host-side C89 unit tests.
+
+Tests (`examples/r11e/`): `QDOSAPI` (job, heap, channel, directory and error
+checks), `PS` (job listing), `C89EDGE` (edge cases of the untested libc
+functions), `STREAM` and `REPEAT` (extended), `CHILD1`, `CHILD2`, `CONWAIT`,
+`EXITX`, `EXITR` (programs run from the shell to test exit and status).
+
+---
+
+# QDOS/386 SDK (R11D, unchanged notes)
 
 R11D extends the C89 library: string, ctype, stdlib (`qsort`, `bsearch`,
 `strtol`, `rand`, `div`, `atexit`, `abort`), `setjmp`/`longjmp` (native i386),

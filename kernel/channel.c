@@ -94,7 +94,11 @@ static int drivers_ready = 0;
 
 int chan_user_range_ok(unsigned int addr, unsigned int n)
 {
+	/* R11E: the lower bound is the heap arena base.  Before this, only the
+	 * upper bound was checked, so a user buffer could name kernel memory. */
 	if (addr == 0 && n != 0)
+		return 0;
+	if (mem_arena_base() != 0 && addr < mem_arena_base())
 		return 0;
 	if (addr + n < addr)
 		return 0;                    /* wraps */

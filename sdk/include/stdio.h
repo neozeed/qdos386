@@ -12,7 +12,7 @@
 #define SEEK_SET 0
 #define SEEK_CUR 1
 #define SEEK_END 2
-#define FILENAME_MAX 16
+#define FILENAME_MAX 18
 #define TMP_MAX 25
 #define L_tmpnam 16
 

@@ -7,6 +7,7 @@ external/
 disk/
 images/
 launch/
+evidence/
 run/
 *.o
 *.a

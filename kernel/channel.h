@@ -19,7 +19,7 @@
 
 #define CHAN_MAX 8                  /* channel table slots */
 #define CHAN_MAX_WRITE 256          /* bytes per write call */
-#define CHAN_NAME_MAX 16            /* name, NUL included in the limit (R6: WIN1_ names) */
+#define CHAN_NAME_MAX 18            /* name, NUL included: "WIN1_" + full 8.3 (12) + NUL (R11E) */
 #define CHAN_TAG_MAX 0x7fff         /* tags wrap to 1 before this value */
 
 /* Native error codes, negative.  -3 (no memory) and -6 (no free entry, channel

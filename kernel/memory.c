@@ -97,6 +97,12 @@ static void free_insert(unsigned int cur)
 	}
 }
 
+/* First address of the heap arena: everything below it is kernel image or data. */
+unsigned int mem_arena_base(void)
+{
+	return arena_base;
+}
+
 int mem_init(unsigned int start, unsigned int end)
 {
 	unsigned int s;

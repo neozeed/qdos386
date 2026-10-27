@@ -462,7 +462,13 @@ unsigned int trap_dispatch(unsigned int sp)
 
 	switch (fn) {
 	case QT_SUSPEND:
-		/* tr1d08: JOB.STAT = timeout, JOB.HOLD = release flag, then schedule */
+		/* tr1d08: JOB.STAT = timeout, JOB.HOLD = release flag, then schedule.
+		 * R11E: the hold flag is written by the kernel later, so it must be a
+		 * byte in the caller's range (0 = no flag). */
+		if (b != 0 && !chan_user_range_ok(b, 1)) {
+			result = CHAN_ERR_RANGE;
+			break;
+		}
 		jobs[job_current].status = (int) a;
 		jobs[job_current].hold = (unsigned char *) b;
 		result = 0;
@@ -627,6 +633,21 @@ unsigned int trap_dispatch(unsigned int sp)
 		result = (int) (unsigned int) sched_ticks;
 		break;
 
+	case QT_JOB_SELF:
+		/* R11E: the calling job's tagged id. */
+		result = (int) job_current_id();
+		break;
+
+	case QT_JOB_SLOT:
+		/* R11E: tagged id of the job in slot a (live slots only), else -2.
+		 * Slot 0 is the system job and is listed like any other. */
+		if (a >= JOB_MAX || !jobs[a].in_use) {
+			result = -2;
+			break;
+		}
+		result = (int) jobs[a].id;
+		break;
+
 	case QT_JOB_RECLAIMED:
 		result = (job_lookup(a) == JOB_NONE) ? 1 : 0;
 		break;
@@ -634,7 +655,12 @@ unsigned int trap_dispatch(unsigned int sp)
 	case QT_CON_WAIT:
 		/* b = flag byte.  Input or end already pending: return at once and let
 		 * the caller read.  Otherwise sleep indefinitely; the arrival wakes us
-		 * and clears the flag.  The trap returns 0 in both cases. */
+		 * and clears the flag.  The trap returns 0 in both cases.  R11E: b must
+		 * be a byte in the caller's range; the kernel writes it on arrival. */
+		if (b != 0 && !chan_user_range_ok(b, 1)) {
+			result = CHAN_ERR_RANGE;
+			break;
+		}
 		if (cin_count() != 0 || cin_at_eof()) {
 			result = 0;
 			break;

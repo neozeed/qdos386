@@ -33,6 +33,14 @@ int qtrap(unsigned int fn, unsigned int a, unsigned int b, unsigned int c);
 #define QD_TRAP_MEM_VALIDATE 0x13u
 #define QD_TRAP_APP_ARGS     0x1Fu
 #define QD_TRAP_TICKS        0x20u
+#define QD_TRAP_JOB_INFO     0x0Cu   /* R11E wrappers below use these existing traps */
+#define QD_TRAP_JOB_ACTIVATE 0x0Au
+#define QD_TRAP_JOB_CHPRIO   0x0Bu
+#define QD_TRAP_JOB_REACT    0x09u
+#define QD_TRAP_JOB_RECLAIMED 0x1Eu
+#define QD_TRAP_IMG_LOAD     0x1Du
+#define QD_TRAP_JOB_SELF     0x21u   /* R11E: added to the kernel in R11E */
+#define QD_TRAP_JOB_SLOT     0x22u   /* R11E: added to the kernel in R11E */
 
 /* Limits of the argument vector (see docs/R8-APP-ABI.md). */
 #define QD_ARGC_MAX          16u     /* argv[0] included */
@@ -68,5 +76,50 @@ int qd_seek(int ch, unsigned long pos);
 
 /* Console convenience: write a NUL-terminated string to CON. */
 int qd_puts(const char *s);
+
+/* ---- R11E additions -------------------------------------------------------
+ * Error results are negative.  The job codes are the kernel's: -2 no such job
+ * (stale or invalid tagged id), -16 job still running, -17 job ended without
+ * QT_EXIT, -50 another job already waits for the console.  A job's exit status
+ * is returned as is, so an exit status equal to -2, -16 or -17 cannot be told
+ * apart from those errors (kernel ABI, documented). */
+#define QD_ERR_NOJOB     (-2)
+#define QD_ERR_RUNNING  (-16)
+#define QD_ERR_NOSTATUS (-17)
+#define QD_ERR_CONBUSY  (-50)
+#define QD_EOF           (-1)  /* qd_getc: end of file (a byte is 0..255) */
+
+/* Jobs.  Ids are tagged: the slot in the low 16 bits, a tag in the high bits.
+ * A tag changes when a slot is reused, so a stale id fails with QD_ERR_NOJOB. */
+int qd_self(void);                                  /* id of the calling job */
+int qd_job_slot(unsigned int slot);                 /* id in that slot, or QD_ERR_NOJOB */
+int qd_job_info(int id, unsigned int *inc, unsigned int *acc);   /* 0, or an error */
+int qd_job_activate(int id, unsigned int inc);      /* 0; -1 if already active.  The increment must be non-zero (0 is inactive) */
+int qd_job_chprio(int id, unsigned int inc);        /* 0.  inc 0 makes the job inactive: it is no longer scheduled, so do not use 0 on a running job */
+int qd_job_reactivate(int id);                      /* 0; releases a suspended job */
+int qd_job_suspend(long ticks);                     /* the calling job; < 0 = until released */
+int qd_job_exit_status(int id);                     /* status, or a QD_ERR_* code */
+int qd_job_reclaimed(int id);                       /* 1 if the job's slot is free */
+int qd_run(const char *name, const char *args);     /* job id, or error; args may be NULL */
+int qd_con_wait(unsigned char *flag);               /* sleep until console input (flag set) */
+
+/* Heap, with the failure code kept (qd_alloc returns NULL only).  Blocks are
+ * owned by the calling job and freed by the kernel when the job ends. */
+int qd_alloc_ex(unsigned int bytes, void **out);    /* 0, or MEM_ERR_* */
+int qd_mem_validate(void);                          /* 0 if the heap is consistent */
+
+/* Channel helpers. */
+int qd_getc(int ch);                                /* 0..255, QD_EOF at end, or an error */
+
+/* WIN1_ root directory.  qd_dir_open opens "WIN1_" (a channel); qd_dir_next
+ * reads one 16-byte record: a name of at most 12 characters (NUL-terminated
+ * here) and the file size.  Returns 1 for a record, 0 at the end, or an error.
+ * Only the root directory exists on the volume. */
+struct qd_dirent {
+	char name[13];
+	unsigned long size;
+};
+int qd_dir_open(void);
+int qd_dir_next(int ch, struct qd_dirent *e);
 
 #endif

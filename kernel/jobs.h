@@ -55,6 +55,8 @@
 /* R8: application arguments and time. */
 #define QT_APP_ARGS   0x1F        /* a = pointer to a word -> argc; the word gets the argv array address (0 if none) */
 #define QT_TICKS      0x20        /* -> sched_ticks, low 32 bits (timer ticks since boot) */
+#define QT_JOB_SELF   0x21        /* R11E: -> tagged job id of the calling job */
+#define QT_JOB_SLOT   0x22        /* R11E: a = slot index -> tagged job id of the job in that slot, or -2 */
 #define QT_CON_WAIT   0x1C        /* b = flag byte, set when console input arrives -> 0.
                                      Returns at once if input or end is pending; otherwise
                                      the job sleeps.  The caller retries its CON read. */

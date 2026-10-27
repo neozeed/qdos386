@@ -9,8 +9,8 @@
  * word and the RUN or TYPE name are folded to upper case; arguments keep case.
  *
  * Names are 8.3 on the WIN1_ volume.  Input is folded to uppercase, so
- * "hello.aou" is HELLO.AOU.  Names are limited to 10 characters, because a
- * channel name is at most 15 characters after the WIN1_ prefix.
+ * "hello.aou" is HELLO.AOU.  Names are limited to 12 characters (full 8.3 with
+ * its dot); the WIN1_ channel name is then at most 17 characters (R11E).
  *
  * Console input: when no byte is waiting the shell sleeps in QT_CON_WAIT and
  * an arrival wakes it.  It never spins.
@@ -30,8 +30,8 @@
 
 #define SH_LINE_MAX  80
 #define SH_RUN_MAX_ARGS 15         /* user arguments; argv[0] is the name */
-#define SH_PATH_MAX  16            /* "WIN1_" plus a name, NUL included */
-#define SH_NAME_MAX  10            /* longest name the channel prefix allows */
+#define SH_PATH_MAX  18            /* "WIN1_" plus a name, NUL included (R11E) */
+#define SH_NAME_MAX  12            /* longest 8.3 name: 8 + dot + 3 (R11E) */
 #define SH_CAP_MAX   1024
 #define SH_REC       16
 #define SH_EOF_STATUS 3

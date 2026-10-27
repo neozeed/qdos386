@@ -59,6 +59,7 @@ struct mem_stats {
 
 /* Initialise the arena [start, end).  Bounds are rounded inward to 16 bytes.
  * Returns MEM_OK or MEM_ERR_RANGE. */
+unsigned int mem_arena_base(void);       /* R11E: lower bound of user addresses */
 int mem_init(unsigned int start, unsigned int end);
 
 /* Allocate size bytes for owner.  The block is zero-filled.  Returns the

@@ -22,6 +22,7 @@
 _start:
 	pushl %ebp
 	movl %esp,%ebp
+	movl %ebp,_qd_entry_frame	/* R11E: for qd_end_job */
 	subl $8,%esp		/* -4(%ebp): argv array address (written by the kernel) */
 	leal -4(%ebp),%ebx	/* a = where the kernel writes argv */
 	movl $0x1F,%eax		/* QT_APP_ARGS */

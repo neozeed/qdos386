@@ -7,7 +7,7 @@
 #include "fat16.h"
 #include "win1.h"
 
-#define IMG_NAME_MAX 16u           /* name, NUL included */
+#define IMG_NAME_MAX 18u           /* name, NUL included: full 8.3 (R11E) */
 
 /* Name plus arguments, as the kernel passes them to the loader.  Kernel static:
  * only the trap that fills it uses it, and traps do not nest. */
