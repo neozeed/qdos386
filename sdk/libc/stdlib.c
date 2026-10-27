@@ -117,3 +117,72 @@ void exit(int status)
 	 * so there is nothing to flush before the kernel reclaims the job. */
 	qd_exit(status);
 }
+
+/* ---- qsort and bsearch (C89 4.10.5) ------------------------------------ */
+
+static void qd_swap(char *a, char *b, size_t n)
+{
+	while (n-- > 0) {
+		char t = *a;
+		*a++ = *b;
+		*b++ = t;
+	}
+}
+
+/* Sift the element at root down within the first n elements (max-heap). */
+static void qd_sift(char *base, size_t size, size_t root, size_t n,
+		    int (*cmp)(const void *, const void *))
+{
+	for (;;) {
+		size_t child = 2 * root + 1;
+		if (child >= n)
+			return;
+		if (child + 1 < n && cmp(base + child * size, base + (child + 1) * size) < 0)
+			child++;
+		if (cmp(base + root * size, base + child * size) >= 0)
+			return;
+		qd_swap(base + root * size, base + child * size, size);
+		root = child;
+	}
+}
+
+/* Heapsort: O(n log n), no recursion, no extra memory, so the stack use is the
+ * same for any input.  It is not stable (C89 does not require stability). */
+void qsort(void *base, size_t nmemb, size_t size, int (*cmp)(const void *, const void *))
+{
+	char *b = (char *) base;
+	size_t n = nmemb;
+	size_t i;
+
+	if (n < 2 || size == 0 || cmp == NULL)
+		return;
+	for (i = n / 2; i-- > 0; )
+		qd_sift(b, size, i, n, cmp);
+	while (n-- > 1) {
+		qd_swap(b, b + n * size, size);
+		qd_sift(b, size, 0, n, cmp);
+	}
+}
+
+void *bsearch(const void *key, const void *base, size_t nmemb, size_t size,
+	      int (*cmp)(const void *, const void *))
+{
+	const char *b = (const char *) base;
+	size_t lo = 0;
+	size_t hi = nmemb;
+
+	if (size == 0 || cmp == NULL)
+		return NULL;
+	while (lo < hi) {
+		size_t mid = lo + (hi - lo) / 2;
+		const char *p = b + mid * size;
+		int r = cmp(key, p);
+		if (r == 0)
+			return (void *) p;
+		if (r < 0)
+			hi = mid;
+		else
+			lo = mid + 1;
+	}
+	return NULL;
+}

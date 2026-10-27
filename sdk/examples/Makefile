@@ -7,7 +7,18 @@ endif
 WRAP = ../bin/qdos386-gcc
 export QDOS386_TOOLS
 
-all: SDKHEL.aout SDKARG.aout SDKSTM.aout SDKSTS.aout LIBHEL.aout CATFIL.aout MEMSTR.aout BIGAPP.aout HEAPEX.aout
+all: SDKHEL.aout SDKARG.aout SDKSTM.aout SDKSTS.aout LIBHEL.aout CATFIL.aout MEMSTR.aout BIGAPP.aout HEAPEX.aout CTYPE.aout STRTST.aout FTEST.aout
+
+# R11A: C89 library expansion tests.  Output names are 8.3 and at most 10
+# characters with the dot, the limit of the WIN1_ channel name (see README).
+CTYPE.aout: r11a/ctype/ctype.c
+	$(WRAP) -o $@ r11a/ctype/ctype.c
+
+STRTST.aout: r11a/strings/strings.c
+	$(WRAP) -o $@ r11a/strings/strings.c
+
+FTEST.aout: r11a/filetest/filetest.c
+	$(WRAP) -o $@ r11a/filetest/filetest.c
 
 # R9: the C library proofs (libc.a, see sdk/libc and docs/R9-LIBC-ABI.md).
 LIBHEL.aout: libhello/libhello.c

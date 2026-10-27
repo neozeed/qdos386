@@ -18,4 +18,8 @@ char *strchr(const char *s, int c);
 char *strrchr(const char *s, int c);
 char *strstr(const char *hay, const char *needle);
 char *strdup(const char *s);
+size_t strspn(const char *s, const char *accept);
+size_t strcspn(const char *s, const char *reject);
+char *strpbrk(const char *s, const char *accept);
+char *strtok(char *s, const char *delim);
 #endif

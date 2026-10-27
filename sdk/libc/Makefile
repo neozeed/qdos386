@@ -7,9 +7,9 @@ $(error set QDOS386_TOOLS to the GCC 1.40 / GAS / i386-ld tree)
 endif
 GCC = $(QDOS386_TOOLS)/bin/i386-gcc
 AR  = ar
-INC = -I../include -I../include
+INC = -I../include
 
-OBJS = string.o malloc.o stdlib.o stdio.o
+OBJS = string.o malloc.o stdlib.o stdio.o ctype.o
 
 ../lib/libc.a: $(OBJS)
 	mkdir -p ../lib

@@ -6,6 +6,8 @@ tests/
 external/
 disk/
 images/
+launch/
+run/
 *.o
 *.a
 *.aout

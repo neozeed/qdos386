@@ -1,0 +1,23 @@
+External inputs used to build and test R11A (not included in this archive).
+Hashes are sha256 of the exact files used.
+
+Tiny386 (patched dev-tree build, fpu-diag/tiny/vga-window):
+e201502f21f488aa13e3d34dec0f9635d147d170fdfb057f44b15c070bbfbef9  tiny386_headless
+Tiny386 FPU rounding patch (external, version-specific):
+ae8ef6f15c1ad7f43a91a6fe71a39ac033b500f3bce0974ec5bcedae7a0cd538  fpu-round-nearest.patch
+BIOS (included in run/*/bios.bin):
+7bd968419c81fcf8262c5c1182cef43bb0d5eb70f375f94567ae71fd64a15e9e  bios.bin
+VGA BIOS (included in run/*/vgabios.bin):
+f5aedb52cde5c88d85e5b304a4cc48459c231aef42b9950ccc82bd321d9c127e  vgabios.bin
+LGTEST4.aout, the 3,576-check suite. It IS INCLUDED in images/win1-r11a.img as LGTEST.AOU
+(the tested volume was built with it). Its owner should confirm it may be redistributed:
+8003124ae0d20ea533dcce0e3526d4a7881b169752c91d9f503ab1d4b786f52d  LGTEST4.aout
+i386VM harness (i386vm-r9, used by scripts/r11a-run-all.sh):
+a4724f79b26a716e64609399a8c199cbceaf98da9673d6010c41341766543e3a  i386vm-r9
+GCC 1.40 / GAS / i386-ld toolchain tree (i386vm/bin, QDOS386_TOOLS):
+3567f3beab83e17d7f7b5ff5844ee1dd85fd452b84128bdc0a7d46bb103d7904  bin/i386-gcc
+1dd52eeb51191b0f1e6f92fcc9ed0be9e5fb80a97f28e41ddddb479f7399effb  bin/cc1
+a5d10c5c176cad35dae155194816e9633b923e8d3fafab100bdb6050dcf23cb5  bin/cccp
+47369dd54851448080ce6836304829ea6ae98fbcb8efa944386c0ec0239d1009  bin/as
+dfdb396514559958d9bd1ed651337abded3565f6665d8bad05dcaeec92d07c20  bin/i386-ld
+baa683711ecfe674a0e3b226e166db3160aec59ab922b2ea264b146590082a6c  bin/i386vm

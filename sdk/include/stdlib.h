@@ -16,5 +16,8 @@ long labs(long n);
 int atoi(const char *s);
 long atol(const char *s);
 long strtol(const char *s, char **end, int base);
+void qsort(void *base, size_t nmemb, size_t size, int (*cmp)(const void *, const void *));
+void *bsearch(const void *key, const void *base, size_t nmemb, size_t size,
+              int (*cmp)(const void *, const void *));
 unsigned long strtoul(const char *s, char **end, int base);
 #endif

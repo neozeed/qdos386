@@ -8,7 +8,7 @@
  *                    does not start with "WIN1_" or "CON" gets "WIN1_" added;
  *                    the whole name must fit the kernel's 16-byte channel name.
  *
- * Not provided: writing files, fgets/fputs/fprintf, scanf, buffering modes,
+ * Not provided: writing files, fputs/fprintf, scanf, buffering modes,
  * SEEK_END (the kernel has no file size query), errno, locale.  See
  * docs/R9-LIBC-ABI.md. */
 #include <stdio.h>
@@ -27,7 +27,9 @@ struct qd_file {
 	int kind;
 	int eof;
 	int err;
-	unsigned long pos;  /* file position (KIND_FILE) */
+	unsigned long pos;  /* logical position (KIND_FILE): the byte the next read returns */
+	int has_unget;      /* one pushed-back character (ungetc), consumed first */
+	int unget_c;
 };
 
 static struct qd_file con_out = { 0, KIND_CON, 0, 0, 0 };
@@ -51,10 +53,11 @@ static int con_channel(void)
 
 struct qd_out {
 	int to_con;          /* 1: write through CON in chunks; 0: into dst */
-	char *dst;           /* sprintf destination (no bound: C89 sprintf) */
+	char *dst;           /* destination for the string forms */
+	unsigned long cap;   /* string forms: size of dst; writes stop at cap-1 */
 	char chunk[OUT_CHUNK];
 	unsigned int n;
-	int total;
+	int total;           /* characters produced (the return value) */
 };
 
 static void out_flush(struct qd_out *o)
@@ -69,13 +72,16 @@ static void out_flush(struct qd_out *o)
 
 static void out_char(struct qd_out *o, int c)
 {
-	o->total++;
 	if (o->to_con) {
+		o->total++;
 		o->chunk[o->n++] = (char) c;
 		if (o->n == OUT_CHUNK)
 			out_flush(o);
 	} else {
-		*o->dst++ = (char) c;
+		/* keep room for the terminating NUL; count everything */
+		if ((unsigned long) o->total + 1 < o->cap)
+			o->dst[o->total] = (char) c;
+		o->total++;
 	}
 }
 
@@ -215,19 +221,48 @@ int printf(const char *fmt, ...)
 	return n;
 }
 
-int sprintf(char *buf, const char *fmt, ...)
+/* String forms share one core.  sprintf is unbounded (the caller must size
+ * the buffer); snprintf and vsnprintf never write more than size-1 characters
+ * plus the NUL, and return the length the full output would have had (C99). */
+static int qd_format_to(char *buf, unsigned long cap, const char *fmt, va_list ap)
 {
 	struct qd_out o;
-	va_list ap;
 	int n;
 	o.to_con = 0;
 	o.dst = buf;
+	o.cap = cap;
 	o.n = 0;
 	o.total = 0;
-	va_start(ap, fmt);
 	n = qd_vformat(&o, fmt, ap);
+	if (cap > 0) {
+		unsigned long at = (unsigned long) n < cap - 1 ? (unsigned long) n : cap - 1;
+		buf[at] = '\0';
+	}
+	return n;
+}
+
+int sprintf(char *buf, const char *fmt, ...)
+{
+	va_list ap;
+	int n;
+	va_start(ap, fmt);
+	n = qd_format_to(buf, (unsigned long) -1, fmt, ap);
 	va_end(ap);
-	*o.dst = '\0';
+	return n;
+}
+
+int vsnprintf(char *buf, size_t size, const char *fmt, va_list ap)
+{
+	return qd_format_to(buf, (unsigned long) size, fmt, ap);
+}
+
+int snprintf(char *buf, size_t size, const char *fmt, ...)
+{
+	va_list ap;
+	int n;
+	va_start(ap, fmt);
+	n = qd_format_to(buf, (unsigned long) size, fmt, ap);
+	va_end(ap);
 	return n;
 }
 
@@ -263,6 +298,12 @@ int fgetc(FILE *fp)
 
 	if (f == NULL)
 		return EOF;
+	if (f->has_unget) {
+		f->has_unget = 0;
+		if (f->kind == KIND_FILE)
+			f->pos++;
+		return f->unget_c;
+	}
 	if (f->kind == KIND_CON) {
 		int ch = con_channel();
 		if (ch <= 0)
@@ -287,9 +328,56 @@ int fgetc(FILE *fp)
 	return EOF;
 }
 
+int getc(FILE *fp)
+{
+	return fgetc(fp);
+}
+
 int getchar(void)
 {
 	return fgetc(stdin);
+}
+
+/* One character of pushback.  For a file the logical position moves back by
+ * one, so ftell and the next read agree.  A second ungetc before a read fails,
+ * as C89 allows only one guaranteed pushback. */
+int ungetc(int c, FILE *fp)
+{
+	struct qd_file *f = (struct qd_file *) fp;
+	if (c == EOF || f == NULL || f->has_unget)
+		return EOF;
+	if (f->kind == KIND_FILE) {
+		if (f->pos == 0)
+			return EOF;
+		f->pos--;
+	}
+	f->has_unget = 1;
+	f->unget_c = (unsigned char) c;
+	f->eof = 0;
+	return (unsigned char) c;
+}
+
+/* Reads at most n-1 characters, stopping after a newline (which is kept).
+ * Returns NULL if nothing was read (end of file or error). */
+char *fgets(char *buf, int n, FILE *fp)
+{
+	int i = 0;
+	int c;
+
+	if (buf == NULL || n <= 0 || fp == NULL)
+		return NULL;
+	while (i < n - 1) {
+		c = fgetc(fp);
+		if (c == EOF)
+			break;
+		buf[i++] = (char) c;
+		if (c == '\n')
+			break;
+	}
+	if (i == 0)
+		return NULL;
+	buf[i] = '\0';
+	return buf;
 }
 
 FILE *fopen(const char *name, const char *mode)
@@ -328,6 +416,8 @@ FILE *fopen(const char *name, const char *mode)
 	f->eof = 0;
 	f->err = 0;
 	f->pos = 0;
+	f->has_unget = 0;
+	f->unget_c = 0;
 	return (FILE *) f;
 }
 
@@ -354,6 +444,12 @@ size_t fread(void *ptr, size_t size, size_t nmemb, FILE *fp)
 		return 0;
 	}
 	want = (unsigned long) (size * nmemb);
+	if (f->has_unget && want > 0) {
+		p[0] = (char) f->unget_c;
+		f->has_unget = 0;
+		f->pos++;
+		total = 1;
+	}
 	while (total < want) {
 		unsigned int chunk = (unsigned int) (want - total);
 		int got;
@@ -393,6 +489,7 @@ int fseek(FILE *fp, long off, int whence)
 		return -1;
 	f->pos = (unsigned long) target;
 	f->eof = 0;
+	f->has_unget = 0;                /* seeking discards a pushed-back character */
 	return 0;
 }
 

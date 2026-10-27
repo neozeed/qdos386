@@ -1,8 +1,36 @@
-# QDOS/386 R9 SDK
+# QDOS/386 SDK (R11A)
 
-This directory builds native applications for QDOS/386 R9.  R9 adds a C89
-library subset, `libc.a`, to the R8 SDK.  The R8 notes below still apply.
-Read `docs/R9-LIBC-ABI.md` and `docs/R9-LIBC-PORT-MAP.md` first.
+This directory builds native applications for QDOS/386.  R11A extends the R9
+C89 subset with `ctype.h`, `qsort`, `bsearch`, more string functions, `ungetc`,
+`fgets`, `getc` and a bounded `snprintf`.  The R9 notes below still apply.
+Read `docs/R11A-LIBC-ABI.md` and `docs/R11A-C68-PORT-MAP.md` first.
+
+## What R11A adds
+
+- `include/ctype.h`, `libc/ctype.c`: classification and case mapping, C locale.
+- `stdlib.h`: `qsort` (heapsort; not stable), `bsearch`.
+- `string.h`: `strspn`, `strcspn`, `strpbrk`, `strtok` (not reentrant).
+- `stdio.h`: `ungetc` (one character), `fgets`, `getc`, and `snprintf` and
+  `vsnprintf` (C99, labelled).  `sprintf` keeps its unbounded C89 contract.
+- Tests: `examples/r11a/` builds `CTYPE.aout`, `STRTST.aout` and `FTEST.aout`.
+  Run them with `scripts/r11a-run-all.sh` and `scripts/r11a-volume.sh`.
+
+## Limits added in R11A
+
+- **File names on the volume are at most 10 characters with the dot.**  The
+  channel name buffer is 16 bytes including `WIN1_`, so `STRINGS.AOU`,
+  `FILETEST.AOU` and `LIBHELLO.AOU` cannot be opened or run.  The R11A tests are
+  `STRTST.AOU`, `FTEST.AOU` and `LIBHEL.AOU`.  Changing this is a kernel change.
+- No `errno`, so no `strerror`.
+- No floating-point printf, scanf, or libm (see `docs/R11A-MATH-ROADMAP.md`).
+- `FILENAME_MAX` is 16, with `WIN1_` included.
+
+---
+
+## R9 SDK (unchanged notes)
+
+R9 added the C89 library subset `libc.a` to the R8 SDK.  Read
+`docs/R9-LIBC-ABI.md` and `docs/R9-LIBC-PORT-MAP.md` for the R9 contract.
 
 ## What R9 adds
 

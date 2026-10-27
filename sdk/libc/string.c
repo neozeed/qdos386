@@ -172,3 +172,58 @@ char *strdup(const char *s)
 		memcpy(p, s, n);
 	return p;
 }
+
+/* ---- span and token functions (C89 4.11.5) ----------------------------- */
+
+size_t strspn(const char *s, const char *accept)
+{
+	const char *p = s;
+	while (*p != '\0' && strchr(accept, *p) != NULL)
+		p++;
+	return (size_t) (p - s);
+}
+
+size_t strcspn(const char *s, const char *reject)
+{
+	const char *p = s;
+	while (*p != '\0' && strchr(reject, *p) == NULL)
+		p++;
+	return (size_t) (p - s);
+}
+
+char *strpbrk(const char *s, const char *accept)
+{
+	for (; *s != '\0'; s++)
+		if (strchr(accept, *s) != NULL)
+			return (char *) s;
+	return NULL;
+}
+
+/* strtok keeps its position in a static pointer: it is not reentrant, as the
+ * C89 standard allows.  Delimiters at the start and end are skipped; an empty
+ * token never returned. */
+static char *qd_tok_next;
+
+char *strtok(char *s, const char *delim)
+{
+	char *start;
+	char *end;
+
+	if (s != NULL)
+		qd_tok_next = s;
+	if (qd_tok_next == NULL)
+		return NULL;
+	start = qd_tok_next + strspn(qd_tok_next, delim);
+	if (*start == '\0') {
+		qd_tok_next = NULL;
+		return NULL;
+	}
+	end = start + strcspn(start, delim);
+	if (*end == '\0')
+		qd_tok_next = NULL;
+	else {
+		*end = '\0';
+		qd_tok_next = end + 1;
+	}
+	return start;
+}
