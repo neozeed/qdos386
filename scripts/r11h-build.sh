@@ -16,4 +16,5 @@ mkdir -p build/r11h
 "$W" -slot 3 -o build/r11h/MULTIB.AOU "$E/multib.c"
 "$W" -slot 2 -o build/r11h/COLLIDE.AOU "$E/collide.c"
 "$W" -slot 1 -o build/r11h/NEG.AOU "$E/neg.c"
+"$W" -slot 1 -o build/r11h/FAULT.AOU "$E/fault.c"
 sha256sum build/r11h/*.AOU

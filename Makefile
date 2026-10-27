@@ -142,13 +142,21 @@ pc: $(PCD)/$(PCIMG)
 # Every object depends on every header: the R8 change to a shared struct
 # (struct job) must rebuild all users, or the Tiny386 image runs stale layouts.
 PC_HDR = $(wildcard kernel/*.h) $(wildcard tests/*.h) $(wildcard platform/*.h) $(wildcard platform/pc/*.h)
-$(PCD)/%.o: kernel/%.c $(PC_HDR)
+
+# The compiler flags are part of the build identity: a change to PCFLAGS for an
+# existing PCD must rebuild every object, not reuse objects built with other
+# defines.  The stamp is rewritten only when its content changes.
+FORCE:
+$(PCD)/.pcflags: FORCE
+	@mkdir -p $(PCD)
+	@printf '%s\n' '$(PCFLAGS)' > $@.new; if cmp -s $@.new $@; then rm -f $@.new; else mv $@.new $@; fi
+$(PCD)/%.o: kernel/%.c $(PC_HDR) $(PCD)/.pcflags
 	mkdir -p $(PCD)
 	$(GCC) -c $(INC) $(PCFLAGS) $< -o $@
-$(PCD)/%.o: tests/%.c $(PC_HDR)
+$(PCD)/%.o: tests/%.c $(PC_HDR) $(PCD)/.pcflags
 	mkdir -p $(PCD)
 	$(GCC) -c $(INC) $(PCFLAGS) $< -o $@
-$(PCD)/%.o: platform/pc/%.c $(PC_HDR)
+$(PCD)/%.o: platform/pc/%.c $(PC_HDR) $(PCD)/.pcflags
 	mkdir -p $(PCD)
 	$(GCC) -c $(INC) $(PCFLAGS) $< -o $@
 $(PCD)/context.o: kernel/context.s
@@ -177,6 +185,18 @@ $(PCD)/run.ini: $(PCD)/$(PCIMG) $(PCWIN)
 	printf '[pc]\nbios = %s/bios.bin\nvga_bios = %s/vgabios.bin\nmem_size = 8M\nhda = %s\nhdb = %s\n\n[cpu]\nfpu = 1\n' \
 	  "$(SEABIOS)" "$(SEABIOS)" "$(CURDIR)/$(PCD)/$(PCIMG)" "$(CURDIR)/$(PCWIN)" > $@
 
+# Canonical R11H i386VM images (release and negative-test).  Requires I386VM=<tree>.
+r11h-i386vm:
+	$(MAKE) i386vm I386D=build/i386vm-r11h-rel I386FLAGS="$(R9_FLAGS)" I386IMG=qdos386-r11h-rel.bin I386WIN=build/fat16/win1-r11h.img IMGENV="QDOS_LAYOUT=r9"
+	$(MAKE) i386vm I386D=build/i386vm-r11h-neg I386FLAGS="$(R9_FLAGS)" I386IMG=qdos386-r11h-neg.bin I386WIN=build/fat16/win1-r11h-neg.img IMGENV="QDOS_LAYOUT=r9"
+
+# Canonical R11H PC images (the shipped set).  Requires I386VM=<tree>.  The R9 boot
+# sector (transfer address 0x340000) is built by its own rule.
+r11h-pc:
+	$(MAKE) build/pc-r9/boot.bin
+	$(MAKE) pc PCD=build/pc-r11h PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE" PCIMG=r11h-shell.img PCBOOT=build/pc-r9/boot.bin
+	$(MAKE) pc PCD=build/pc-r11h-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE -DQDOS_CLOCK_EPOCH=1793102400 -DQDOS_CLOCK_PINNED" PCIMG=r9shell-vga.img PCBOOT=build/pc-r9/boot.bin
+
 run-pc: $(PCD)/run.ini
 	cd $(PCD) && $(TINY386) run.ini
 
@@ -196,7 +216,7 @@ i386vm-shell-notimer:
 clean:
 	rm -rf build platform/pc/boot.o platform/pc/boot.aout platform/pc/boot.bin
 
-.PHONY: all apps fat16 i386vm pc run-i386vm run-pc clean notimer i386vm-shell pc-shell i386vm-shell-notimer i386vm-r8-shell pc-r8-shell r8-apps r8-fat16
+.PHONY: all apps fat16 i386vm pc r11h-pc r11h-i386vm run-i386vm run-pc clean notimer i386vm-shell pc-shell i386vm-shell-notimer i386vm-r8-shell pc-r8-shell r8-apps r8-fat16
 
 # ---- R8: large applications, ARGS.AOU and the R8 volume -------------------
 # LARGE.AOU is generated (tools/make-large.py): about 175 KiB of text, data and

@@ -362,6 +362,20 @@ unsigned int app_args_of(int job_slot)
 	return jobs[job_slot].args;
 }
 
+#ifdef QDOS_TEST_FAULT_LAUNCH
+/* TEST ONLY.  Never compiled into a production image.  The QDOS_TEST_FAULT_LAUNCH-th
+ * image load fails at its QDOS_TEST_FAULT_READ-th read with FAT_ERR_IO, after the
+ * region is reserved and the job created.  Used by sdk/examples/r11h/fault.c to
+ * check the rollback path (docs/R11H-FIX1-RUNTIME-REPORT.md). */
+#ifndef QDOS_TEST_FAULT_READ
+#define QDOS_TEST_FAULT_READ 2
+#endif
+#define FAULT_RC_IO (-40)   /* FAT_ERR_IO */
+static int fault_launches;  /* image loads seen since boot */
+static int fault_read_no;   /* read index to fail in the current load, 0 = none */
+static int fault_reads;     /* reads seen in the current load */
+#endif
+
 /* Copy text, data and zeroed BSS into dst, reading in fixed chunks. */
 static int copy_src(app_rd_fn rd, void *ctx, const struct app_image *info,
                     unsigned char *dst)
@@ -374,6 +388,10 @@ static int copy_src(app_rd_fn rd, void *ctx, const struct app_image *info,
 	rem = info->text;
 	while (rem != 0) {
 		n = rem < sizeof buf ? rem : (unsigned int) sizeof buf;
+#ifdef QDOS_TEST_FAULT_LAUNCH
+		if (fault_read_no != 0 && ++fault_reads == fault_read_no)
+			return FAULT_RC_IO;
+#endif
 		rc = rd(ctx, off, buf, n);
 		if (rc != APP_OK)
 			return rc;
@@ -386,6 +404,10 @@ static int copy_src(app_rd_fn rd, void *ctx, const struct app_image *info,
 	rem = info->data;
 	while (rem != 0) {
 		n = rem < sizeof buf ? rem : (unsigned int) sizeof buf;
+#ifdef QDOS_TEST_FAULT_LAUNCH
+		if (fault_read_no != 0 && ++fault_reads == fault_read_no)
+			return FAULT_RC_IO;
+#endif
 		rc = rd(ctx, off, buf, n);
 		if (rc != APP_OK)
 			return rc;
@@ -499,6 +521,11 @@ int app_load_src(app_rd_fn rd, void *ctx, unsigned int len, int want_slot,
 		return (h == REGION_ERR_BUSY) ? APP_ERR_ADDROCC : APP_ERR_NOMEM;
 	}
 	slot_owner[info.slot] = APP_RESERVED;
+#ifdef QDOS_TEST_FAULT_LAUNCH
+	fault_launches++;
+	fault_read_no = (fault_launches == QDOS_TEST_FAULT_LAUNCH) ? QDOS_TEST_FAULT_READ : 0;
+	fault_reads = 0;
+#endif
 	rc = copy_src(rd, ctx, &info, dst);
 	if (rc != APP_OK) {
 		slot_owner[info.slot] = 0;
