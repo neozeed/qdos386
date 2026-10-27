@@ -111,10 +111,12 @@ long labs(long n)
 	return n < 0 ? -n : n;
 }
 
+/* Defined in stdio.c: writes out pending stdout and stderr text. */
+void qd_flush_std(void);
+
 void exit(int status)
 {
-	/* stdio writes are not buffered across calls (printf flushes at its end),
-	 * so there is nothing to flush before the kernel reclaims the job. */
+	qd_flush_std();
 	qd_exit(status);
 }
 

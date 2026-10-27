@@ -1,9 +1,51 @@
-# QDOS/386 SDK (R11A)
+# QDOS/386 SDK (R11B)
 
-This directory builds native applications for QDOS/386.  R11A extends the R9
-C89 subset with `ctype.h`, `qsort`, `bsearch`, more string functions, `ungetc`,
-`fgets`, `getc` and a bounded `snprintf`.  The R9 notes below still apply.
-Read `docs/R11A-LIBC-ABI.md` and `docs/R11A-C68-PORT-MAP.md` first.
+This directory builds native applications for QDOS/386.  R11B adds buffered C89
+stdio: `fprintf`, `fputs`, `fputc`, `putc`, `fwrite`, `fflush`, `setvbuf`,
+`setbuf`, `vsprintf`, `rewind`, with `stdout` line buffered and `stderr`
+unbuffered, flushed at exit.  The Enter key is read as a newline.  The R11A
+library (`ctype`, `qsort`, `bsearch`, more string functions, `ungetc`, `fgets`,
+`getc`, a bounded `snprintf`) is unchanged.  The R9 notes below still apply.
+
+Read first:
+- `docs/R11B-STDIO-ABI.md` (stream model, buffering, deviations)
+- `docs/R11B-LIBQDOS-ABI.md` (wrappers, errors, ownership)
+- `docs/R11B-LIBC-MAP.md` (C68 mapping, C89 coverage table, symbol inventory)
+- `docs/R11B-LICENSE-PROVENANCE.md` (licence status; distribution deferred)
+- `docs/R11A-LIBC-ABI.md` and `docs/R11A-C68-PORT-MAP.md` for the R11A base.
+
+## What R11B adds
+
+- `libc/stdio.c`: a per-stream state model (direction, buffer mode, output
+  buffer, pushback, sticky flags).  Output to the console is buffered; file
+  streams are read only.  One formatter core serves `printf`, `fprintf` and the
+  string forms.
+- `libc/stdio.c`, `libc/stdlib.c`, `lib/crt0_libc.s`: `exit()` and the return
+  from `main` flush stdio.  `bin/qdos386-gcc` links `crt0_libc.s` when `libc.a`
+  is present.
+- `lib/Makefile` and `examples/Makefile`: each example depends on `libc.a`,
+  `libqdos.a` and the startup sources, so changing a library relinks the examples.
+- Tests in `examples/r11b/`: `STREAM.aout`, `FORMAT.aout`, `CONSOL.aout`,
+  `LIBQDO.aout`, `REPEAT.aout`, `EXITFL.aout`.  Run them with
+  `scripts/r11b-run-all.sh`.  Names are at most 10 characters with the dot.
+
+## Limits added in R11B
+
+- Console input: the Enter key sends CR; `stdin` returns it as LF.
+- Caller-supplied stdio buffers are refused by `setvbuf` and `setbuf`.
+- `fflush` on an input stream returns 0 and does nothing.
+- `ungetc` supports one character.  `SEEK_END` is not supported.
+- No file writes.  `fopen` with a write mode returns `NULL`.
+- `stdout` and `stderr` share the one console channel.
+- Not provided: `scanf`, `strtod`, `atof`, `strerror`, `errno`, `getenv`,
+  `rand`, `system`, `atexit`, `div`, `freopen`, `tmpfile`.  See
+  `docs/R11B-LIBC-MAP.md` for the full C89 coverage table.
+
+## R11A (unchanged notes)
+
+R11A extends the R9 C89 subset with `ctype.h`, `qsort`, `bsearch`, more string functions, `ungetc`,
+`fgets`, `getc` and a bounded `snprintf`.
+Read `docs/R11A-LIBC-ABI.md` and `docs/R11A-C68-PORT-MAP.md`.
 
 ## What R11A adds
 

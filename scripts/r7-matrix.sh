@@ -34,8 +34,11 @@ make build/pc-shell/run.ini PCD=build/pc-shell PCIMG=r7shell.img SEABIOS="$FW" >
 suite_verdict() {
 	f=$1
 	missing=""
+	# R11B harness correction: the shell has printed "R8 SHELL SELFTEST PASS"
+	# since R8 (apps/shell/shell.c). The old expectation "R7 SHELL SELFTEST PASS"
+	# was stale. The guest is unchanged; only this expectation changed.
 	for p in "R4 CHANNEL PASS" "R5 A.OUT EXEC PASS" "R6 FAT16 EXEC PASS" \
-	         "R7 CONSOLE PASS" "R7 SHELL SELFTEST PASS"; do
+	         "R7 CONSOLE PASS" "R8 SHELL SELFTEST PASS"; do
 		grep -q "QDOS/386 $p" "$f" || missing="$missing [$p]"
 	done
 	fails=$(grep -c ": FAIL" "$f" || true)

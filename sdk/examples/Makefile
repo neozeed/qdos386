@@ -5,52 +5,75 @@ ifndef QDOS386_TOOLS
 $(error set QDOS386_TOOLS to the GCC 1.40 / GAS / i386-ld tree)
 endif
 WRAP = ../bin/qdos386-gcc
+# Every example depends on the libraries it links (and the wrapper's startup
+# object), so rebuilding libc.a or libqdos.a relinks the examples.
+LIBS = ../lib/libc.a ../lib/libqdos.a ../lib/crt0_libc.s ../lib/crt0.s ../bin/qdos386-gcc
 export QDOS386_TOOLS
 
-all: SDKHEL.aout SDKARG.aout SDKSTM.aout SDKSTS.aout LIBHEL.aout CATFIL.aout MEMSTR.aout BIGAPP.aout HEAPEX.aout CTYPE.aout STRTST.aout FTEST.aout
+all: SDKHEL.aout SDKARG.aout SDKSTM.aout SDKSTS.aout LIBHEL.aout CATFIL.aout MEMSTR.aout BIGAPP.aout HEAPEX.aout CTYPE.aout STRTST.aout FTEST.aout STREAM.aout FORMAT.aout CONSOL.aout LIBQDO.aout REPEAT.aout EXITFL.aout
 
 # R11A: C89 library expansion tests.  Output names are 8.3 and at most 10
 # characters with the dot, the limit of the WIN1_ channel name (see README).
-CTYPE.aout: r11a/ctype/ctype.c
+CTYPE.aout: r11a/ctype/ctype.c $(LIBS)
 	$(WRAP) -o $@ r11a/ctype/ctype.c
 
-STRTST.aout: r11a/strings/strings.c
+STRTST.aout: r11a/strings/strings.c $(LIBS)
 	$(WRAP) -o $@ r11a/strings/strings.c
 
-FTEST.aout: r11a/filetest/filetest.c
+FTEST.aout: r11a/filetest/filetest.c $(LIBS)
 	$(WRAP) -o $@ r11a/filetest/filetest.c
 
 # R9: the C library proofs (libc.a, see sdk/libc and docs/R9-LIBC-ABI.md).
-LIBHEL.aout: libhello/libhello.c
+LIBHEL.aout: libhello/libhello.c $(LIBS)
 	$(WRAP) -o $@ libhello/libhello.c
 
-CATFIL.aout: catfil/catfil.c
+CATFIL.aout: catfil/catfil.c $(LIBS)
 	$(WRAP) -o $@ catfil/catfil.c
 
-MEMSTR.aout: memstr/memstr.c
+MEMSTR.aout: memstr/memstr.c $(LIBS)
 	$(WRAP) -o $@ memstr/memstr.c
 
 # BIGAPP is larger than 224 KiB (the R8 limit): its table is generated.
 bigapp/table.c: bigapp/gen_table.py
 	python3 bigapp/gen_table.py > $@
 
-BIGAPP.aout: bigapp/bigapp.c bigapp/table.c
+BIGAPP.aout: bigapp/bigapp.c bigapp/table.c $(LIBS)
 	$(WRAP) -o $@ bigapp/bigapp.c bigapp/table.c
 
-HEAPEX.aout: heapex/heapex.c
+HEAPEX.aout: heapex/heapex.c $(LIBS)
 	$(WRAP) -o $@ heapex/heapex.c
 
-SDKHEL.aout: hello/hello.c
+SDKHEL.aout: hello/hello.c $(LIBS)
 	$(WRAP) -o $@ hello/hello.c
 
-SDKARG.aout: args/args.c
+SDKARG.aout: args/args.c $(LIBS)
 	$(WRAP) -o $@ args/args.c
 
-SDKSTM.aout: stream/stream.c
+SDKSTM.aout: stream/stream.c $(LIBS)
 	$(WRAP) -o $@ stream/stream.c
 
-SDKSTS.aout: stress/stress.c
+SDKSTS.aout: stress/stress.c $(LIBS)
 	$(WRAP) -o $@ stress/stress.c
+
+# R11B: buffered stdio, the libqdos wrappers, and the repeated-run proof.
+# Names are 8.3 and at most 10 characters with the dot (see README).
+STREAM.aout: r11b/stream/stream.c r11b/check.h $(LIBS)
+	$(WRAP) -o $@ r11b/stream/stream.c
+
+FORMAT.aout: r11b/format/format.c r11b/check.h $(LIBS)
+	$(WRAP) -o $@ r11b/format/format.c
+
+CONSOL.aout: r11b/console/consol.c r11b/check.h $(LIBS)
+	$(WRAP) -o $@ r11b/console/consol.c
+
+LIBQDO.aout: r11b/libqdo/libqdo.c r11b/check.h $(LIBS)
+	$(WRAP) -o $@ r11b/libqdo/libqdo.c
+
+REPEAT.aout: r11b/repeat/repeat.c r11b/check.h $(LIBS)
+	$(WRAP) -o $@ r11b/repeat/repeat.c
+
+EXITFL.aout: r11b/exitfl/exitfl.c $(LIBS)
+	$(WRAP) -o $@ r11b/exitfl/exitfl.c
 
 clean:
 	rm -f *.aout bigapp/table.c

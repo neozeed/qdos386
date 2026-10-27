@@ -65,15 +65,17 @@ for s in $srcs; do
 		"$s" -o "$work/$base.o" || die "compile failed: $s"
 	objs="$objs $work/$base.o"
 done
-"$QDOS386_TOOLS/bin/as" -o "$work/crt0.o" "$SDK/lib/crt0.s" || die "assemble crt0"
+# Startup: crt0_libc.s flushes the libc stdout buffer when main returns; it is
+# used only when libc.a is linked (it calls _qd_flush_std).  Otherwise crt0.s.
+libc="$SDK/lib/libc.a"
+if [ -f "$libc" ]; then crt0src="$SDK/lib/crt0_libc.s"; else crt0src="$SDK/lib/crt0.s"; libc=; fi
+"$QDOS386_TOOLS/bin/as" -o "$work/crt0.o" "$crt0src" || die "assemble crt0"
 # Link order: crt0, the objects, libc.a (the C89 subset, R9), libqdos.a (the
 # QDOS trap wrappers that libc uses).  libc.a is optional: an R8-style program
 # that uses only qd_* still links without it, and the archive is only read for
 # the symbols it needs.
 lib="$SDK/lib/libqdos.a"
 [ -f "$lib" ] || die "missing $lib (run: make -C $SDK/lib)"
-libc="$SDK/lib/libc.a"
-[ -f "$libc" ] || libc=
 "$QDOS386_TOOLS/bin/i386-ld" -N -T "$SDK/ld/slot$slot.ld" -e _start -o "$out" \
 	"$work/crt0.o" $objs $libc "$lib" || die "link failed"
 echo "qdos386-gcc: $out (slot $slot)"

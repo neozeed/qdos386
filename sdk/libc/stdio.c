@@ -1,16 +1,24 @@
-/* stdio.c - QDOS/386 libc (R9): a bounded stdio subset.
+/* stdio.c - QDOS/386 libc (R11B): C89 stream I/O over the QDOS channels.
  *
- *   stdout, stderr   the CON channel (write).  No buffering across calls:
- *                    each printf/puts writes its text before it returns.
- *   stdin            the CON channel (read).  getchar waits one tick at a time
- *                    while the console has nothing yet (CHAN_ERR_AGAIN).
- *   fopen            read-only files on the WIN1_ FAT16 volume.  A name that
- *                    does not start with "WIN1_" or "CON" gets "WIN1_" added;
- *                    the whole name must fit the kernel's 16-byte channel name.
+ *   stdin            the CON channel, read.  The Enter key sends CR, which is
+ *                    returned as LF.  Before a read waits for input, pending
+ *                    stdout text is flushed.  getchar waits one tick
+ *                    at a time while the console has nothing (CHAN_ERR_AGAIN).
+ *   stdout           the CON channel, write, LINE buffered (flushed at each
+ *                    newline, when full, by fflush, before stdin reads, and at
+ *                    exit, including return from main).
+ *   stderr           the CON channel, write, UNBUFFERED (each call is written
+ *                    as it is produced).  The kernel has no separate error
+ *                    channel, so stderr and stdout reach the same console.
+ *   fopen            read-only files on the WIN1_ volume.  "w", "a", "r+" and
+ *                    the other write modes return NULL: there are no FAT16
+ *                    writes.  Writing to an opened file fails with the error
+ *                    flag set.
  *
- * Not provided: writing files, fputs/fprintf, scanf, buffering modes,
- * SEEK_END (the kernel has no file size query), errno, locale.  See
- * docs/R9-LIBC-ABI.md. */
+ * Deviations from C89 are listed in docs/R11B-STDIO-ABI.md.  In short:
+ * setvbuf/setbuf accept a NULL buffer only (the library owns its buffers),
+ * fflush on an input stream returns 0 and does nothing, errno is not set,
+ * and SEEK_END is not supported (the kernel has no file size query). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,22 +27,28 @@
 
 #define KIND_CON   1
 #define KIND_FILE  2
+#define DIR_READ   1
+#define DIR_WRITE  2
 #define CHAN_AGAIN (-19)            /* CHAN_ERR_AGAIN in the kernel */
-#define OUT_CHUNK  128
+#define WBUF_SIZE  256              /* stdout buffer; the kernel takes writes of any size */
 
 struct qd_file {
 	int ch;             /* channel id, or 0 if not open yet (CON only) */
-	int kind;
+	int kind;           /* KIND_CON or KIND_FILE */
+	int dir;            /* DIR_READ or DIR_WRITE: the only direction allowed */
 	int eof;
 	int err;
 	unsigned long pos;  /* logical position (KIND_FILE): the byte the next read returns */
 	int has_unget;      /* one pushed-back character (ungetc), consumed first */
 	int unget_c;
+	int bufmode;        /* _IOFBF, _IOLBF or _IONBF (output streams) */
+	unsigned int wlen;  /* bytes waiting in wbuf */
+	unsigned char wbuf[WBUF_SIZE];
 };
 
-static struct qd_file con_out = { 0, KIND_CON, 0, 0, 0 };
-static struct qd_file con_in  = { 0, KIND_CON, 0, 0, 0 };
-static struct qd_file con_err = { 0, KIND_CON, 0, 0, 0 };
+static struct qd_file con_in  = { 0, KIND_CON, DIR_READ,  0, 0, 0, 0, 0, _IONBF, 0, { 0 } };
+static struct qd_file con_out = { 0, KIND_CON, DIR_WRITE, 0, 0, 0, 0, 0, _IOLBF, 0, { 0 } };
+static struct qd_file con_err = { 0, KIND_CON, DIR_WRITE, 0, 0, 0, 0, 0, _IONBF, 0, { 0 } };
 
 FILE *stdin = (FILE *) &con_in;
 FILE *stdout = (FILE *) &con_out;
@@ -49,34 +63,71 @@ static int con_channel(void)
 	return ch;
 }
 
-/* ---- formatted output: one engine for printf, sprintf and vprintf -------- */
+/* ---- output buffering ------------------------------------------------------ */
+
+/* Write everything waiting in the buffer.  Returns 0, or EOF with err set. */
+static int stream_flush(struct qd_file *f)
+{
+	int ch;
+
+	if (f->wlen == 0)
+		return 0;
+	ch = con_channel();
+	if (ch <= 0 || qd_write(ch, f->wbuf, f->wlen) != (int) f->wlen) {
+		f->wlen = 0;
+		f->err = 1;
+		return EOF;
+	}
+	f->wlen = 0;
+	return 0;
+}
+
+/* Put one character into an output stream.  Returns 0, or EOF with err set
+ * (wrong direction, or a failed write while flushing). */
+static int stream_putc(struct qd_file *f, int c)
+{
+	if (f->dir != DIR_WRITE || f->kind != KIND_CON) {
+		f->err = 1;
+		return EOF;
+	}
+	f->wbuf[f->wlen++] = (unsigned char) c;
+	if (f->wlen == WBUF_SIZE || (f->bufmode == _IOLBF && c == '\n'))
+		return stream_flush(f);
+	return 0;
+}
+
+/* End of one public call: an unbuffered stream is written out now. */
+static int stream_done(struct qd_file *f)
+{
+	if (f->bufmode == _IONBF)
+		return stream_flush(f);
+	return 0;
+}
+
+/* Called by exit() and by the program start code when main returns, so that
+ * text still in the stdout buffer reaches the console. */
+void qd_flush_std(void)
+{
+	(void) stream_flush(&con_out);
+	(void) stream_flush(&con_err);
+}
+
+/* ---- formatted output: one engine for printf, fprintf and sprintf ---------- */
 
 struct qd_out {
-	int to_con;          /* 1: write through CON in chunks; 0: into dst */
+	struct qd_file *f;   /* stream forms: characters go to f; NULL for string forms */
 	char *dst;           /* destination for the string forms */
 	unsigned long cap;   /* string forms: size of dst; writes stop at cap-1 */
-	char chunk[OUT_CHUNK];
-	unsigned int n;
 	int total;           /* characters produced (the return value) */
+	int failed;          /* a stream write failed */
 };
-
-static void out_flush(struct qd_out *o)
-{
-	if (o->to_con && o->n != 0) {
-		int ch = con_channel();
-		if (ch > 0)
-			qd_write(ch, o->chunk, o->n);
-	}
-	o->n = 0;
-}
 
 static void out_char(struct qd_out *o, int c)
 {
-	if (o->to_con) {
+	if (o->f != NULL) {
+		if (stream_putc(o->f, c) == EOF)
+			o->failed = 1;
 		o->total++;
-		o->chunk[o->n++] = (char) c;
-		if (o->n == OUT_CHUNK)
-			out_flush(o);
 	} else {
 		/* keep room for the terminating NUL; count everything */
 		if ((unsigned long) o->total + 1 < o->cap)
@@ -198,17 +249,38 @@ static int qd_vformat(struct qd_out *o, const char *fmt, va_list ap)
 	return o->total;
 }
 
-int vprintf(const char *fmt, va_list ap)
+int vfprintf(FILE *fp, const char *fmt, va_list ap)
 {
 	struct qd_out o;
+	struct qd_file *f = (struct qd_file *) fp;
 	int n;
-	o.to_con = 1;
+
+	if (f == NULL)
+		return -1;
+	o.f = f;
 	o.dst = NULL;
-	o.n = 0;
+	o.cap = 0;
 	o.total = 0;
+	o.failed = 0;
 	n = qd_vformat(&o, fmt, ap);
-	out_flush(&o);
+	if (stream_done(f) == EOF)
+		o.failed = 1;
+	return o.failed ? -1 : n;
+}
+
+int fprintf(FILE *fp, const char *fmt, ...)
+{
+	va_list ap;
+	int n;
+	va_start(ap, fmt);
+	n = vfprintf(fp, fmt, ap);
+	va_end(ap);
 	return n;
+}
+
+int vprintf(const char *fmt, va_list ap)
+{
+	return vfprintf(stdout, fmt, ap);
 }
 
 int printf(const char *fmt, ...)
@@ -216,7 +288,7 @@ int printf(const char *fmt, ...)
 	va_list ap;
 	int n;
 	va_start(ap, fmt);
-	n = vprintf(fmt, ap);
+	n = vfprintf(stdout, fmt, ap);
 	va_end(ap);
 	return n;
 }
@@ -228,11 +300,11 @@ static int qd_format_to(char *buf, unsigned long cap, const char *fmt, va_list a
 {
 	struct qd_out o;
 	int n;
-	o.to_con = 0;
+	o.f = NULL;
 	o.dst = buf;
 	o.cap = cap;
-	o.n = 0;
 	o.total = 0;
+	o.failed = 0;
 	n = qd_vformat(&o, fmt, ap);
 	if (cap > 0) {
 		unsigned long at = (unsigned long) n < cap - 1 ? (unsigned long) n : cap - 1;
@@ -256,6 +328,11 @@ int vsnprintf(char *buf, size_t size, const char *fmt, va_list ap)
 	return qd_format_to(buf, (unsigned long) size, fmt, ap);
 }
 
+int vsprintf(char *buf, const char *fmt, va_list ap)
+{
+	return qd_format_to(buf, (unsigned long) -1, fmt, ap);
+}
+
 int snprintf(char *buf, size_t size, const char *fmt, ...)
 {
 	va_list ap;
@@ -266,26 +343,112 @@ int snprintf(char *buf, size_t size, const char *fmt, ...)
 	return n;
 }
 
+/* ---- character and string output ----------------------------------------- */
+
+int fputc(int c, FILE *fp)
+{
+	struct qd_file *f = (struct qd_file *) fp;
+	if (f == NULL)
+		return EOF;
+	if (stream_putc(f, c) == EOF)
+		return EOF;
+	if (stream_done(f) == EOF)
+		return EOF;
+	return (unsigned char) c;
+}
+
+int putc(int c, FILE *fp)
+{
+	return fputc(c, fp);
+}
+
 int putchar(int c)
 {
-	int ch = con_channel();
-	if (ch <= 0)
+	return fputc(c, stdout);
+}
+
+int fputs(const char *s, FILE *fp)
+{
+	struct qd_file *f = (struct qd_file *) fp;
+	if (f == NULL || s == NULL)
 		return EOF;
-	qd_putc(ch, c);
-	return (unsigned char) c;
+	while (*s != '\0')
+		if (stream_putc(f, (unsigned char) *s++) == EOF)
+			return EOF;
+	return stream_done(f) == EOF ? EOF : 0;
 }
 
 int puts(const char *s)
 {
-	int ch = con_channel();
-	size_t n;
-	if (ch <= 0)
+	if (fputs(s, stdout) == EOF)
 		return EOF;
-	n = strlen(s);
-	if (n != 0)
-		qd_write(ch, s, (unsigned int) n);
-	qd_putc(ch, '\n');
+	return fputc('\n', stdout) == EOF ? EOF : 0;
+}
+
+size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *fp)
+{
+	struct qd_file *f = (struct qd_file *) fp;
+	const unsigned char *p = (const unsigned char *) ptr;
+	unsigned long want, i;
+
+	if (f == NULL || ptr == NULL || size == 0 || nmemb == 0)
+		return 0;
+	if (nmemb > (size_t) -1 / size) {
+		f->err = 1;
+		return 0;
+	}
+	want = (unsigned long) (size * nmemb);
+	for (i = 0; i < want; i++)
+		if (stream_putc(f, p[i]) == EOF)
+			return 0;                /* wrong direction or failed write */
+	/* Conservative: if the final flush fails, no item is reported as written. */
+	if (stream_done(f) == EOF)
+		return 0;
+	return nmemb;
+}
+
+int fflush(FILE *fp)
+{
+	struct qd_file *f;
+	int r1, r2;
+
+	if (fp != NULL) {
+		f = (struct qd_file *) fp;
+		/* Input streams have no buffer to flush: no effect, returns 0. */
+		if (f->dir != DIR_WRITE)
+			return 0;
+		return stream_flush(f);
+	}
+	r1 = stream_flush(&con_out);
+	r2 = stream_flush(&con_err);
+	return (r1 == EOF || r2 == EOF) ? EOF : 0;
+}
+
+/* Buffer modes can be chosen; caller-supplied buffers cannot (the library
+ * owns the stdout buffer), so a non-NULL buf fails.  Input streams are not
+ * buffered by the library: the mode is accepted and has no effect. */
+int setvbuf(FILE *fp, char *buf, int mode, size_t size)
+{
+	struct qd_file *f = (struct qd_file *) fp;
+
+	(void) size;
+	if (f == NULL || buf != NULL)
+		return -1;
+	if (mode != _IOFBF && mode != _IOLBF && mode != _IONBF)
+		return -1;
+	if (f->dir != DIR_WRITE)
+		return 0;
+	if (stream_flush(f) == EOF)
+		return -1;
+	f->bufmode = mode;
 	return 0;
+}
+
+void setbuf(FILE *fp, char *buf)
+{
+	if (buf == NULL)
+		(void) setvbuf(fp, NULL, _IONBF, BUFSIZ);
+	/* a caller buffer is not supported: the call has no effect */
 }
 
 /* ---- input ----------------------------------------------------------------- */
@@ -298,6 +461,10 @@ int fgetc(FILE *fp)
 
 	if (f == NULL)
 		return EOF;
+	if (f->dir != DIR_READ) {
+		f->err = 1;
+		return EOF;
+	}
 	if (f->has_unget) {
 		f->has_unget = 0;
 		if (f->kind == KIND_FILE)
@@ -308,10 +475,11 @@ int fgetc(FILE *fp)
 		int ch = con_channel();
 		if (ch <= 0)
 			return EOF;
+		(void) stream_flush(&con_out);   /* a prompt must be seen before we wait */
 		for (;;) {
 			got = qd_read(ch, &c, 1);
 			if (got == 1)
-				return c;
+				return c == '\r' ? '\n' : c;   /* the Enter key sends CR */
 			if (got == 0) {
 				f->eof = 1;
 				return EOF;
@@ -344,7 +512,7 @@ int getchar(void)
 int ungetc(int c, FILE *fp)
 {
 	struct qd_file *f = (struct qd_file *) fp;
-	if (c == EOF || f == NULL || f->has_unget)
+	if (c == EOF || f == NULL || f->dir != DIR_READ || f->has_unget)
 		return EOF;
 	if (f->kind == KIND_FILE) {
 		if (f->pos == 0)
@@ -390,7 +558,7 @@ FILE *fopen(const char *name, const char *mode)
 	if (name == NULL || mode == NULL)
 		return NULL;
 	if (mode[0] != 'r' || (mode[1] != '\0' && !(mode[1] == 'b' && mode[2] == '\0')))
-		return NULL;                 /* read only */
+		return NULL;                 /* read only: no FAT16 writes */
 	if (strncmp(name, "WIN1_", 5) == 0 || strcmp(name, "CON") == 0) {
 		n = strlen(name);
 		if (n >= FILENAME_MAX)
@@ -413,19 +581,27 @@ FILE *fopen(const char *name, const char *mode)
 	}
 	f->ch = ch;
 	f->kind = KIND_FILE;
+	f->dir = DIR_READ;
 	f->eof = 0;
 	f->err = 0;
 	f->pos = 0;
 	f->has_unget = 0;
 	f->unget_c = 0;
+	f->bufmode = _IOFBF;
+	f->wlen = 0;
 	return (FILE *) f;
 }
 
 int fclose(FILE *fp)
 {
 	struct qd_file *f = (struct qd_file *) fp;
-	if (f == NULL || f == &con_in || f == &con_out || f == &con_err)
-		return 0;                    /* the standard streams stay open */
+	if (f == NULL)
+		return EOF;
+	if (f == &con_in || f == &con_out || f == &con_err) {
+		/* the standard streams stay open; pending output is written */
+		(void) stream_flush(f);
+		return 0;
+	}
 	qd_close(f->ch);
 	free(f);
 	return 0;
@@ -437,7 +613,7 @@ size_t fread(void *ptr, size_t size, size_t nmemb, FILE *fp)
 	unsigned long want, total = 0;
 	char *p = (char *) ptr;
 
-	if (f == NULL || f->kind != KIND_FILE || size == 0 || nmemb == 0)
+	if (f == NULL || f->kind != KIND_FILE || f->dir != DIR_READ || size == 0 || nmemb == 0)
 		return 0;
 	if (nmemb > (size_t) -1 / size) {
 		f->err = 1;
@@ -509,6 +685,14 @@ int feof(FILE *fp)
 int ferror(FILE *fp)
 {
 	return fp != NULL && ((struct qd_file *) fp)->err;
+}
+
+void rewind(FILE *fp)
+{
+	if (fp != NULL) {
+		(void) fseek(fp, 0L, SEEK_SET);
+		clearerr(fp);            /* C89: rewind also clears the error flag */
+	}
 }
 
 void clearerr(FILE *fp)

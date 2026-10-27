@@ -1,16 +1,16 @@
 #!/bin/sh
-# SCRIPTED QEMU VGA smoke test for R11A.  Keystrokes are injected with xdotool
+# SCRIPTED QEMU VGA smoke test (R11A and R11B programs).  Keystrokes are injected with xdotool
 # into the QEMU GTK window on an X display (Xvfb). This is NOT a human session.
 #   usage: DISPLAY=:99 FW=<dir with bios.bin> sh scripts/r11a-qemu-smoke.sh OUTDIR
 # Needs: qemu-system-i386, xdotool, ImageMagick (import), a running X server, and
-# build/pc-r10vga/r9shell-vga.img plus build/fat16/win1-r11a.img (see r11a-volume.sh).
+# build/pc-r10vga/r9shell-vga.img plus build/fat16/win1-r11b.img (see r11a-volume.sh).
 set -eu
 cd "$(dirname "$0")/.."
 OUT=${1:?usage: r11a-qemu-smoke.sh OUTDIR}
 : "${DISPLAY:?set DISPLAY}" "${FW:?set FW to the directory with bios.bin}"
 W=$(mktemp -d "${TMPDIR:-/tmp}/r11a-qemu.XXXXXX")
 cp build/pc-r10vga/r9shell-vga.img "$W/hda.img"
-cp build/fat16/win1-r11a.img "$W/hdb.img"
+cp build/fat16/win1-r11b.img "$W/hdb.img"
 VOL_BEFORE=$(sha256sum "$W/hdb.img" | cut -c1-64)
 mkdir -p "$OUT"
 qemu-system-i386 -machine pc -cpu pentium -m 16 \
@@ -25,13 +25,29 @@ QPID=$!
 sleep 30
 WID=$(xdotool search --name 'QEMU' | head -1)
 xdotool windowfocus --sync "$WID" 2>/dev/null || true
-for cmd in "dir" "run ctype.aou" "run strtst.aou" "run ftest.aou" "run hello.aou" "run fpjob.aou"; do
+# R11B programs first, then the R11A ones.  CONSOL waits for typed input: the
+# two lines are typed after its RUN, as in the Tiny386 and i386VM runs.
+for cmd in "dir" "run stream.aou" "run format.aou" "run libqdo.aou" "run repeat.aou" "run exitfl.aou"; do
+  xdotool type --delay 60 "$cmd"
+  xdotool key Return
+  sleep 12
+done
+xdotool type --delay 60 "run consol.aou"
+xdotool key Return
+sleep 6
+xdotool type --delay 60 "abc"
+xdotool key Return
+sleep 4
+xdotool type --delay 60 "hello world"
+xdotool key Return
+sleep 10
+for cmd in "run ctype.aou" "run strtst.aou" "run ftest.aou" "run hello.aou" "run fpjob.aou"; do
   xdotool type --delay 60 "$cmd"
   xdotool key Return
   sleep 12
 done
 sleep 5
-import -window root "$OUT/qemu-r11a-scripted.png"
+import -window root "$OUT/qemu-r11b-scripted.png"
 kill $QPID 2>/dev/null || true
 wait $QPID 2>/dev/null || true
 cp "$W/debug-0x402.txt" "$OUT/debug-0x402.txt" 2>/dev/null || true
