@@ -185,6 +185,8 @@ int qd_pginfo(int id, struct qd_pginfo *out);                  /* id 0 = the cal
 #define QD_O_TRUNC   0x08u
 #define QD_O_APPEND  0x10u
 #define QD_O_EXCL    0x20u
+#define QD_O_FILE    0x80u     /* R11M: a regular file only; a directory is refused (QD_ERR_ISDIR) */
+#define QD_O_DIRS    0x40u     /* R11M: a directory listing also returns subdirectories (size 0xFFFFFFFF) */
 #define QD_ERR_WPROT   (-80)
 #define QD_ERR_FULL    (-81)
 #define QD_ERR_DIRFULL (-82)
@@ -204,5 +206,124 @@ long qd_fs_cluster_bytes(void);
 long qd_fs_total_clusters(void);
 int qd_fs_writable(void);                               /* 1 if this kernel has the write traps */
 int qd_write_all(int ch, const void *buf, unsigned int n);   /* chunks of QD_WRITE_MAX; n, or negative */
+
+/* ---- R11M: directories and paths (docs/R11M-FAT-PATH-ABI.md; kernels built with -DQDOS_FS_WRITE) ----
+ * Native path form: "WIN1:/SRC/HELLO.C" (absolute), "WIN1:SRC/HELLO.C" or "SRC/HELLO.C" (relative to the
+ * job's current directory).  Case-insensitive; '/' separates; "." and ".." work; ".." at the root stays at
+ * the root.  The legacy "WIN1_NAME" is always the flat uppercase root name.  Each job has a current
+ * directory, inherited from its creator.  Error codes (negative): -87 not a directory, -88 is a directory,
+ * -89 directory not empty, -90 path too long or too deep (64 characters, 16 components), -91 not allowed on
+ * that target ('.', '..', the root, a directory that is some job's current directory returns -84),
+ * -92 a directory cannot move to another parent; plus the R11L codes. */
+#define QD_ERR_NOTDIR   (-87)
+#define QD_ERR_ISDIR    (-88)
+#define QD_ERR_NOTEMPTY (-89)
+#define QD_ERR_DEPTH    (-90)
+#define QD_ERR_INVAL    (-91)
+#define QD_ERR_XDIR     (-92)
+#define QD_PATH_MAX     64
+struct qd_stat {
+	unsigned long size;       /* bytes (0 for a directory) */
+	unsigned int attr;        /* FAT attribute byte; 0x10 = directory */
+	int is_dir;
+};
+int qd_mkdir(const char *path);
+int qd_rmdir(const char *path);                         /* empty directory that is nobody's current directory */
+int qd_chdir(const char *path);                         /* sets the calling job's current directory */
+int qd_getcwd(char *buf, unsigned int size);            /* length of the absolute path ("/", "/SRC"), or negative */
+int qd_stat(const char *path, struct qd_stat *st);      /* 0, or negative (-44 no such file) */
+int qd_dir_open_path(const char *path, int with_dirs);  /* a listing channel for any directory; 0 flag: files only */
+
+/* ---- R11M Stage 4: VFAT long file names (kernels built with -DQDOS_VFAT; docs/R11M-VFAT-LIMITATIONS.md) -----------
+ * A name that is not a valid upper-case 8.3 name (more than 8.3 characters, spaces, mixed case that needs keeping,
+ * other punctuation) is stored with a long-name chain and a generated 8.3 alias (BASE~N.EXT).  Both names open the
+ * same file.  Supported long names: 1..63 printable ASCII characters, not \ / : * ? " < > |, no leading space or dot,
+ * no trailing space or dot.  Lookup is case-insensitive.  Names that are already valid 8.3 names are stored upper case,
+ * as before.  qd_dir_open_long lists a directory with both names: records of QD_DIRL_RECORD bytes. */
+#define QD_DIRL_RECORD    96
+#define QD_DIRL_HASLFN    1      /* flags: name is a long name */
+#define QD_DIRL_ALIASONLY 2      /* flags: the entry has a long name that is not supported (non-ASCII, too long); name is the alias */
+struct qd_dirent_long {
+	char name[64];           /* the long name, or the 8.3 name when there is none */
+	char alias[16];          /* the 8.3 alias ("SUPERB~1.C") */
+	unsigned long size;      /* 0xFFFFFFFF for a subdirectory */
+	unsigned int attr;
+	unsigned int flags;
+};
+int qd_dir_open_long(const char *path);                 /* a long-record listing channel (files and directories); QD_ERR_NOTSUP without VFAT */
+int qd_dir_next_long(int ch, struct qd_dirent_long *e); /* 1 for a record, 0 at the end, or an error */
+
+/* ---- R11M: virtual text consoles (kernels built with -DQDOS_VCON; docs/R11M-CONSOLE-ABI.md) -------------------
+ * Every job belongs to one of QD_CON_MAX 80x25 consoles; its CON channel reads and writes that console.  All
+ * calls take a CON channel (qd_open("CON") or qd_con_channel()) and act on the console it is bound to.
+ * ROWS AND COLUMNS ARE 0-BASED (row 0 is the top line, column 0 the left): qd_con_goto, qd_con_cursor,
+ * qd_con_region, qd_con_snap.  qd_con_gotoxy1 is the 1-BASED ANSI-order (row, column) form for ported code.
+ * Return values: 0 or a value >= 0 on success, negative on error (QD_ERR_NOTSUP -15 on a kernel without the
+ * console option, QD_ERR_RANGE -14 for an argument out of range).  Arguments are checked here and by the kernel. */
+#define QD_CON_MAX      4
+#define QD_CON_ROWS     25
+#define QD_CON_COLS     80
+#define QD_CON_ECHO     0x01u    /* the kernel shows typed characters */
+#define QD_CON_COOKED   0x02u    /* line discipline: BS and ^U edit, a read gets whole lines ending in '\n' */
+#define QD_CLR_ALL      0        /* qd_con_clear: whole console, cursor home */
+#define QD_CLR_EOL      1        /*   from the cursor to the end of the line */
+#define QD_CLR_LINE     2        /*   the cursor's line */
+#define QD_CLR_EOS      3        /*   from the cursor to the end of the console */
+#define QD_ATTR(fg, bg) ((unsigned int) (fg) | ((unsigned int) (bg) << 4))   /* colours 0..15 / 0..7 (bit 7 of the byte blinks) */
+#define QD_ERR_NOTSUP   (-15)
+#define QD_ERR_RANGE    (-14)
+int qd_con_goto(int ch, int row, int col);            /* 0-based; clamped to the console */
+int qd_con_gotoxy1(int ch, int row, int col);         /* 1-based (row, column), as ANSI */
+int qd_con_clear(int ch, int what);                   /* QD_CLR_* */
+int qd_con_attr(int ch, int attr);                    /* sets the attribute for new text; returns the old one */
+int qd_con_size(int ch, int *rows, int *cols);        /* 25 x 80 */
+int qd_con_cursor(int ch, int *row, int *col);        /* the cursor position (0-based) */
+int qd_con_show_cursor(int ch, int show);             /* 1 show, 0 hide */
+int qd_con_mode(int ch, unsigned int flags);          /* QD_CON_*; returns the old flags (0 = raw, no echo: the default) */
+int qd_con_region(int ch, int top, int bottom);       /* scroll region (inclusive rows); 0..24 restores the whole console */
+int qd_con_number(int ch);                            /* the console number (0..3) this channel is bound to */
+int qd_con_is_foreground(int ch);                     /* 1 if that console has the keyboard and the display */
+int qd_con_focus(int ch, int con);                    /* make console con the foreground one */
+int qd_con_child(int ch, int con);                    /* the next job this job creates goes to console con (-1 clears) */
+int qd_con_snap(int ch, int con, int row, char *buf, int size);  /* text of one row of console con (-1 = own); length, buf NUL-terminated */
+int qd_con_getc(int ch);                              /* blocking read of one byte (sleeps in the kernel console wait); QD_EOF at end */
+int qd_con_diag(int ch, int mode);                    /* diagnostic mirror: 0 console 0 only, 1 none, 2 all (tagged); -1 reads */
+
+/* ---- R11M: job control (kernels built with -DQDOS_JOBCTL; docs/R11M-JOB-CONTROL-ABI.md) -------------------------
+ * qd_job_list copies one record per job into out[0..max-1] (at most 8 records) and returns the count.  A job is
+ * LAUNCHED when it was created by qd_run / qd_start / qd_pg_start or by the shell's RUN / START; only launched jobs can be killed.
+ * qd_job_kill ends another job: it becomes inactive at once; its address space, channels, heap blocks and stack are
+ * released by the kernel's ordinary reclaim pass (use qd_job_reclaimed to see the slot free).  qd_job_exit_status of a
+ * killed job is QD_ERR_KILLED.  Ownership is not checked: any job may kill any launched job except itself.
+ * Errors: QD_ERR_NOJOB (-2) stale or unknown id; QD_ERR_PROTECT, QD_ERR_SELF, QD_ERR_ENDED. */
+#define QD_JS_RUN       1u
+#define QD_JS_HELD      2u
+#define QD_JS_SLEEP     3u
+#define QD_JS_DEAD      4u
+#define QD_JS_CONWAIT   5u
+#define QD_JF_LAUNCHED  0x01u
+#define QD_JF_PAGED     0x02u
+#define QD_JF_SELF      0x04u
+#define QD_JC_NOCON     0xFFu
+#define QD_ERR_KILLED   (-66)
+#define QD_ERR_PROTECT  (-67)
+#define QD_ERR_SELF     (-68)
+#define QD_ERR_ENDED    (-69)
+#define QD_ERR_NOJOBCTL (-72)    /* the kernel was built without job control */
+struct qd_jobinfo {
+	unsigned long id;            /* tagged job id */
+	int slot;
+	int state;                   /* QD_JS_* */
+	int prio;
+	int console;                 /* 0..3, QD_JC_NOCON without virtual consoles */
+	int flags;                   /* QD_JF_* */
+	unsigned long dispatches;
+	unsigned long age_ticks;
+	unsigned long stack_bytes;
+	char name[16];
+};
+int qd_job_list(struct qd_jobinfo *out, int max);
+int qd_job_find(unsigned long id, struct qd_jobinfo *out);   /* 1 found (out filled), 0 not in the table, or negative */
+int qd_job_kill(unsigned long id);                           /* 0, or a negative code */
 
 #endif

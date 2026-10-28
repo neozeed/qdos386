@@ -13,6 +13,9 @@
 #include "platform.h"
 #include "kbd.h"
 #include "cin.h"
+#ifdef QDOS_VCON
+#include "vcon.h"
+#endif
 
 extern void outb(unsigned int port, unsigned int val);
 extern unsigned int inb(unsigned int port);
@@ -101,8 +104,18 @@ void input_irq1(void)
 	if ((st & (ST_OUT_FULL | ST_AUX)) == ST_OUT_FULL) {
 		sc = (unsigned char) inb(KBD_DATA);
 		kbd_scancodes++;
+#ifdef QDOS_VCON
+		{
+			int r = kbd_feed(&dec, sc, &c);
+			if (r == 1)
+				cin_put(c);
+			else if (r == 2)
+				(void) vcon_switch((int) c);    /* Alt+Fn: the focus moves, no byte is queued */
+		}
+#else
 		if (kbd_feed(&dec, sc, &c))
 			cin_put(c);
+#endif
 	}
 	outb(0x20, 0x20);                    /* EOI, master */
 }

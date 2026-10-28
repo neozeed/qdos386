@@ -19,6 +19,9 @@ extern int errno;
 #define EACCES 13
 #define EBUSY  16
 #define EEXIST 17
+#define EXDEV  18
+#define ENOTDIR 20
+#define EISDIR 21
 #define EINVAL 22
 #define EMFILE 24
 #define ENOSPC 28
@@ -26,6 +29,7 @@ extern int errno;
 #define EROFS  30
 #define ENAMETOOLONG 36
 #define ENOSYS 38
+#define ENOTEMPTY 39
 
 /* Maps a kernel error code (negative, see qdos386.h) to an errno value and stores it in errno;
  * returns the errno value. */

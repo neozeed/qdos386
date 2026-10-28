@@ -23,7 +23,11 @@
 #define CHAN_MAX 8                  /* channel table slots */
 #endif
 #define CHAN_MAX_WRITE 256          /* bytes per write call */
+#ifdef QDOS_FS_WRITE
+#define CHAN_NAME_MAX 72            /* R11M: "WIN1:" + a path of up to 64 characters + NUL, rounded up */
+#else
 #define CHAN_NAME_MAX 18            /* name, NUL included: "WIN1_" + full 8.3 (12) + NUL (R11E) */
+#endif
 #define CHAN_TAG_MAX 0x7fff         /* tags wrap to 1 before this value */
 
 /* Native error codes, negative.  -3 (no memory) and -6 (no free entry, channel
@@ -69,6 +73,9 @@ struct chan_object {
 #ifdef QDOS_FS_WRITE
 	unsigned int mode;               /* R11L: CHAN_O_* flags the channel was opened with */
 #endif
+#ifdef QDOS_VCON
+	int con;                         /* R11M: the virtual console a CON channel is bound to */
+#endif
 };
 
 /* Service entry points.  id and owner are as described above; owner is the
@@ -88,17 +95,46 @@ int chan_seek(unsigned int id, unsigned int owner, unsigned int pos);
 #define CHAN_O_TRUNC  0x08u
 #define CHAN_O_APPEND 0x10u
 #define CHAN_O_EXCL   0x20u
+#define CHAN_O_FILE   0x80u     /* R11M: a regular file only; a directory target fails with FAT_ERR_ISDIR */
+#define CHAN_O_DIRS   0x40u     /* R11M: a directory listing also returns subdirectories (size field 0xFFFFFFFF) */
 /* Channel controls (QT_CH_CTL) */
 #define CHAN_CTL_FLUSH 1u       /* write the directory entry -> 0 */
 #define CHAN_CTL_TRUNC 2u       /* arg = new size -> 0 */
 #define CHAN_CTL_SIZE  3u       /* -> size in bytes (files under 2 GiB) */
 #define CHAN_CTL_TELL  4u       /* -> current position */
+#define CHAN_CTL_LISTLONG 5u    /* R11M VFAT, directory channel: the listing returns 96-byte long records -> 0 (CHAN_ERR_NOTSUP without -DQDOS_VFAT) */
 /* File-system operations on names (QT_FS_OP) */
 #define CHAN_FS_REMOVE 1u       /* a = name */
 #define CHAN_FS_RENAME 2u       /* a = old name, b = new name */
 #define CHAN_FS_FREE   3u       /* a = any WIN1_ name or "WIN1_" -> free clusters */
 #define CHAN_FS_CLUSTER 4u      /* -> bytes per cluster */
 #define CHAN_FS_TOTAL  5u       /* -> data clusters on the volume */
+/* R11M (docs/R11M-FAT-PATH-ABI.md) */
+#define CHAN_FS_MKDIR  6u       /* a = path */
+#define CHAN_FS_RMDIR  7u       /* a = path (empty directory, not the current directory of any job) */
+#define CHAN_FS_CHDIR  8u       /* a = path -> 0; sets the calling job's current directory */
+#define CHAN_FS_GETCWD 9u       /* a = buffer (in the caller's range), b = size -> length, buffer = absolute path */
+#define CHAN_FS_STAT   10u      /* a = path, b = 8-byte buffer {size u32, attr u32} -> 0 file, 1 directory */
+#ifdef QDOS_VCON
+/* R11M console controls (QT_CH_CTL on a CON channel; docs/R11M-CONSOLE-ABI.md).  Rows and columns are 0-based. */
+#define CHAN_CON_GOTO   0x10u   /* arg = row | col << 8 -> 0 */
+#define CHAN_CON_CLEAR  0x11u   /* arg = VCLR_* -> 0 */
+#define CHAN_CON_ATTR   0x12u   /* arg = attribute -> the old attribute */
+#define CHAN_CON_QUERY  0x13u   /* arg = VQ_* -> value */
+#define CHAN_CON_MODE   0x14u   /* arg = VC_* flags -> the old flags */
+#define CHAN_CON_CURSOR 0x15u   /* arg = 0 hide, 1 show -> 0 */
+#define CHAN_CON_REGION 0x16u   /* arg = top | bottom << 8 (inclusive rows) -> 0 */
+#define CHAN_CON_FOCUS  0x17u   /* arg = console number -> 0 */
+#define CHAN_CON_CHILD  0x18u   /* arg = console for the next job this job creates; 0xFF clears -> 0 */
+#define CHAN_CON_SNAP   0x19u   /* arg = struct chan_con_snap * -> length of the row text */
+#define CHAN_CON_DIAG   0x1Au   /* arg = VDIAG_* sets, 0xFF reads -> the mode */
+struct chan_con_snap {          /* request and reply of CHAN_CON_SNAP (88 bytes) */
+	unsigned char con;              /* in: console to read; 0xFF = this channel's console */
+	unsigned char row;              /* in: row 0..24 */
+	unsigned char pad[2];
+	unsigned char text[84];         /* out: the row, NUL-terminated, trailing blanks trimmed */
+};
+#endif
 int chan_open_ex(unsigned int owner, unsigned int name_addr, unsigned int flags);
 int chan_ctl(unsigned int id, unsigned int owner, unsigned int op, unsigned int arg);
 int chan_fsop(unsigned int op, unsigned int a_addr, unsigned int b_addr);

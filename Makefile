@@ -81,6 +81,12 @@ build/apps/shell-l.o: apps/shell/shell.c apps/common/appcalls.h
 	$(GCC) -c -O -DSH_LINE_MAX=160 -Iapps/common $< -o $@
 build/apps/shell-l.aout: build/apps/shell-l.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
 	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shell-l.o build/apps/qtrap.o
+# R11M: the directory-aware shell (160 character line; -DR11M_SHELL adds PWD CD MD RD COPY DEL REN, and START PS WAIT KILL CON with -DR11M_JOBS).
+build/apps/shell-m.o: apps/shell/shell.c apps/shell/shell_r11m.inc apps/shell/shell_jobs.inc apps/common/appcalls.h
+	mkdir -p build/apps
+	$(GCC) -c -O -DSH_LINE_MAX=160 -DR11M_SHELL -DR11M_JOBS -Iapps/common -Iapps/shell $< -o $@
+build/apps/shell-m.aout: build/apps/shell-m.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
+	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shell-m.o build/apps/qtrap.o
 build/apps/shellt.aout: build/apps/shellt.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
 	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shellt.o build/apps/qtrap.o
 
@@ -247,6 +253,27 @@ r11l-pc-fs-pg:
 	$(MAKE) build/pc-r9/boot2.bin
 	$(MAKE) pc PCD=build/r11l/pc-fs-pg PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11L_FS) $(R11K_PAGING)" PCIMG=r11l-fs-pg.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r11l/pc-fs-pg/paging.o build/r11l/pc-fs-pg/paging_s.o"
 	$(MAKE) pc PCD=build/r11l/pc-fs-pg-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11L_FS) $(R11K_PAGING)" PCIMG=r11l-fs-pg-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r11l/pc-fs-pg-vga/paging.o build/r11l/pc-fs-pg-vga/paging_s.o"
+
+# ---- R11M: usable-OS kernels --------------------------------------------------------------------------------
+# Writable volume with directories (R11L option, R11M path layer) plus the virtual consoles (-DQDOS_VCON) and,
+# from Stage 3, job control.  None of these macros is set for any earlier image, so those stay byte-identical
+# (scripts/r11l-default-check.sh).
+#   r11m-i386vm / -pg   i386VM harness kernels without / with R11K paging
+#   r11m-pc / -pg       Tiny386 PC images (no VGA) and QEMU PC images with the VGA text console (-vga)
+R11M_OPTS = $(R11L_FS) -DQDOS_VCON -DQDOS_JOBCTL -DQDOS_VFAT
+r11m-i386vm:
+	$(MAKE) i386vm I386D=build/r11m/vm I386FLAGS="$(R9_FLAGS) -DQDOS_I386VM_BLOCK $(R11M_OPTS)" I386IMG=qdos386-r11m.bin I386WIN= IMGENV="QDOS_LAYOUT=r9" I386EXTRA="kernel/vcon.c kernel/jobctl.c"
+r11m-i386vm-pg:
+	$(MAKE) i386vm I386D=build/r11m/vm-pg I386FLAGS="$(R9_FLAGS) -DQDOS_I386VM_BLOCK $(R11M_OPTS) $(R11K_PAGING)" I386IMG=qdos386-r11m-pg.bin I386WIN= IMGENV="QDOS_LAYOUT=r9" I386EXTRA="kernel/paging.c kernel/paging.s kernel/vcon.c kernel/jobctl.c"
+r11m-pc:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r11m/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11M_OPTS)" PCIMG=r11m.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r11m/pc/vcon.o build/r11m/pc/jobctl.o"
+	$(MAKE) pc PCD=build/r11m/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11M_OPTS)" PCIMG=r11m-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r11m/pc-vga/vcon.o build/r11m/pc-vga/jobctl.o"
+r11m-pc-pg:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r11m/pc-pg PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11M_OPTS) $(R11K_PAGING)" PCIMG=r11m-pg.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r11m/pc-pg/paging.o build/r11m/pc-pg/paging_s.o build/r11m/pc-pg/vcon.o build/r11m/pc-pg/jobctl.o"
+	$(MAKE) pc PCD=build/r11m/pc-pg-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11M_OPTS) $(R11K_PAGING)" PCIMG=r11m-pg-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r11m/pc-pg-vga/paging.o build/r11m/pc-pg-vga/paging_s.o build/r11m/pc-pg-vga/vcon.o build/r11m/pc-pg-vga/jobctl.o"
+r11m-kernels: r11m-i386vm r11m-i386vm-pg r11m-pc r11m-pc-pg
 
 # Canonical R11H PC images (the shipped set).  Requires I386VM=<tree>.  The R9 boot
 # sector (transfer address 0x340000) is built by its own rule.

@@ -14,4 +14,6 @@ int unlink(const char *name);
 int isatty(int fd);
 int getpid(void);
 char *getcwd(char *buf, size_t size);
+int chdir(const char *path);              /* R11M: the calling job's current directory */
+int rmdir(const char *path);
 #endif

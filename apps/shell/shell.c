@@ -215,6 +215,27 @@ static void say_name_error(int rc)
 
 static void cmd_help(void)
 {
+#ifdef R11M_SHELL
+	outs("HELP                 this list\n");
+	outs("DIR [path]           list a directory (<DIR> marks subdirectories)\n");
+	outs("PWD / CD [path]      show / change the current directory\n");
+	outs("MD path / RD path    make / remove (empty) directory\n");
+	outs("TYPE path            print a file\n");
+	outs("COPY src dst [/Y]    copy a file (dst may be a directory; /Y replaces)\n");
+	outs("DEL path / REN a b   delete / rename (or move) a file\n");
+	outs("RUN path [args]      run an a.out (cwd, then /BIN)\n");
+#ifdef R11M_JOBS
+	outs("START path [args] [/CON:n]   run in the background on console n; prints the job id\n");
+	outs("PS                   list jobs\n");
+	outs("WAIT id / KILL id    wait for / terminate a started job\n");
+	outs("CON [n]              show / switch the visible console (Alt+F1..F4 also works)\n");
+	outs("CONDUMP n            print the text of console n\n");
+	outs("DIAG 0|1|2           diagnostic mirror: console 0 / none / all consoles\n");
+	outs("SLEEP ticks          pause the shell\n");
+#endif
+	outs("EXIT                 leave the shell\n");
+	return;
+#endif
 	outs("HELP          this list\n");
 	outs("DIR           list the files on the data disk\n");
 	outs("TYPE <name>   print a file\n");
@@ -322,6 +343,82 @@ static int wait_job(int id)
 /* Packed argument strings for RUN: the arguments after the name, each
  * NUL-terminated.  The kernel adds argv[0] (the name) itself. */
 static unsigned char runargs[APP_ARG_STR_MAX];
+#ifdef R11M_JOBS
+static int run_bg;                          /* START: report the job id and return without waiting */
+static int run_con = -1;                    /* START /CON:n */
+static int pg_known, pg_ok;
+
+/* The jobs this shell started (so PS can still name them after they ended, and WAIT knows which ids are its own). */
+#define SJ_MAX 8
+static struct sh_job {
+	int id;
+	int con;
+	int done;                              /* the end was seen: status is valid (-2 = lost before it was seen) */
+	int status;
+	char name[16];
+} jt[SJ_MAX];
+static int jt_n;
+
+/* Record the end of every started job that has ended.  The kernel keeps an exit record only until its slot is reused,
+ * so this runs before every command (and before a START takes a slot). */
+static void jt_harvest(void)
+{
+	int i, st;
+
+	for (i = 0; i < jt_n; i++) {
+		if (jt[i].done)
+			continue;
+		st = (int) qtrap(APP_QT_JOB_EXIT, (unsigned int) jt[i].id, 0, 0);
+		if (st == E_RUNNING)
+			continue;
+		jt[i].done = 1;
+		jt[i].status = st;                 /* -2 if the slot was reused before the end was seen */
+	}
+}
+
+static void jt_add(int id, const char *name)
+{
+	int i, k;
+	const char *b = name;
+
+	if (jt_n == SJ_MAX) {                  /* forget the oldest */
+		for (i = 1; i < SJ_MAX; i++)
+			jt[i - 1] = jt[i];
+		jt_n--;
+	}
+	for (k = 0; name[k]; k++)
+		if (name[k] == '/' || name[k] == ':')
+			b = name + k + 1;
+	jt[jt_n].id = id;
+	jt[jt_n].con = run_con;
+	jt[jt_n].done = 0;
+	jt[jt_n].status = 0;
+	for (k = 0; b[k] && k < 15; k++)
+		jt[jt_n].name[k] = b[k];
+	jt[jt_n].name[k] = 0;
+	jt_n++;
+}
+
+/* RUN loads into the shared slot 1 and waits.  START uses the private paged image window when the kernel has one, so
+ * several programs linked for the same origin can run at once; otherwise it falls back to the slot 1 loader. */
+static int load_prog(const char *name, unsigned int plen)
+{
+	if (run_bg) {
+		if (!pg_known) {
+			pg_known = 1;
+			pg_ok = (int) qtrap(APP_QT_PG_CAPS, 0, 0, 0) >= 0;
+		}
+		if (pg_ok)
+			return (int) qtrap(APP_QT_PG_START, (unsigned int) name, (unsigned int) runargs, plen);
+	}
+	return (int) qtrap(APP_QT_IMG_LOAD, (unsigned int) name, (unsigned int) runargs, plen);
+}
+#else
+static int load_prog(const char *name, unsigned int plen)
+{
+	return (int) qtrap(APP_QT_IMG_LOAD, (unsigned int) name, (unsigned int) runargs, plen);
+}
+#endif
 
 static void cmd_run(char *arg)
 {
@@ -333,16 +430,36 @@ static void cmd_run(char *arg)
 		outs("usage: RUN <name> [arguments]\n");
 		return;
 	}
-	name = p;
-	while (*p && *p != ' ')
-		p++;
-	if (*p) {
+#ifdef R11M_SHELL
+	if (*p == '"') {                           /* RUN "Long Name.aou" arguments */
+		name = ++p;
+		while (*p && *p != '"')
+			p++;
+		if (*p == 0) {
+			outs("unterminated quote\n");
+			return;
+		}
 		*p++ = 0;
 		while (*p == ' ')
 			p++;
+	} else
+#endif
+	{
+		name = p;
+		while (*p && *p != ' ')
+			p++;
+		if (*p) {
+			*p++ = 0;
+			while (*p == ' ')
+				p++;
+		}
 	}
 	fold(name);
+#ifdef R11M_SHELL
+	if (slen(name) > 64) {
+#else
 	if (slen(name) > SH_NAME_MAX) {
+#endif
 		outs("invalid name\n");
 		return;
 	}
@@ -382,7 +499,26 @@ static void cmd_run(char *arg)
 			p++;
 	}
 
-	id = (int) qtrap(APP_QT_IMG_LOAD, (unsigned int) name, (unsigned int) runargs, plen);
+	id = load_prog(name, plen);
+#ifdef R11M_SHELL
+	if (id == E_NOFILE) {                      /* not in the current directory: try /BIN */
+		unsigned int q;
+		for (q = 0; name[q]; q++)
+			if (name[q] == '/')
+				break;
+		if (name[q] == 0 && slen(name) + 5 <= 64) {
+			static char binname[72];
+			unsigned int bi = 0, bj;
+			const char *bp = "/BIN/";
+			for (bj = 0; bp[bj]; bj++)
+				binname[bi++] = bp[bj];
+			for (bj = 0; name[bj]; bj++)
+				binname[bi++] = name[bj];
+			binname[bi] = 0;
+			id = load_prog(binname, plen);
+		}
+	}
+#endif
 	if (id < 0) {
 		switch (id) {
 		case E_TOOBIG:
@@ -416,11 +552,33 @@ static void cmd_run(char *arg)
 		case E_NOMEM:
 			outs("out of memory\n");
 			break;
+#ifdef R11M_JOBS
+		case -60:
+			outs("no free image window (limit of started programs reached)\n");
+			break;
+		case -61:
+			outs("not linked for the standard origin: cannot be started in the background\n");
+			break;
+		case -63:
+			outs("no free address space (limit of started programs reached)\n");
+			break;
+#endif
 		default:
 			say_name_error(id);
 		}
 		return;
 	}
+#ifdef R11M_JOBS
+	if (run_bg) {
+		jt_add(id, name);
+		outs("job ");
+		outnum(id);
+		outs(" started on console ");
+		outnum(run_con >= 0 ? run_con : (int) qtrap(APP_QT_CH_CTL, (unsigned int) con_ch, 0x13u, 3u) & 0xff);
+		outc('\n');
+		return;
+	}
+#endif
 	st = wait_job(id);
 	if (st >= 0) {
 		outs("exit status ");
@@ -434,6 +592,13 @@ static void cmd_run(char *arg)
 		outc('\n');
 	}
 }
+
+#ifdef R11M_SHELL
+#include "shell_r11m.inc"
+#endif
+#ifdef R11M_JOBS
+#include "shell_jobs.inc"
+#endif
 
 /* Run one line.  Returns 1 for EXIT, 0 otherwise.  The line is changed in place. */
 static int exec_line(char *s)
@@ -454,16 +619,58 @@ static int exec_line(char *s)
 			arg++;
 	}
 	fold(w);                  /* only the command word; arguments keep case */
+#ifdef R11M_JOBS
+	jt_harvest();
+#endif
 	e = slen(arg);
 	while (e > 0 && arg[e - 1] == ' ')
 		arg[--e] = 0;
 
 	if (same(w, "HELP"))
 		cmd_help();
+#ifdef R11M_SHELL
+	else if (same(w, "DIR"))
+		cmd_dir_m(uq(arg));
+	else if (same(w, "TYPE"))
+		cmd_type_m(uq(arg));
+	else if (same(w, "PWD"))
+		cmd_pwd();
+	else if (same(w, "CD") || same(w, "CHDIR"))
+		cmd_cd(uq(arg));
+	else if (same(w, "MD") || same(w, "MKDIR"))
+		cmd_name_op(FS_MKDIR, uq(arg), "usage: MD <directory>\n");
+	else if (same(w, "RD") || same(w, "RMDIR"))
+		cmd_name_op(FS_RMDIR, uq(arg), "usage: RD <directory>\n");
+	else if (same(w, "DEL") || same(w, "ERASE"))
+		cmd_del(uq(arg));
+	else if (same(w, "REN") || same(w, "RENAME"))
+		cmd_ren(arg);
+	else if (same(w, "COPY"))
+		cmd_copy(arg);
+#else
 	else if (same(w, "DIR"))
 		cmd_dir();
 	else if (same(w, "TYPE"))
 		cmd_type(arg);
+#endif
+#ifdef R11M_JOBS
+	else if (same(w, "START"))
+		cmd_start(arg);
+	else if (same(w, "CON"))
+		cmd_con(arg);
+	else if (same(w, "CONDUMP"))
+		cmd_condump(arg);
+	else if (same(w, "DIAG"))
+		cmd_diag(arg);
+	else if (same(w, "PS"))
+		cmd_ps();
+	else if (same(w, "WAIT"))
+		cmd_wait(arg);
+	else if (same(w, "KILL"))
+		cmd_kill(arg);
+	else if (same(w, "SLEEP"))
+		cmd_sleep(arg);
+#endif
 	else if (same(w, "RUN"))
 		cmd_run(arg);
 	else if (same(w, "EXIT"))
@@ -483,8 +690,16 @@ int main(void)
 	con_ch = (int) qtrap(APP_QT_CH_OPEN, (unsigned int) "CON", 0, 0);
 	if (con_ch <= 0)
 		return 1;
+#ifdef R11M_SHELL
+	outs("QDOS/386 R11M shell. Type HELP.\n");
+#else
 	outs("QDOS/386 R8 shell. Type HELP.\n");
+#endif
 	for (;;) {
+#ifdef R11M_SHELL
+		get_cwd();
+		outs(cwdbuf);
+#endif
 		outs("> ");
 		if (!read_line()) {
 			outs("end of input\n");

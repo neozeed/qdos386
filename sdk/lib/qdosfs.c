@@ -27,6 +27,11 @@ int qd_open_ex(const char *name, unsigned int flags)
 #define FS_FREE   3u
 #define FS_CLUSTER 4u
 #define FS_TOTAL  5u
+#define FS_MKDIR  6u
+#define FS_RMDIR  7u
+#define FS_CHDIR  8u
+#define FS_GETCWD 9u
+#define FS_STAT   10u
 
 int qd_flush(int ch)
 {
@@ -96,4 +101,94 @@ int qd_write_all(int ch, const void *buf, unsigned int n)
 		done += (unsigned int) r;
 	}
 	return (int) done;
+}
+
+/* ---- R11M: directories ---------------------------------------------------------------------- */
+
+int qd_mkdir(const char *path)
+{
+	return (int) qtrap(QD_TRAP_FS_OP, FS_MKDIR, (unsigned int) path, 0);
+}
+
+int qd_rmdir(const char *path)
+{
+	return (int) qtrap(QD_TRAP_FS_OP, FS_RMDIR, (unsigned int) path, 0);
+}
+
+int qd_chdir(const char *path)
+{
+	return (int) qtrap(QD_TRAP_FS_OP, FS_CHDIR, (unsigned int) path, 0);
+}
+
+int qd_getcwd(char *buf, unsigned int size)
+{
+	return (int) qtrap(QD_TRAP_FS_OP, FS_GETCWD, (unsigned int) buf, size);
+}
+
+int qd_stat(const char *path, struct qd_stat *st)
+{
+	unsigned char b[8];
+	int r = (int) qtrap(QD_TRAP_FS_OP, FS_STAT, (unsigned int) path, (unsigned int) b);
+
+	if (r < 0)
+		return r;
+	st->size = (unsigned long) b[0] | ((unsigned long) b[1] << 8) | ((unsigned long) b[2] << 16) |
+	           ((unsigned long) b[3] << 24);
+	st->attr = b[4];
+	st->is_dir = r == 1;
+	return 0;
+}
+
+#define CTL_LISTLONG 5u
+
+int qd_dir_open_long(const char *path)
+{
+	int ch = qd_dir_open_path(path, 1);
+	int r;
+
+	if (ch <= 0)
+		return ch;
+	r = (int) qtrap(QD_TRAP_CH_CTL, (unsigned int) ch, CTL_LISTLONG, 0);
+	if (r < 0) {
+		qd_close(ch);
+		return r;
+	}
+	return ch;
+}
+
+int qd_dir_next_long(int ch, struct qd_dirent_long *e)
+{
+	unsigned char rec[QD_DIRL_RECORD];
+	int n = qd_read(ch, rec, QD_DIRL_RECORD);
+	unsigned int i;
+
+	if (n == 0)
+		return 0;
+	if (n < 0)
+		return n;
+	if (n != QD_DIRL_RECORD)
+		return QD_ERR_RANGE;
+	for (i = 0; i < 64; i++)
+		e->name[i] = (char) rec[i];
+	e->name[63] = '\0';
+	for (i = 0; i < 16; i++)
+		e->alias[i] = (char) rec[64 + i];
+	e->alias[15] = '\0';
+	e->size = (unsigned long) rec[80] | ((unsigned long) rec[81] << 8) | ((unsigned long) rec[82] << 16) |
+	          ((unsigned long) rec[83] << 24);
+	e->attr = (unsigned int) rec[84];
+	e->flags = (unsigned int) rec[88];
+	return 1;
+}
+
+int qd_dir_open_path(const char *path, int with_dirs)
+{
+	struct qd_stat st;
+	int r = qd_stat(path, &st);
+
+	if (r < 0)
+		return r;
+	if (!st.is_dir)
+		return QD_ERR_NOTDIR;
+	return qd_open_ex(path, with_dirs ? (QD_O_READ | QD_O_DIRS) : QD_O_READ);
 }

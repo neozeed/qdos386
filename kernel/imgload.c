@@ -10,7 +10,11 @@
 #include "paging.h"
 #endif
 
+#ifdef QDOS_FS_WRITE
+#define IMG_NAME_MAX 66u           /* R11M: a path of up to 64 characters, NUL included (relative to the caller's directory) */
+#else
 #define IMG_NAME_MAX 18u           /* name, NUL included: full 8.3 (R11E) */
+#endif
 
 /* Name plus arguments, as the kernel passes them to the loader.  Kernel static:
  * only the trap that fills it uses it, and traps do not nest. */
@@ -70,7 +74,11 @@ static int img_load_named(const char *name, int want_slot,
 	v = win1_volume();
 	if (v == 0)
 		return CHAN_ERR_NOVOL;
+#ifdef QDOS_FS_WRITE
+	rc = win1_open_img(name, &f);
+#else
 	rc = fat16_open_root(v, name, &f);
+#endif
 	if (rc != FAT_OK)
 		return rc;
 	if (f.size == 0)
@@ -187,7 +195,11 @@ int img_pg_start_request(unsigned int name_addr, unsigned int args_addr, unsigne
 	v = win1_volume();
 	if (v == 0)
 		return CHAN_ERR_NOVOL;
+#ifdef QDOS_FS_WRITE
+	rc = win1_open_img(name, &f);
+#else
 	rc = fat16_open_root(v, name, &f);
+#endif
 	if (rc != FAT_OK)
 		return rc;
 	if (f.size == 0)

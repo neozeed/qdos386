@@ -15,4 +15,11 @@ int win1_mount(void);
 /* The mounted volume, or 0 if win1_mount has not succeeded. */
 struct fat16_vol *win1_volume(void);
 
+#ifdef QDOS_FS_WRITE
+/* R11M: a new job inherits its creator's current directory (called by job_alloc_sized). */
+void win1_cwd_inherit(unsigned int child_id, unsigned int parent_id);
+/* R11M: open a program image by path (relative to the calling job's directory, case-folded). */
+int win1_open_img(const char *name, struct fat16_file *f);
+#endif
+
 #endif

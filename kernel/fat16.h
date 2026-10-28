@@ -37,6 +37,13 @@
 #define FAT_ERR_BUSY    (-84)  /* the file is open on another channel (checked by win1.c) */
 #define FAT_ERR_WIO     (-85)  /* sector write failed */
 #define FAT_ERR_NOTOPEN (-86)  /* operation needs a file opened for it */
+/* R11M directory errors (see docs/R11M-FAT-PATH-ABI.md). */
+#define FAT_ERR_NOTDIR   (-87)  /* a path component (or the target) is not a directory */
+#define FAT_ERR_ISDIR    (-88)  /* the target is a directory */
+#define FAT_ERR_NOTEMPTY (-89)  /* rmdir of a directory that holds entries */
+#define FAT_ERR_DEPTH    (-90)  /* path too long or nested too deeply */
+#define FAT_ERR_INVAL    (-91)  /* not allowed on this target ('.', '..', the root, the current directory) */
+#define FAT_ERR_XDIR     (-92)  /* a directory cannot be moved to another parent */
 
 /* Open flags for fat16_open_ex. */
 #define FAT_O_READ   0x01u
@@ -88,6 +95,7 @@ struct fat16_file {
 #ifdef QDOS_FS_WRITE
 	unsigned int mode;               /* FAT_O_* flags the file was opened with */
 	unsigned int dirty;              /* size or first cluster changed, directory entry not yet written */
+	unsigned int lflags;             /* R11M listing cursor: FATL_* (is_dir; first = directory cluster, 0 = root) */
 #endif
 };
 
@@ -98,6 +106,18 @@ struct fat16_dirent {
 	char name[12];
 	unsigned long size;
 };
+
+#ifdef QDOS_VFAT
+/* R11M VFAT: a listing entry with its long name.  name/size as above (name is the 8.3 alias). */
+struct fat16_ldirent {
+	char name[12];
+	unsigned long size;
+	char lname[64];              /* the long name (ASCII) if the entry has one, else the 8.3 name; NUL-terminated */
+	unsigned int attr;           /* attribute byte */
+	unsigned int has_lfn;        /* 1 if lname is a long name, 2 if the entry has a long name that cannot be shown (alias only) */
+};
+int fat16_dir_list_nextl(struct fat16_file *f, struct fat16_ldirent *out);
+#endif
 
 /* Validate the boot sector and FAT16 classification.  device_sectors is the
  * size of the sector source; the volume may not extend past it. */
@@ -171,6 +191,77 @@ int fat16_lookup(struct fat16_vol *v, const char *name, unsigned int *lba, unsig
 
 /* Count free clusters (scans the FAT). */
 int fat16_free_clusters(struct fat16_vol *v, unsigned long *nfree);
+
+/* ---- R11M: subdirectories and paths ------------------------------------------------------------
+ * A directory is identified by its first cluster; 0 is the root (the fixed region).  A path is
+ * "A/B/C.EXT": components separated by '/', a leading '/' starts at the root, otherwise at the
+ * directory given as cwd.  "." and ".." are understood ("..": the parent, the root stays the root).
+ * Empty components are ignored.  At most FAT_PATH_MAX characters, FAT_PATH_DEPTH components.  Names
+ * are 8.3 (A-Z 0-9 _ and one dot); with FATP_CI lower case is folded first.  The empty path is the
+ * directory cwd itself. */
+#define FAT_PATH_MAX   64u
+#define FAT_PATH_DEPTH 16u
+#define FATP_CI        0x01u     /* fold a-z to A-Z in names */
+
+#define FATL_DIRS      0x01u     /* listing: include subdirectories (record size field 0xFFFFFFFF) */
+#define FATL_LONG      0x02u     /* listing: long records (R11M VFAT; see win1.c) */
+
+#ifdef QDOS_VFAT
+/* ---- R11M VFAT long file names (-DQDOS_VFAT, needs QDOS_FS_WRITE) -----------------------------------
+ * Policy (docs/R11M-VFAT-LIMITATIONS.md): a name that is a valid short name once upper-cased (base 1..8, extension 0..3,
+ * letters, digits and ! # $ % & ' ( ) - @ ^ _ ` { } ~) is stored as a short entry only, upper case, exactly as before.
+ * Any other name of 1..FAT_LFN_MAX printable ASCII characters (not / \ : * ? " < > |, no leading space, no trailing space
+ * or dot) is stored with a VFAT long-name chain and a generated 8.3 alias (BASE~N.EXT).  Long names on disk that are
+ * not representable in that subset (non-ASCII, longer, malformed) are never matched by long name; their alias works. */
+#define FAT_LFN_MAX 63u
+#endif
+
+struct fat16_path {
+	unsigned int dir;            /* directory that holds the last component (or the directory itself) */
+	unsigned char name[11];      /* last component, 8.3 form (valid when has_name and short_ok) */
+	int has_name;                /* 0: the path names directory 'dir' itself ("/", ".", "A/..", "") */
+	int trailing_slash;
+#ifdef QDOS_VFAT
+	int short_ok;                /* the last component is a valid short name (name[] is set) */
+	unsigned int llen;           /* the last component as typed (long-name candidate) */
+	char lname[FAT_LFN_MAX + 1];
+#endif
+};
+
+/* What a lookup found. */
+struct fat16_info {
+	unsigned int attr;           /* attribute byte (0x10 = directory) */
+	unsigned int first;          /* first cluster */
+	unsigned long size;
+	unsigned int lba, off;       /* where the directory entry is */
+	unsigned int dir;            /* directory that holds it */
+};
+
+int fat16_resolve(struct fat16_vol *v, unsigned int cwd, const char *path, unsigned int pf,
+                  struct fat16_path *out);
+/* Look a path up.  FAT_ERR_NOFILE if absent.  A path that names a directory itself ("/", ".", "..")
+ * reports attr 0x10 and first = that directory, with off = 0xFFFF and lba = 0. */
+int fat16_stat_path(struct fat16_vol *v, unsigned int cwd, const char *path, unsigned int pf,
+                    struct fat16_info *info);
+/* Open by path.  A directory (opened FAT_O_READ only) gives a listing cursor (f->is_dir). */
+int fat16_open_path(struct fat16_vol *v, unsigned int cwd, const char *path, unsigned int pf,
+                    unsigned int flags, struct fat16_file *f);
+int fat16_dir_list_open(struct fat16_vol *v, unsigned int dir, unsigned int lflags, struct fat16_file *f);
+/* Next entry of a listing: 1 and *out, 0 at the end, or a negative error. */
+int fat16_dir_list_next(struct fat16_file *f, struct fat16_dirent *out);
+int fat16_mkdir(struct fat16_vol *v, unsigned int cwd, const char *path, unsigned int pf);
+/* rmdir: the directory must hold nothing but '.' and '..'.  The caller refuses the current directory
+ * of any job (it knows them); this layer refuses the root, '.' and '..' (FAT_ERR_INVAL). */
+int fat16_rmdir(struct fat16_vol *v, unsigned int cwd, const char *path, unsigned int pf);
+int fat16_remove_path(struct fat16_vol *v, unsigned int cwd, const char *path, unsigned int pf);
+/* Rename or move.  Files may move between directories; a directory only within its parent. */
+int fat16_rename_path(struct fat16_vol *v, unsigned int cwd, const char *from, const char *to,
+                      unsigned int pf);
+/* The directory a path names, as a cluster (0 = root); FAT_ERR_NOTDIR if it is a file. */
+int fat16_chdir_path(struct fat16_vol *v, unsigned int cwd, const char *path, unsigned int pf,
+                     unsigned int *newdir);
+/* The absolute path of directory dir, found by walking ".." ("/" for the root). */
+int fat16_getcwd(struct fat16_vol *v, unsigned int dir, char *buf, unsigned int n);
 #endif
 
 #endif

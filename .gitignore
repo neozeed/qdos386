@@ -14,6 +14,7 @@ toolchain/guest-bin
 toolchain/host-bin
 toolchain/objects
 toolchain/src-original-lf
+volumes/
 *.o
 *.a
 *.aout

@@ -40,8 +40,17 @@
 #include "imgload.h"
 #include "fpu.h"
 #include "clock_boot.h"
+#ifdef QDOS_FS_WRITE
+#include "win1.h"
+#endif
 #ifdef QDOS_PAGING
 #include "paging.h"
+#endif
+#ifdef QDOS_VCON
+#include "vcon.h"
+#endif
+#ifdef QDOS_JOBCTL
+#include "jobctl.h"
 #endif
 
 /* R11J: a hold-flag release.  In the paging POC the flag may live in a paged job's
@@ -100,6 +109,10 @@ static int job_exit_status(unsigned int id)
 		return -2;
 	if (exit_rec[i].exited)
 		return (int) exit_rec[i].status;
+#ifdef QDOS_JOBCTL
+	if (jobctl_killed(id))
+		return JC_ERR_KILLED;               /* R11M: ended by QT_JOB_KILL */
+#endif
 	if (jobs[i].in_use && !jobs[i].dead)
 		return JOB_ERR_RUNNING;
 	return JOB_ERR_NOSTATUS;
@@ -164,6 +177,9 @@ static void reclaim_dead(void)
 		app_release_owner(j->id);
 		bytes_reclaimed += mem_reclaim_owner(j->id);
 		jobs_reclaimed++;
+#ifdef QDOS_VCON
+		vcon_job_gone(i);                 /* R11M: its console waiter, session count and focus */
+#endif
 		dead_mask &= ~bit;
 		j->in_use = 0;
 		j->dead = 0;
@@ -279,6 +295,23 @@ unsigned int sched_irq_tick(unsigned int sp)
  * one job may wait on the console at a time.  A second job that asks while
  * the first is still asleep is refused with CON_ERR_BUSY; it does not replace
  * the waiter, so the first is never left asleep without a wake. */
+#ifdef QDOS_VCON
+/* R11M: one waiter per console, kept in kernel/vcon.c.  vcon_wake_job marks the sleeping job runnable
+ * and releases its flag; like the single-console version it never schedules. */
+void vcon_wake_job(int slot)
+{
+	struct job *j;
+
+	if (slot < 0 || slot >= JOB_MAX)
+		return;
+	j = &jobs[slot];
+	if (j->in_use && j->status < 0) {
+		j->status = 0;
+		if (j->hold != 0)
+			HOLD_RELEASE(slot, j);
+	}
+}
+#else
 static int con_waiter = JOB_NONE;
 
 /* Called by cin_put and cin_set_eof (IRQ1 or a trap, IF off).  It only marks
@@ -297,6 +330,7 @@ void con_input_arrived(void)
 	}
 	con_waiter = JOB_NONE;
 }
+#endif
 
 /* Cooperative yield path, called from yield_asm with IF off. */
 unsigned int sched_yield_sp(unsigned int sp)
@@ -401,6 +435,15 @@ int job_alloc_sized(const char *name, void (*entry)(void), unsigned char inc, un
 	exit_rec[i].exited = 0;
 	exit_rec[i].status = 0;
 	init_frame(j);
+#ifdef QDOS_FS_WRITE
+	win1_cwd_inherit(id, jobs[job_current].id);     /* R11M: the creator's current directory */
+#endif
+#ifdef QDOS_VCON
+	vcon_job_inherit(i, job_current);               /* R11M: the creator's console (or its chosen child console) */
+#endif
+#ifdef QDOS_JOBCTL
+	jobctl_slot_reset(i);
+#endif
 	return (int) id;
 }
 
@@ -415,6 +458,9 @@ void job_cancel(unsigned int id)
 		return;
 	j = &jobs[i];
 	(void) mem_reclaim_owner(j->id);
+#ifdef QDOS_VCON
+	vcon_job_gone(i);
+#endif
 	j->in_use = 0;
 	j->dead = 0;
 	j->prio_inc = 0;
@@ -424,6 +470,23 @@ void job_cancel(unsigned int id)
 	exit_rec[i].id = 0;
 	exit_rec[i].exited = 0;
 }
+
+#ifdef QDOS_JOBCTL
+/* R11M: end another job.  Its frame is saved (it is not running), so it only has to be made inactive and dead; the
+ * ordinary reclaim pass (next trap or yield, never the timer ISR) frees its address space, channels, heap and stack,
+ * and refuses to free a directory that is still active (reclaim_dead / pg_release_owner). */
+void job_mark_dead_other(int slot)
+{
+	struct job *j = &jobs[slot];
+
+	if (slot == job_current || slot <= 0 || slot >= JOB_MAX || !j->in_use)
+		return;
+	j->prio_inc = 0;
+	j->status = -1;
+	j->dead = 1;
+	dead_mask |= 1u << slot;
+}
+#endif
 
 void job_idle_set(int slot)
 {
@@ -506,6 +569,9 @@ unsigned int trap_dispatch(unsigned int sp)
 	 * load images, are not available to a paged process (docs/R11J-ADDRESS-SPACE-ABI.md). */
 	if (pg_slot_paged(job_current) &&
 	    (fn == QT_CREATE || fn == QT_POLL_ADD || fn == QT_SCHED_ADD ||
+#ifdef QDOS_JOBCTL
+	     fn == QT_JOB_KILL ||
+#endif
 	     fn == QT_IMG_LOAD || fn == QT_IMG_START || fn == QT_PG_START || fn == QT_PG_CANCEL)) {
 		f[7] = (unsigned int) PG_ERR_REFUSED;
 		return sp | 1u;
@@ -675,10 +741,18 @@ unsigned int trap_dispatch(unsigned int sp)
 
 	case QT_IMG_LOAD:
 		result = img_load_request(a, b, c);
+#ifdef QDOS_JOBCTL
+		if (result > 0)
+			jobctl_note_launch(result, a, 0);
+#endif
 		break;
 
 	case QT_IMG_START:
 		result = img_start_request(a, (int) b);
+#ifdef QDOS_JOBCTL
+		if (result > 0)
+			jobctl_note_launch(result, a, 0);
+#endif
 		break;
 
 	case QT_APP_ARGS:
@@ -727,6 +801,16 @@ unsigned int trap_dispatch(unsigned int sp)
 		result = (job_lookup(a) == JOB_NONE) ? 1 : 0;
 		break;
 
+#ifdef QDOS_JOBCTL
+	case QT_JOB_QUERY:
+		result = jobctl_query(a, b, c);
+		break;
+
+	case QT_JOB_KILL:
+		result = jobctl_kill(a);
+		break;
+#endif
+
 	case QT_CON_WAIT:
 		/* b = flag byte.  Input or end already pending: return at once and let
 		 * the caller read.  Otherwise sleep indefinitely; the arrival wakes us
@@ -736,6 +820,28 @@ unsigned int trap_dispatch(unsigned int sp)
 			result = CHAN_ERR_RANGE;
 			break;
 		}
+#ifdef QDOS_VCON
+		{
+			/* R11M: the wait is on the CALLER'S console.  Input is queued only for the foreground
+			 * console, so a job on a background console sleeps until the user switches to it. */
+			int cn = vcon_job_con(job_current);
+			int w = vcon_waiter(cn);
+
+			if (vcon_count(cn) != 0 || vcon_at_eof(cn)) {
+				result = 0;
+				break;
+			}
+			if (w >= 0 && w != job_current && jobs[w].in_use && jobs[w].status < 0) {
+				result = CON_ERR_BUSY;
+				break;
+			}
+			vcon_set_waiter(cn, job_current);
+			jobs[job_current].status = -1;
+			jobs[job_current].hold = (unsigned char *) b;
+			f[7] = 0;
+			return schedule(sp, 1, 0);
+		}
+#else
 		if (cin_count() != 0 || cin_at_eof()) {
 			result = 0;
 			break;
@@ -750,10 +856,15 @@ unsigned int trap_dispatch(unsigned int sp)
 		jobs[job_current].hold = (unsigned char *) b;
 		f[7] = 0;
 		return schedule(sp, 1, 0);
+#endif
 
 #ifdef QDOS_PAGING
 	case QT_PG_START:
 		result = img_pg_start_request(a, b, c);
+#ifdef QDOS_JOBCTL
+		if (result > 0)
+			jobctl_note_launch(result, a, JC_F_PAGED);
+#endif
 		break;
 
 	case QT_PG_INFO:

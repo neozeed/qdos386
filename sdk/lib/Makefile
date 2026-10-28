@@ -8,9 +8,17 @@ AS  = $(QDOS386_TOOLS)/bin/as
 AR  = ar
 SDK = $(abspath ..)
 
-libqdos.a: qdos.o qtrap.o qdospg.o qdosfs.o
+libqdos.a: qdos.o qtrap.o qdospg.o qdosfs.o qdoscon.o qdosjob.o
 	rm -f $@
-	$(AR) rc $@ qdos.o qtrap.o qdospg.o qdosfs.o
+	$(AR) rc $@ qdos.o qtrap.o qdospg.o qdosfs.o qdoscon.o qdosjob.o
+
+# R11M: job control wrappers, a separate member.
+qdosjob.o: qdosjob.c ../include/qdos386.h
+	$(GCC) -c -O -I../include qdosjob.c -o $@
+
+# R11M: virtual console wrappers, a separate member.
+qdoscon.o: qdoscon.c ../include/qdos386.h
+	$(GCC) -c -O -I../include qdoscon.c -o $@
 
 # R11L: writable-volume wrappers, a separate member.
 qdosfs.o: qdosfs.c ../include/qdos386.h

@@ -75,6 +75,36 @@ REPEAT.aout: r11e/repeat/repeat.c r11e/check.h $(LIBS)
 EXITFL.aout: r11b/exitfl/exitfl.c $(LIBS)
 	$(WRAP) -o $@ r11b/exitfl/exitfl.c
 
+# R11M: path layer test (directories, relative paths, legacy names).
+PATHT.aout: r11m/pathtest/pathtest.c r11b/check.h $(LIBS)
+	$(WRAP) -o $@ r11m/pathtest/pathtest.c
+
+DIRFUL.aout: r11m/dirfull/dirfull.c r11b/check.h $(LIBS)
+	$(WRAP) -o $@ r11m/dirfull/dirfull.c
+
+# R11M Stage 4: VFAT long file names.
+VFATT.aout: r11m/vfattest/vfattest.c r11b/check.h $(LIBS)
+	$(WRAP) -o $@ r11m/vfattest/vfattest.c
+
+# R11M: virtual console tests and demo jobs.
+CONT1.aout: r11m/contest/contest.c r11b/check.h $(LIBS)
+	$(WRAP) -o $@ r11m/contest/contest.c
+
+COUNTER.aout: r11m/counter/counter.c $(LIBS)
+	$(WRAP) -o $@ r11m/counter/counter.c
+
+TICKER.aout: r11m/counter/ticker.c r11m/counter/counter.c $(LIBS)
+	$(WRAP) -o $@ r11m/counter/ticker.c
+
+CONINP.aout: r11m/coninp/coninp.c $(LIBS)
+	$(WRAP) -o $@ r11m/coninp/coninp.c
+
+JOBT.aout: r11m/jobtest/jobtest.c r11b/check.h $(LIBS)
+	$(WRAP) -o $@ r11m/jobtest/jobtest.c
+
+WRITER.aout: r11m/jobtest/writer.c $(LIBS)
+	$(WRAP) -o $@ r11m/jobtest/writer.c
+
 clean:
 	rm -f *.aout bigapp/table.c
 

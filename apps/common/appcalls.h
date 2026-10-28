@@ -16,6 +16,14 @@ int qtrap(unsigned int fn, unsigned int a, unsigned int b, unsigned int c);
 #define APP_QT_EXIT      0x18u
 #define APP_QT_APP_ARGS 0x1Fu     /* R8: argc; the word at a gets the argv array address */
 #define APP_QT_TICKS    0x20u     /* R8: timer ticks since boot */
+/* R11M (kernels built with -DQDOS_FS_WRITE): open with flags, controls, name operations */
+#define APP_QT_CH_OPENX  0x2Au
+#define APP_QT_CH_CTL    0x2Bu
+#define APP_QT_FS_OP     0x2Cu
+#define APP_QT_PG_START  0x25u     /* R11K paging: start a paged slot-1 program */
+#define APP_QT_PG_CAPS   0x27u
+#define APP_QT_JOB_QUERY 0x2Du     /* R11M job control */
+#define APP_QT_JOB_KILL  0x2Eu
 #define APP_QT_MEM_ALLOC      0x10u
 #define APP_QT_MEM_FREE       0x11u
 #define APP_QT_MEM_FREE_BYTES 0x12u

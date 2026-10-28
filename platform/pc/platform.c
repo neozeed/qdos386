@@ -18,6 +18,46 @@ static unsigned int pit_divisor = 11932;   /* ~100 Hz */
 
 #include "vga.h"
 
+#ifdef QDOS_VCON
+/* R11M: console text goes through the virtual console layer (kernel/vcon.c).  This file keeps the
+ * diagnostic stream (debug port 0x402, optional serial); the display is platform/pc/vga.c. */
+#include "vcon.h"
+
+void diag_putc(unsigned char c)
+{
+	outb(0x402, c);                    /* Tiny386 debug port: always */
+#ifdef QDOS_CON_SERIAL
+	outb(0x3f8, c);
+#endif
+}
+
+void con_putc(unsigned char c)
+{
+	vcon_kputc(c);
+}
+
+#ifndef QDOS_CON_VGA
+/* no display: the consoles keep their buffers and the diagnostic stream is the only output */
+void vdisp_put(unsigned int row, unsigned int col, unsigned short cell)
+{
+	(void) row;
+	(void) col;
+	(void) cell;
+}
+
+void vdisp_load(const unsigned short *cells)
+{
+	(void) cells;
+}
+
+void vdisp_cursor(unsigned int row, unsigned int col, int visible)
+{
+	(void) row;
+	(void) col;
+	(void) visible;
+}
+#endif
+#else
 void con_putc(unsigned char c)
 {
 #ifdef QDOS_CON_VGA
@@ -39,6 +79,7 @@ void con_putc(unsigned char c)
 	vga_putc(c);
 #endif
 }
+#endif /* QDOS_VCON */
 
 void con_puts(const char *s)
 {

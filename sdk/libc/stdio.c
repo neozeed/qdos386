@@ -1087,10 +1087,10 @@ static int stream_open_into(struct qd_file *f, const char *name, const char *mod
 		errno = ENOENT;
 		return -1;
 	}
-	if (flags == QD_O_READ)
-		ch = qd_open(full);          /* works on every kernel */
+	if (flags == QD_O_READ && strncmp(full, "WIN1:", 5) != 0)
+		ch = qd_open(full);          /* the legacy flat form works on every kernel */
 	else
-		ch = qd_open_ex(full, flags);
+		ch = qd_open_ex(full, flags | (strncmp(full, "WIN1:", 5) == 0 ? QD_O_FILE : 0));
 	if (ch <= 0) {
 		qd_set_errno(ch);
 		return -1;

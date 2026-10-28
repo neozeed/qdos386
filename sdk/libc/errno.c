@@ -116,6 +116,12 @@ int qd_set_errno(int e)
 	case -82: v = ENOSPC; break;
 	case -83: v = EEXIST; break;
 	case -84: v = EBUSY; break;
+	case -87: v = ENOTDIR; break;
+	case -88: v = EISDIR; break;
+	case -89: v = ENOTEMPTY; break;
+	case -90: v = ENAMETOOLONG; break;
+	case -91: v = EINVAL; break;
+	case -92: v = EXDEV; break;
 	default:  v = EIO; break;
 	}
 	errno = v;

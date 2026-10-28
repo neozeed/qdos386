@@ -33,6 +33,7 @@ static struct fdent fdt[NFD];
 static int fd_ready = 0;
 
 int qd_fsname(const char *in, char *out, size_t outsz);
+int qd_fs_isroot(const char *full);
 void qd_flush_std(void);
 int qd_con_channel(void);       /* stdio.c */
 
@@ -134,14 +135,14 @@ int open(const char *name, int flags, ...)
 		errno = EINVAL;
 		return -1;
 	}
-	if (qd_fsname(name, full, sizeof full) != 0 || strcmp(full, "WIN1_") == 0) {
+	if (qd_fsname(name, full, sizeof full) != 0 || qd_fs_isroot(full)) {
 		errno = ENOENT;
 		return -1;
 	}
 	fd = fd_alloc();
 	if (fd < 0)
 		return -1;
-	if (acc == O_RDONLY && !(flags & (O_CREAT | O_TRUNC | O_APPEND))) {
+	if (acc == O_RDONLY && !(flags & (O_CREAT | O_TRUNC | O_APPEND)) && strncmp(full, "WIN1:", 5) != 0) {
 		ch = qd_open(full);
 	} else {
 		if (acc == O_RDONLY || acc == O_RDWR)
@@ -154,7 +155,7 @@ int open(const char *name, int flags, ...)
 			q |= QD_O_TRUNC;
 		if (flags & O_APPEND)
 			q |= QD_O_APPEND;
-		ch = qd_open_ex(full, q);
+		ch = qd_open_ex(full, strncmp(full, "WIN1:", 5) == 0 ? (q | QD_O_FILE) : q);
 	}
 	if (ch <= 0) {
 		qd_set_errno(ch);
@@ -328,11 +329,23 @@ int fstat(int fd, struct stat *st)
 int stat(const char *name, struct stat *st)
 {
 	char full[FILENAME_MAX];
-	int ch;
+	int ch, r;
 	long sz;
+	struct qd_stat qs;
 
-	if (qd_fsname(name, full, sizeof full) != 0 || strcmp(full, "WIN1_") == 0) {
+	if (qd_fsname(name, full, sizeof full) != 0 || qd_fs_isroot(full)) {
 		errno = ENOENT;
+		return -1;
+	}
+	r = qd_stat(full, &qs);               /* R11M kernels: knows directories */
+	if (r == 0) {
+		memset(st, 0, sizeof *st);
+		st->st_mode = qs.is_dir ? (S_IFDIR | 0755) : (S_IFREG | 0644);
+		st->st_size = (long) qs.size;
+		return 0;
+	}
+	if (r != -1 && r != -15) {            /* a real error (not "no such service") */
+		qd_set_errno(r);
 		return -1;
 	}
 	ch = qd_open(full);
@@ -402,14 +415,77 @@ int bcmp(const void *a, const void *b, unsigned int n)
 	return memcmp(a, b, n);
 }
 
-/* There is one directory (the root of WIN1_) and no current-directory state. */
+/* R11M: the current directory is the calling job's (kernel state).  A kernel without directories
+ * answers with an error, and the root is reported as before. */
 char *getcwd(char *buf, size_t size)
 {
+	int r;
+
 	if (buf == NULL || size < 2) {
 		errno = ERANGE;
 		return NULL;
 	}
-	buf[0] = '/';
-	buf[1] = '\0';
+	r = qd_getcwd(buf, (unsigned int) (size > 256 ? 256 : size));
+	if (r == QD_ERR_DEPTH) {
+		errno = ERANGE;
+		return NULL;
+	}
+	if (r < 0) {
+		buf[0] = '/';
+		buf[1] = '\0';
+	}
 	return buf;
+}
+
+int chdir(const char *path)
+{
+	char full[FILENAME_MAX];
+	int r;
+
+	if (path == NULL || qd_fsname(path, full, sizeof full) != 0) {
+		errno = ENOENT;
+		return -1;
+	}
+	r = qd_chdir(full);
+	qd_fsname_reset();
+	if (r < 0) {
+		qd_set_errno(r);
+		return -1;
+	}
+	return 0;
+}
+
+int mkdir(const char *path, int mode)
+{
+	char full[FILENAME_MAX];
+	int r;
+
+	(void) mode;
+	if (path == NULL || qd_fsname(path, full, sizeof full) != 0 || qd_fs_isroot(full)) {
+		errno = ENOENT;
+		return -1;
+	}
+	r = qd_mkdir(full);
+	if (r < 0) {
+		qd_set_errno(r);
+		return -1;
+	}
+	return 0;
+}
+
+int rmdir(const char *path)
+{
+	char full[FILENAME_MAX];
+	int r;
+
+	if (path == NULL || qd_fsname(path, full, sizeof full) != 0 || qd_fs_isroot(full)) {
+		errno = ENOENT;
+		return -1;
+	}
+	r = qd_rmdir(full);
+	if (r < 0) {
+		qd_set_errno(r);
+		return -1;
+	}
+	return 0;
 }

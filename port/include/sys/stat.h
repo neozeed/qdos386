@@ -18,4 +18,5 @@ struct stat {
 #define S_IFCHR 0020000
 int fstat(int fd, struct stat *st);
 int stat(const char *name, struct stat *st);
+int mkdir(const char *path, int mode);     /* R11M; mode is ignored */
 #endif

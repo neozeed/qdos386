@@ -8,10 +8,44 @@
 #define CON_PORT ((volatile unsigned char *) 0x800001)
 #define TIMER_PORT ((volatile unsigned char *) 0x800003)
 
+#ifdef QDOS_VCON
+#include "vcon.h"
+
+/* R11M: the byte port is the diagnostic stream; the consoles live in kernel/vcon.c.  There is no display. */
+void diag_putc(unsigned char c)
+{
+	*CON_PORT = c;
+}
+
+void con_putc(unsigned char c)
+{
+	vcon_kputc(c);
+}
+
+void vdisp_put(unsigned int row, unsigned int col, unsigned short cell)
+{
+	(void) row;
+	(void) col;
+	(void) cell;
+}
+
+void vdisp_load(const unsigned short *cells)
+{
+	(void) cells;
+}
+
+void vdisp_cursor(unsigned int row, unsigned int col, int visible)
+{
+	(void) row;
+	(void) col;
+	(void) visible;
+}
+#else
 void con_putc(unsigned char c)
 {
 	*CON_PORT = c;
 }
+#endif
 
 void con_puts(const char *s)
 {

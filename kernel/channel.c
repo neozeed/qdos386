@@ -20,6 +20,13 @@
 #ifdef QDOS_PAGING
 #include "paging.h"
 #endif
+#ifdef QDOS_VCON
+#ifndef QDOS_FS_WRITE
+#error "QDOS_VCON needs QDOS_FS_WRITE (the channel control trap)"
+#endif
+#include "vcon.h"
+extern int job_current;              /* jobs.c: slot of the running job */
+#endif
 
 struct chan_slot {
 	struct chan_object *obj;
@@ -37,8 +44,12 @@ volatile unsigned long chan_rejected = 0;
 
 static int con_drv_open(struct chan_object *ch, const char *name)
 {
-	(void) ch;
 	(void) name;
+#ifdef QDOS_VCON
+	ch->con = vcon_job_con(job_current);          /* the opener's console: its session */
+#else
+	(void) ch;
+#endif
 	return 0;
 }
 
@@ -49,11 +60,16 @@ static void con_drv_close(struct chan_object *ch)
 
 static int con_drv_write(struct chan_object *ch, const unsigned char *buf, unsigned int n)
 {
+#ifdef QDOS_VCON
+	vcon_write(ch->con, buf, n);
+	return (int) n;
+#else
 	unsigned int i;
 	(void) ch;
 	for (i = 0; i < n; i++)
 		con_putc(buf[i]);
 	return (int) n;
+#endif
 }
 
 /* CON read (R7): takes what is waiting, never blocks.  0 at end of input,
@@ -62,6 +78,15 @@ static int con_drv_read(struct chan_object *ch, unsigned char *buf, unsigned int
 {
 	unsigned int got = 0;
 	unsigned char c;
+#ifdef QDOS_VCON
+	while (got < n && vcon_get(ch->con, &c))
+		buf[got++] = c;
+	if (got != 0)
+		return (int) got;
+	if (vcon_at_eof(ch->con))
+		return 0;
+	return CHAN_ERR_AGAIN;
+#else
 	(void) ch;
 	while (got < n && cin_get(&c))
 		buf[got++] = c;
@@ -70,12 +95,69 @@ static int con_drv_read(struct chan_object *ch, unsigned char *buf, unsigned int
 	if (cin_at_eof())
 		return 0;
 	return CHAN_ERR_AGAIN;
+#endif
 }
+
+#ifdef QDOS_VCON
+/* Console controls.  ch->con is the console of the session that opened the channel. */
+static int con_drv_ctl(struct chan_object *ch, unsigned int op, unsigned long arg)
+{
+	int con = ch->con;
+
+	switch (op) {
+	case CHAN_CTL_FLUSH:              /* chan_close flushes every channel whose driver has a ctl */
+		return 0;
+	case CHAN_CON_GOTO:
+		return vcon_goto(con, (unsigned int) arg & 0xffu, (unsigned int) (arg >> 8) & 0xffu);
+	case CHAN_CON_CLEAR:
+		if (arg > VCLR_EOS)
+			return CHAN_ERR_RANGE;
+		vcon_clear(con, (unsigned int) arg);
+		return 0;
+	case CHAN_CON_ATTR:
+		return (int) vcon_set_attr(con, (unsigned int) arg);
+	case CHAN_CON_QUERY:
+		return (int) vcon_query(con, (unsigned int) arg);
+	case CHAN_CON_MODE:
+		return (int) vcon_set_mode(con, (unsigned int) arg);
+	case CHAN_CON_CURSOR:
+		vcon_set_cursor_visible(con, arg != 0);
+		return 0;
+	case CHAN_CON_REGION:
+		return vcon_set_region(con, (unsigned int) arg & 0xffu, (unsigned int) (arg >> 8) & 0xffu);
+	case CHAN_CON_FOCUS:
+		return vcon_switch((int) arg);
+	case CHAN_CON_CHILD:
+		return vcon_set_child(job_current, arg == 0xffu ? -1 : (int) arg);
+	case CHAN_CON_SNAP:
+		{
+			struct chan_con_snap *s = (struct chan_con_snap *) arg;
+			int c, r;
+
+			if (!chan_user_range_ok((unsigned int) arg, (unsigned int) sizeof(struct chan_con_snap)))
+				return CHAN_ERR_RANGE;
+			c = s->con == 0xffu ? con : (int) s->con;
+			r = vcon_snap_row(c, s->row, s->text, (unsigned int) sizeof s->text);
+			return r;
+		}
+	case CHAN_CON_DIAG:
+		if (arg != 0xffu)
+			vcon_set_diag((int) arg);
+		return vcon_get_diag();
+	}
+	return CHAN_ERR_NOTSUP;
+}
+#endif
 
 extern struct chan_driver win1_driver;   /* win1.c: WIN1_ file channels */
 
 static struct chan_driver con_driver;
+#ifdef QDOS_FS_WRITE
+extern struct chan_driver win1n_driver;  /* win1.c: the "WIN1:" native path prefix (R11M) */
+static struct chan_driver *drivers[4];
+#else
 static struct chan_driver *drivers[3];
+#endif
 
 static void drivers_init(void)
 {
@@ -86,9 +168,17 @@ static void drivers_init(void)
 	con_driver.open = con_drv_open;
 	con_driver.close = con_drv_close;
 	con_driver.write = con_drv_write;
+#ifdef QDOS_VCON
+	con_driver.ctl = con_drv_ctl;
+#endif
 	drivers[0] = &con_driver;
 	drivers[1] = &win1_driver;
+#ifdef QDOS_FS_WRITE
+	drivers[2] = &win1n_driver;
+	drivers[3] = 0;
+#else
 	drivers[2] = 0;
+#endif
 }
 
 static int drivers_ready = 0;
@@ -358,7 +448,9 @@ int chan_ctl(unsigned int id, unsigned int owner, unsigned int op, unsigned int 
 	return ch->drv->ctl(ch, op, arg);
 }
 
-/* Name operations: the driver is chosen by the first name.  Only prefix drivers with an fsop. */
+/* Name operations: the driver is chosen by the first name.  Only prefix drivers with an fsop.
+ * R11M: CHAN_FS_GETCWD takes a buffer (a) and size (b) instead of names, and CHAN_FS_STAT a result
+ * buffer in b; both ranges are checked here and handed to the driver as raw values. */
 int chan_fsop(unsigned int op, unsigned int a_addr, unsigned int b_addr)
 {
 	char na[CHAN_NAME_MAX], nb[CHAN_NAME_MAX];
@@ -367,6 +459,14 @@ int chan_fsop(unsigned int op, unsigned int a_addr, unsigned int b_addr)
 	if (!drivers_ready) {
 		drivers_init();
 		drivers_ready = 1;
+	}
+	if (op == CHAN_FS_GETCWD) {
+		if (b_addr == 0 || b_addr > 256 || !chan_user_range_ok(a_addr, b_addr))
+			return CHAN_ERR_RANGE;
+		return win1_driver.fsop(op, (const char *) a_addr, (const char *) b_addr);
+	}
+	if (op == CHAN_FS_FREE || op == CHAN_FS_CLUSTER || op == CHAN_FS_TOTAL) {
+		/* any WIN1 name selects the volume */
 	}
 	rc = copy_name(a_addr, na);
 	if (rc != 0)
@@ -377,6 +477,8 @@ int chan_fsop(unsigned int op, unsigned int a_addr, unsigned int b_addr)
 		if (rc != 0)
 			return rc;
 	}
+	if (op == CHAN_FS_STAT && b_addr != 0 && !chan_user_range_ok(b_addr, 8))
+		return CHAN_ERR_RANGE;
 	for (d = 0; drivers[d] != 0; d++)
 		if (name_match(drivers[d], na))
 			break;
@@ -385,10 +487,16 @@ int chan_fsop(unsigned int op, unsigned int a_addr, unsigned int b_addr)
 	if (drivers[d]->fsop == 0)
 		return CHAN_ERR_NOTSUP;
 	if (op == CHAN_FS_RENAME) {
-		/* both names must belong to the same driver */
-		if (!name_match(drivers[d], nb))
+		/* both names must belong to the same volume (either WIN1 prefix) */
+		int d2;
+		for (d2 = 0; drivers[d2] != 0; d2++)
+			if (name_match(drivers[d2], nb))
+				break;
+		if (drivers[d2] == 0 || drivers[d2]->fsop != drivers[d]->fsop)
 			return CHAN_ERR_NAME;
 	}
+	if (op == CHAN_FS_STAT)
+		return drivers[d]->fsop(op, na, (const char *) b_addr);
 	return drivers[d]->fsop(op, na, nb);
 }
 #endif

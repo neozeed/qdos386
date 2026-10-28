@@ -116,4 +116,44 @@ void vga_putc(unsigned char c)
 	vga_cursor();
 }
 
+#ifdef QDOS_VCON
+/* R11M: the virtual console layer drives the screen through these three calls (kernel/vcon.h).  The
+ * foreground console is drawn cell by cell, or reloaded whole when it scrolls or the focus changes. */
+void vdisp_put(unsigned int row, unsigned int col, unsigned short cell)
+{
+	VGA_TEXT[row * VGA_COLS + col] = cell;
+}
+
+void vdisp_load(const unsigned short *cells)
+{
+	unsigned int i;
+
+	for (i = 0; i < VGA_COLS * VGA_ROWS; i++)
+		VGA_TEXT[i] = cells[i];
+}
+
+static unsigned int vd_pos = 0xffffffffu;
+static int vd_vis = -1;
+
+void vdisp_cursor(unsigned int row, unsigned int col, int visible)
+{
+	unsigned int pos = row * VGA_COLS + col;
+
+	if (visible != vd_vis) {                  /* cursor start register: bit 5 disables the cursor */
+		outb(VGA_CRTC_ADDR, 0x0a);
+		outb(VGA_CRTC_DATA, visible ? 0x0d : 0x20);
+		outb(VGA_CRTC_ADDR, 0x0b);
+		outb(VGA_CRTC_DATA, 0x0e);
+		vd_vis = visible;
+	}
+	if (pos != vd_pos) {
+		outb(VGA_CRTC_ADDR, 0x0e);
+		outb(VGA_CRTC_DATA, (pos >> 8) & 0xffu);
+		outb(VGA_CRTC_ADDR, 0x0f);
+		outb(VGA_CRTC_DATA, pos & 0xffu);
+		vd_pos = pos;
+	}
+}
+#endif /* QDOS_VCON */
+
 #endif /* QDOS_CON_VGA */
