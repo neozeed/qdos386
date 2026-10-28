@@ -105,6 +105,10 @@ JOBT.aout: r11m/jobtest/jobtest.c r11b/check.h $(LIBS)
 WRITER.aout: r11m/jobtest/writer.c $(LIBS)
 	$(WRAP) -o $@ r11m/jobtest/writer.c
 
+# R11M-FIX1: guest helper that asks the emulator for a clean shutdown (port 0x8900).
+SHUTDOWN.aout: r11m/shutdown/shutdown.c $(LIBS)
+	$(WRAP) -o $@ r11m/shutdown/shutdown.c
+
 clean:
 	rm -f *.aout bigapp/table.c
 
