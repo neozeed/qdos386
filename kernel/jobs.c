@@ -659,6 +659,20 @@ unsigned int trap_dispatch(unsigned int sp)
 		result = chan_seek(a, job_current_id(), b);
 		break;
 
+#ifdef QDOS_FS_WRITE
+	case QT_CH_OPENX:
+		result = chan_open_ex(job_current_id(), a, b);
+		break;
+
+	case QT_CH_CTL:
+		result = chan_ctl(a, job_current_id(), b, c);
+		break;
+
+	case QT_FS_OP:
+		result = chan_fsop(a, b, c);
+		break;
+#endif
+
 	case QT_IMG_LOAD:
 		result = img_load_request(a, b, c);
 		break;

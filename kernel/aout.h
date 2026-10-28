@@ -56,7 +56,10 @@
 #define APP_ARG_MAX      16u             /* argc, including argv[0] */
 #define APP_ARG_STR_OFF  80u             /* strings start here inside the block */
 #define APP_ARG_STR_MAX  (APP_ARG_BYTES - APP_ARG_STR_OFF)
-#define APP_STACK_BYTES  16384u          /* job stack for applications */
+#ifndef QDOS_APP_STACK
+#define QDOS_APP_STACK   16384u          /* default: 16 KiB (R11L self-hosting kernels build with -DQDOS_APP_STACK=65536u) */
+#endif
+#define APP_STACK_BYTES  QDOS_APP_STACK  /* job stack for applications (heap block) */
 #define APP_RESERVED     (-1)            /* slot reserved while its image is copied */
 
 /* Source-neutral reader: fill dst with n bytes at offset off of the image.

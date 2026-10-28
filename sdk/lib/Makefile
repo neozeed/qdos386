@@ -8,9 +8,13 @@ AS  = $(QDOS386_TOOLS)/bin/as
 AR  = ar
 SDK = $(abspath ..)
 
-libqdos.a: qdos.o qtrap.o qdospg.o
+libqdos.a: qdos.o qtrap.o qdospg.o qdosfs.o
 	rm -f $@
-	$(AR) rc $@ qdos.o qtrap.o qdospg.o
+	$(AR) rc $@ qdos.o qtrap.o qdospg.o qdosfs.o
+
+# R11L: writable-volume wrappers, a separate member.
+qdosfs.o: qdosfs.c ../include/qdos386.h
+	$(GCC) -c -O -I../include qdosfs.c -o $@
 
 qdos.o: qdos.c ../include/qdos386.h
 	$(GCC) -c -O -I../include qdos.c -o $@

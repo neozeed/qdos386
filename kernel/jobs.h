@@ -53,6 +53,11 @@
 /* R6 file channels (WIN1_ names; see docs/R6-ABI.md). */
 #define QT_CH_READ    0x1A        /* a = channel id, b = buffer, c = length (<= 256) -> bytes read, 0 at end */
 #define QT_CH_SEEK    0x1B        /* a = channel id, b = byte position -> 0, or negative */
+#ifdef QDOS_FS_WRITE
+#define QT_CH_OPENX   0x2A        /* R11L: a = name, b = CHAN_O_* flags -> channel id, or negative */
+#define QT_CH_CTL     0x2B        /* R11L: a = channel id, b = CHAN_CTL_*, c = argument -> result */
+#define QT_FS_OP      0x2C        /* R11L: a = CHAN_FS_*, b = name, c = second name -> result */
+#endif
 #define QT_IMG_LOAD   0x1D        /* a = name pointer (WIN1_ root name) -> job id, or negative */
 #define QT_IMG_START  0x24        /* R11H: a = name pointer, b = profile 0..3 or -1 for any -> tagged job id, or negative */
 #define QT_JOB_RECLAIMED 0x1E     /* a = job id -> 1 if the job slot is free again, else 0 */

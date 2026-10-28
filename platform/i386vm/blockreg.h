@@ -16,4 +16,9 @@
 #define BLK_CMD_READ    0x01
 #define BLK_ST_OK       0x00
 
+/* R11L (QDOS_FS_WRITE): the optional write protocol; see harness/i386vm-block/blockdev.h. */
+#define BLK_CMD_WRITE   0x02
+#define BLK_CMD_WRBEGIN 0x03
+#define BLK_ST_WPROT    0x06
+
 #endif

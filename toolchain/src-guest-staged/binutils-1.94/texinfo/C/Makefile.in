@@ -1,0 +1,172 @@
+# Makefile for the info sources... -*- text -*-
+# Copyright (C) 1990-1991 Free Software Foundation, Inc.
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2, or (at your option)
+# any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+
+srcdir = .
+
+prefix = /usr/local
+
+bindir = $(prefix)/bin
+datadir = $(prefix)/lib
+libdir = $(prefix)/lib
+mandir = $(datadir)/man
+man1dir = $(mandir)/man1
+man2dir = $(mandir)/man2
+man3dir = $(mandir)/man3
+man4dir = $(mandir)/man4
+man5dir = $(mandir)/man5
+man6dir = $(mandir)/man6
+man7dir = $(mandir)/man7
+man8dir = $(mandir)/man8
+man9dir = $(mandir)/man9
+infodir = $(datadir)/info
+includedir = $(prefix)/include
+docdir = $(datadir)/doc
+
+SHELL = /bin/sh
+
+INSTALL = install -c
+INSTALL_PROGRAM = $(INSTALL)
+INSTALL_DATA = $(INSTALL)
+
+AR = ar
+AR_FLAGS = qv
+BISON = bison
+MAKEINFO = makeinfo
+RANLIB = ranlib
+
+#### Host, target, and site specific Makefile fragments come in here.
+###
+
+# Things you might add to DEFS:
+# -DSTDC_HEADERS	If you have ANSI C headers and libraries.
+# -DUSG			If you have System V/ANSI C string and
+#			memory functions and headers.
+
+CFLAGS = $(HDEFINES) -g -I$(srcdir)/../../include
+LDFLAGS = -g
+LIBS=$(unsubdir)/../../libiberty$(subdir)/libiberty.a
+
+# Colon-separated list of directories in which to look for info files.
+DEFAULT_INFOPATH = .:$(infodir):/usr/cygnus/latest/info:/usr/cygnus/latest/lib/emacs/info:/usr/gnu/info:/usr/local/emacs/info:/usr/local/lib/emacs/info
+
+# Command used to print out a text file.  The filename follows this command.
+INFO_PRINT_COMMAND = lpr
+
+#### End of system configuration section. ####
+
+PATHSPEC = -DDEFAULT_INFOPATH='"$(DEFAULT_INFOPATH)"'
+PRINTSPEC = -DINFO_PRINT_COMMAND='"$(INFO_PRINT_COMMAND)"'
+INFO_FLAGS = $(PATHSPEC) $(PRINTSPEC)
+
+SOURCES = info.c makeinfo.c
+OBJECTS = info.o makeinfo.o
+SUPPORT = Makefile.in configure 
+
+THINGS_TO_TAR = $(SOURCES) $(HEADERS) $(SUPPORT)
+
+PROGS = info-program makeinfo
+
+.PHONY: all info install-info clean-info
+
+all: $(PROGS)
+info install-info clean-info:
+
+info-program:	info.o
+	$(CC) $(LDFLAGS) -o info-program info.o -ltermcap $(LIBS) $(LOADLIBES)
+
+info.o: info.c
+	$(CC) -c $(CFLAGS) $(INFO_FLAGS) $(srcdir)/info.c
+
+makeinfo: makeinfo.o
+	$(CC) $(LDFLAGS) -o makeinfo makeinfo.o $(LIBS) $(LOADLIBES)
+
+makeinfo.o: makeinfo.c
+	$(CC) -c $(CFLAGS) $(MAKEINFO_FLAGS) $(srcdir)/makeinfo.c
+
+install: all
+	$(INSTALL_PROGRAM) makeinfo $(bindir)/makeinfo
+	$(INSTALL_PROGRAM) info-program $(bindir)/info
+
+tags TAGS: $(SOURCES)
+	etags $(SOURCES)
+
+clean:
+	rm -f $(PROGS) $(OBJECTS)
+
+distclean: realclean
+	-rm -f TAGS Makefile config.status
+
+realclean: distclean
+
+dist: $(THINGS_TO_TAR)
+	rm -rf info-dist
+	mkdir info-dist
+	(cd info-dist; for i in $(THINGS_TO_TAR); do ln -s ../$$i .; done)
+	tar chzf info.tar.Z info-dist
+	rm -rf info-dist
+
+# Copy the object files from a particular stage into a subdirectory.
+stage1: force
+	-mkdir stage1
+	-mv $(STAGESTUFF) stage1
+
+stage2: force
+	-mkdir stage2
+	-mv $(STAGESTUFF) stage2
+
+stage3: force
+	-mkdir stage3
+	-mv $(STAGESTUFF) stage3
+
+against=stage2
+
+comparison: force
+	for i in $(STAGESTUFF) ; do cmp $$i $(against)/$$i ; done
+
+de-stage1: force
+	-(cd stage1 ; mv -f * ..)
+	-rmdir stage1
+
+de-stage2: force
+	-(cd stage2 ; mv -f * ..)
+	-rmdir stage2
+
+de-stage3: force
+	-(cd stage3 ; mv -f * ..)
+	-rmdir stage3
+
+ls:
+	@echo Makefile
+	@for i in $(SUBDIRS); \
+	do \
+		(cd $$i; \
+			pwd=`pwd`; \
+			wd=`basename $$pwd`; \
+			for j in `$(MAKE) ls`; \
+			do \
+				echo $$wd/$$j; \
+			done) \
+	done
+
+force:
+
+# with the gnu make, this is done automatically.
+
+Makefile: $(srcdir)/Makefile.in $(host_makefile_frag) $(target_makefile_frag)
+	$(SHELL) ./config.status
+
+# end of Makefile.in

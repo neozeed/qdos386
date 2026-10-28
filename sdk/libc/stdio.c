@@ -10,10 +10,13 @@
  *   stderr           the CON channel, write, UNBUFFERED (each call is written
  *                    as it is produced).  The kernel has no separate error
  *                    channel, so stderr and stdout reach the same console.
- *   fopen            read-only files on the WIN1_ volume.  "w", "a", "r+" and
- *                    the other write modes return NULL: there are no FAT16
- *                    writes.  Writing to an opened file fails with the error
- *                    flag set.
+ *   fopen            files on the WIN1_ volume.  "r" works on every kernel.  The
+ *                    write modes ("w", "a", "r+", "w+", "a+", with or without b)
+ *                    need a kernel built with -DQDOS_FS_WRITE (R11L); on any
+ *                    other kernel, or on a write-protected volume, they return
+ *                    NULL with errno set (ENOSYS or EROFS).  File streams have
+ *                    one 512-byte buffer for reading and writing; names are
+ *                    folded to upper case.
  *
  * Deviations from C89 are listed in docs/R11B-STDIO-ABI.md.  In short:
  * setvbuf/setbuf accept a NULL buffer only (the library owns its buffers),
@@ -31,6 +34,7 @@
 #define KIND_FILE  2
 #define DIR_READ   1
 #define DIR_WRITE  2
+#define FB_SIZE    512u             /* R11L: file stream buffer */
 #define CHAN_AGAIN (-19)            /* CHAN_ERR_AGAIN in the kernel */
 #define WBUF_SIZE  256              /* stdout buffer; the kernel takes writes of any size */
 
@@ -46,6 +50,13 @@ struct qd_file {
 	int bufmode;        /* _IOFBF, _IOLBF or _IONBF (output streams) */
 	unsigned int wlen;  /* bytes waiting in wbuf */
 	unsigned char wbuf[WBUF_SIZE];
+	/* R11L: file streams (KIND_FILE) */
+	unsigned char *fb;  /* 512-byte buffer, heap; shared by reads and writes */
+	unsigned int fb_mode;   /* 0 empty, 1 holds read data, 2 holds pending written data */
+	unsigned int fb_len;    /* valid bytes (mode 1) or pending bytes (mode 2) */
+	unsigned int fb_cur;    /* read cursor (mode 1) */
+	unsigned long fb_off;   /* file offset of fb[0] */
+	unsigned int fflags;    /* QD_O_* flags the file was opened with */
 };
 
 static struct qd_file con_in  = { 0, KIND_CON, DIR_READ,  0, 0, 0, 0, 0, _IONBF, 0, { 0 } };
@@ -65,13 +76,27 @@ static int con_channel(void)
 	return ch;
 }
 
+int qd_con_channel(void)
+{
+	return con_channel();
+}
+
+/* posixio.c */
+int qd_fd_for_channel(int ch);
+void qd_fd_forget(int ch);
+int qd_fd_take(int fd, int *flags);
+
 /* ---- output buffering ------------------------------------------------------ */
 
 /* Write everything waiting in the buffer.  Returns 0, or EOF with err set. */
+static int file_flush_w(struct qd_file *f);
+
 static int stream_flush(struct qd_file *f)
 {
 	int ch;
 
+	if (f->kind == KIND_FILE)
+		return file_flush_w(f);
 	if (f->wlen == 0)
 		return 0;
 	ch = con_channel();
@@ -86,8 +111,12 @@ static int stream_flush(struct qd_file *f)
 
 /* Put one character into an output stream.  Returns 0, or EOF with err set
  * (wrong direction, or a failed write while flushing). */
+static int file_putc(struct qd_file *f, int c);
+
 static int stream_putc(struct qd_file *f, int c)
 {
+	if (f->kind == KIND_FILE)
+		return file_putc(f, c);
 	if (f->dir != DIR_WRITE || f->kind != KIND_CON) {
 		f->err = 1;
 		return EOF;
@@ -112,6 +141,200 @@ void qd_flush_std(void)
 {
 	(void) stream_flush(&con_out);
 	(void) stream_flush(&con_err);
+}
+
+
+/* ---- R11L: buffered file streams ----------------------------------------------------------------
+ * Invariant while fb_mode is 0 (empty): the kernel's file position equals f->pos.  In read mode (1)
+ * the kernel position is fb_off + fb_len and f->pos = fb_off + fb_cur.  In write mode (2) the
+ * pending bytes start at fb_off, f->pos = fb_off + fb_len, and the kernel position is fb_off.  A
+ * flush writes the pending bytes (write-through in the kernel) and leaves mode 0. */
+
+int qd_fsname(const char *in, char *out, size_t outsz);     /* misc.c: folded WIN1_ name */
+
+static int file_fail(struct qd_file *f, int kerr)
+{
+	f->err = 1;
+	qd_set_errno(kerr);
+	return EOF;
+}
+
+/* Write the pending bytes.  Returns 0, or EOF with err and errno set. */
+static int file_flush_w(struct qd_file *f)
+{
+	int r;
+	unsigned int n = f->fb_len;
+
+	if (f->fb_mode != 2)
+		return 0;
+	f->fb_len = 0;
+	f->fb_mode = 0;
+	if (n == 0)
+		return 0;
+	r = qd_write_all(f->ch, f->fb, n);
+	if (r != (int) n)
+		return file_fail(f, r < 0 ? r : -85);
+	f->fb_off += n;
+	if (f->fflags & QD_O_APPEND) {
+		long t = qd_tell(f->ch);
+		if (t >= 0) {
+			f->fb_off = (unsigned long) t;
+			f->pos = f->fb_off;
+		}
+	}
+	return 0;
+}
+
+/* Drop read data: the kernel position becomes f->pos again. */
+static int file_drop_r(struct qd_file *f)
+{
+	if (f->fb_mode != 1)
+		return 0;
+	f->fb_mode = 0;
+	if (f->fb_off + f->fb_len != f->pos) {
+		if (qd_seek(f->ch, f->pos) < 0)
+			return file_fail(f, -47);
+	}
+	f->fb_len = 0;
+	f->fb_cur = 0;
+	return 0;
+}
+
+/* Make the buffer a write buffer. */
+static int file_begin_write(struct qd_file *f)
+{
+	if (f->fb_mode == 2)
+		return 0;
+	if (file_drop_r(f) == EOF)
+		return EOF;
+	if (f->fflags & QD_O_APPEND) {
+		long sz = qd_fsize(f->ch);
+		if (sz < 0)
+			return file_fail(f, (int) sz);
+		f->pos = (unsigned long) sz;
+		if (qd_seek(f->ch, f->pos) < 0)
+			return file_fail(f, -47);
+	}
+	f->fb_off = f->pos;
+	f->fb_len = 0;
+	f->fb_mode = 2;
+	return 0;
+}
+
+static int file_putc(struct qd_file *f, int c)
+{
+	if (!(f->dir & DIR_WRITE)) {
+		f->err = 1;
+		qd_set_errno(-80);
+		return EOF;
+	}
+	if (f->fb_mode != 2 && file_begin_write(f) == EOF)
+		return EOF;
+	f->fb[f->fb_len++] = (unsigned char) c;
+	f->pos++;
+	if (f->fb_len == FB_SIZE)
+		return file_flush_w(f);
+	return 0;
+}
+
+/* Write n bytes: through the buffer, large blocks straight to the kernel.  0, or EOF. */
+static int file_write_bytes(struct qd_file *f, const unsigned char *p, unsigned long n)
+{
+	if (!(f->dir & DIR_WRITE)) {
+		f->err = 1;
+		qd_set_errno(-80);
+		return EOF;
+	}
+	while (n > 0) {
+		unsigned int room;
+		unsigned int take;
+		unsigned int i;
+
+		if (f->fb_mode != 2 && file_begin_write(f) == EOF)
+			return EOF;
+		room = FB_SIZE - f->fb_len;
+
+		if (f->fb_len == 0 && n >= FB_SIZE) {
+			/* whole sectors straight to the kernel */
+			unsigned long blk = n & ~(unsigned long) (FB_SIZE - 1u);
+			int r = qd_write_all(f->ch, p, (unsigned int) blk);
+			if (r != (int) blk) {
+				f->fb_mode = 0;
+				return file_fail(f, r < 0 ? r : -85);
+			}
+			f->fb_off += blk;
+			f->pos += blk;
+			p += blk;
+			n -= blk;
+			if (f->fflags & QD_O_APPEND) {
+				long t = qd_tell(f->ch);
+				if (t >= 0) {
+					f->fb_off = (unsigned long) t;
+					f->pos = f->fb_off;
+				}
+			}
+			continue;
+		}
+		take = n < room ? (unsigned int) n : room;
+		for (i = 0; i < take; i++)
+			f->fb[f->fb_len + i] = p[i];
+		f->fb_len += take;
+		f->pos += take;
+		p += take;
+		n -= take;
+		if (f->fb_len == FB_SIZE && file_flush_w(f) == EOF)
+			return EOF;
+	}
+	return 0;
+}
+
+/* fflush on a file stream: pending bytes, then the directory entry. */
+static int file_flush_all(struct qd_file *f)
+{
+	int r;
+	if (file_flush_w(f) == EOF)
+		return EOF;
+	if (f->dir & DIR_WRITE) {
+		r = qd_flush(f->ch);
+		if (r < 0)
+			return file_fail(f, r);
+	}
+	return 0;
+}
+
+/* Refill the read buffer.  Returns the bytes now available, 0 at end of file, EOF on error. */
+static int file_fill(struct qd_file *f)
+{
+	unsigned int got = 0;
+
+	if (f->fb_mode == 2 && file_flush_w(f) == EOF)
+		return EOF;
+	f->fb_mode = 0;
+	f->fb_off = f->pos;
+	while (got < FB_SIZE) {
+		unsigned int chunk = FB_SIZE - got;
+		int r;
+		if (chunk > QD_READ_MAX)
+			chunk = QD_READ_MAX;
+		r = qd_read(f->ch, f->fb + got, chunk);
+		if (r > 0) {
+			got += (unsigned int) r;
+			continue;
+		}
+		if (r < 0) {
+			if (got == 0) {
+				file_fail(f, r);
+				return EOF;
+			}
+		}
+		break;                       /* end of file, or data already in hand */
+	}
+	f->fb_len = got;
+	f->fb_cur = 0;
+	f->fb_mode = 1;
+	if (got == 0)
+		f->eof = 1;
+	return (int) got;
 }
 
 /* ---- formatted output: one engine for printf, fprintf and sprintf ---------- */
@@ -660,6 +883,11 @@ size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *fp)
 		return 0;
 	}
 	want = (unsigned long) (size * nmemb);
+	if (f->kind == KIND_FILE) {
+		if (file_write_bytes(f, p, want) != 0)
+			return 0;
+		return nmemb;
+	}
 	for (i = 0; i < want; i++)
 		if (stream_putc(f, p[i]) == EOF)
 			return 0;                /* wrong direction or failed write */
@@ -676,6 +904,8 @@ int fflush(FILE *fp)
 
 	if (fp != NULL) {
 		f = (struct qd_file *) fp;
+		if (f->kind == KIND_FILE)
+			return file_flush_all(f);
 		/* Input streams have no buffer to flush: no effect, returns 0. */
 		if (f->dir != DIR_WRITE)
 			return 0;
@@ -698,7 +928,7 @@ int setvbuf(FILE *fp, char *buf, int mode, size_t size)
 		return -1;
 	if (mode != _IOFBF && mode != _IOLBF && mode != _IONBF)
 		return -1;
-	if (f->dir != DIR_WRITE)
+	if (!(f->dir & DIR_WRITE))
 		return 0;
 	if (stream_flush(f) == EOF)
 		return -1;
@@ -715,6 +945,8 @@ void setbuf(FILE *fp, char *buf)
 
 /* ---- input ----------------------------------------------------------------- */
 
+static int file_fill(struct qd_file *f);
+
 int fgetc(FILE *fp)
 {
 	struct qd_file *f = (struct qd_file *) fp;
@@ -723,7 +955,7 @@ int fgetc(FILE *fp)
 
 	if (f == NULL)
 		return EOF;
-	if (f->dir != DIR_READ) {
+	if (!(f->dir & DIR_READ)) {
 		f->err = 1;
 		return EOF;
 	}
@@ -753,9 +985,13 @@ int fgetc(FILE *fp)
 			qd_yield(1);     /* nothing typed yet: sleep one tick, retry */
 		}
 	}
-	if (fread(&c, 1, 1, fp) == 1)
-		return c;
-	return EOF;
+	if (f->fb_mode != 1 || f->fb_cur >= f->fb_len) {
+		if (file_fill(f) <= 0)
+			return EOF;
+	}
+	c = f->fb[f->fb_cur++];
+	f->pos++;
+	return c;
 }
 
 int getc(FILE *fp)
@@ -774,7 +1010,7 @@ int getchar(void)
 int ungetc(int c, FILE *fp)
 {
 	struct qd_file *f = (struct qd_file *) fp;
-	if (c == EOF || f == NULL || f->dir != DIR_READ || f->has_unget)
+	if (c == EOF || f == NULL || !(f->dir & DIR_READ) || f->has_unget)
 		return EOF;
 	if (f->kind == KIND_FILE) {
 		if (f->pos == 0)
@@ -810,40 +1046,65 @@ char *fgets(char *buf, int n, FILE *fp)
 	return buf;
 }
 
-FILE *fopen(const char *name, const char *mode)
+/* Open NAME in MODE and set up stream F (already allocated; its static parts are kept).  Returns 0,
+ * or -1 with errno set and F untouched. */
+static int stream_open_into(struct qd_file *f, const char *name, const char *mode)
 {
 	char full[FILENAME_MAX];
-	struct qd_file *f;
 	int ch;
-	size_t n;
+	unsigned int flags = 0, dirbits = 0;
+	int plus = 0, i;
+	unsigned char *fb;
 
-	if (name == NULL || mode == NULL)
-		return NULL;
-	if (mode[0] != 'r' || (mode[1] != '\0' && !(mode[1] == 'b' && mode[2] == '\0')))
-		return NULL;                 /* read only: no FAT16 writes */
-	if (strncmp(name, "WIN1_", 5) == 0 || strcmp(name, "CON") == 0) {
-		n = strlen(name);
-		if (n >= FILENAME_MAX)
-			return NULL;
-		strcpy(full, name);
-	} else {
-		n = strlen(name) + 5;
-		if (n >= FILENAME_MAX)
-			return NULL;
-		strcpy(full, "WIN1_");
-		strcat(full, name);
+	if (name == NULL || mode == NULL) {
+		errno = EINVAL;
+		return -1;
 	}
-	ch = qd_open(full);
-	if (ch <= 0)
-		return NULL;
-	f = (struct qd_file *) malloc(sizeof(struct qd_file));
-	if (f == NULL) {
+	if (mode[0] != 'r' && mode[0] != 'w' && mode[0] != 'a') {
+		errno = EINVAL;
+		return -1;
+	}
+	for (i = 1; mode[i] != '\0'; i++) {
+		if (mode[i] == '+')
+			plus = 1;
+		else if (mode[i] != 'b') {
+			errno = EINVAL;
+			return -1;
+		}
+	}
+	if (mode[0] == 'r')
+		flags = plus ? (QD_O_READ | QD_O_WRITE) : QD_O_READ;
+	else if (mode[0] == 'w')
+		flags = QD_O_WRITE | QD_O_CREATE | QD_O_TRUNC | (plus ? QD_O_READ : 0);
+	else
+		flags = QD_O_WRITE | QD_O_CREATE | QD_O_APPEND | (plus ? QD_O_READ : 0);
+	if (flags & QD_O_READ)
+		dirbits |= DIR_READ;
+	if (flags & QD_O_WRITE)
+		dirbits |= DIR_WRITE;
+
+	if (qd_fsname(name, full, sizeof full) != 0) {
+		errno = ENOENT;
+		return -1;
+	}
+	if (flags == QD_O_READ)
+		ch = qd_open(full);          /* works on every kernel */
+	else
+		ch = qd_open_ex(full, flags);
+	if (ch <= 0) {
+		qd_set_errno(ch);
+		return -1;
+	}
+	fb = (unsigned char *) malloc(FB_SIZE);
+	if (fb == NULL) {
 		qd_close(ch);
-		return NULL;
+		errno = ENOMEM;
+		return -1;
 	}
+	f->fb = fb;
 	f->ch = ch;
 	f->kind = KIND_FILE;
-	f->dir = DIR_READ;
+	f->dir = (int) dirbits;
 	f->eof = 0;
 	f->err = 0;
 	f->pos = 0;
@@ -851,22 +1112,200 @@ FILE *fopen(const char *name, const char *mode)
 	f->unget_c = 0;
 	f->bufmode = _IOFBF;
 	f->wlen = 0;
+	f->fb_mode = 0;
+	f->fb_len = 0;
+	f->fb_cur = 0;
+	f->fb_off = 0;
+	f->fflags = flags;
+	return 0;
+}
+
+FILE *fopen(const char *name, const char *mode)
+{
+	struct qd_file *f = (struct qd_file *) malloc(sizeof(struct qd_file));
+
+	if (f == NULL) {
+		errno = ENOMEM;
+		return NULL;
+	}
+	if (stream_open_into(f, name, mode) != 0) {
+		free(f);
+		return NULL;
+	}
+	return (FILE *) f;
+}
+
+/* Close the file part of a stream (flush, descriptor, channel, buffer).  Returns 0 or EOF. */
+static int stream_close_file(struct qd_file *f)
+{
+	int r, bad = 0;
+
+	if (f->kind != KIND_FILE || f->ch <= 0)
+		return 0;
+	if (file_flush_w(f) == EOF)
+		bad = 1;
+	qd_fd_forget(f->ch);
+	r = qd_close(f->ch);             /* writes the directory entry (R11L kernels) */
+	if (r < 0 && !bad) {
+		qd_set_errno(r);
+		bad = 1;
+	}
+	if (f->fb != NULL)
+		free(f->fb);
+	f->fb = NULL;
+	f->ch = 0;
+	return bad ? EOF : 0;
+}
+
+/* freopen: close the stream's file (the console streams are only flushed), then open NAME into the
+ * same FILE object, so stdout can be redirected to a file.  On failure NULL is returned: a
+ * console stream stays on the console, any other stream is left closed (every operation fails). */
+FILE *freopen(const char *name, const char *mode, FILE *fp)
+{
+	struct qd_file *f = (struct qd_file *) fp;
+	int std = (f == &con_in || f == &con_out || f == &con_err);
+	struct qd_file save;
+
+	if (f == NULL)
+		return NULL;
+	if (f->kind == KIND_FILE)
+		(void) stream_close_file(f);
+	else
+		(void) stream_flush(f);
+	save = *f;
+	if (stream_open_into(f, name, mode) != 0) {
+		if (std) {
+			*f = save;               /* stays a console stream */
+		} else {
+			f->kind = KIND_FILE;
+			f->ch = 0;
+			f->dir = 0;
+			f->err = 1;
+		}
+		return NULL;
+	}
+	return fp;
+}
+
+/* Exit: a standard stream that was redirected to a file is closed so that the directory entry is
+ * written (qd_flush_std has already written the data). */
+void qd_close_std(void)
+{
+	if (con_out.kind == KIND_FILE)
+		(void) stream_close_file(&con_out);
+	if (con_err.kind == KIND_FILE)
+		(void) stream_close_file(&con_err);
+}
+
+/* R11L: POSIX descriptor view of a stream (see posixio.c).  A file stream gets a descriptor on its
+ * channel on first request; mixing fd-level and stream-level I/O on one file is not supported. */
+int fileno(FILE *fp)
+{
+	struct qd_file *f = (struct qd_file *) fp;
+
+	if (f == NULL) {
+		errno = EBADF;
+		return -1;
+	}
+	if (f->kind == KIND_FILE && f->ch > 0) {
+		/* a file stream, or a standard stream redirected to a file by freopen */
+		(void) file_flush_w(f);
+		return qd_fd_for_channel(f->ch);
+	}
+	if (f == &con_in)
+		return 0;
+	if (f == &con_out)
+		return 1;
+	if (f == &con_err)
+		return 2;
+	errno = EBADF;
+	return -1;
+}
+
+/* fdopen: a stream on the channel of an open descriptor.  The stream takes over the channel:
+ * fclose closes it and releases the descriptor. */
+FILE *fdopen(int fd, const char *mode)
+{
+	struct qd_file *f;
+	int fl = 0, ch;
+	unsigned int dirbits = 0, flags = 0;
+	long pos;
+
+	if (mode == NULL || (mode[0] != 'r' && mode[0] != 'w' && mode[0] != 'a')) {
+		errno = EINVAL;
+		return NULL;
+	}
+	if (fd >= 0 && fd <= 2) {
+		FILE *s = fd == 0 ? stdin : (fd == 1 ? stdout : stderr);
+		return s;
+	}
+	ch = qd_fd_take(fd, &fl);
+	if (ch <= 0)
+		return NULL;
+	if (mode[0] == 'r') {
+		flags = QD_O_READ;
+		dirbits = DIR_READ;
+	} else {
+		flags = QD_O_WRITE;
+		dirbits = DIR_WRITE;
+	}
+	if (strchr(mode, '+') != NULL) {
+		flags = QD_O_READ | QD_O_WRITE;
+		dirbits = DIR_READ | DIR_WRITE;
+	}
+	f = (struct qd_file *) malloc(sizeof(struct qd_file));
+	if (f == NULL) {
+		errno = ENOMEM;
+		return NULL;
+	}
+	f->fb = (unsigned char *) malloc(FB_SIZE);
+	if (f->fb == NULL) {
+		free(f);
+		errno = ENOMEM;
+		return NULL;
+	}
+	pos = qd_tell(ch);
+	f->ch = ch;
+	f->kind = KIND_FILE;
+	f->dir = (int) dirbits;
+	f->eof = 0;
+	f->err = 0;
+	f->pos = pos < 0 ? 0ul : (unsigned long) pos;
+	f->has_unget = 0;
+	f->unget_c = 0;
+	f->bufmode = _IOFBF;
+	f->wlen = 0;
+	f->fb_mode = 0;
+	f->fb_len = 0;
+	f->fb_cur = 0;
+	f->fb_off = f->pos;
+	f->fflags = flags;
 	return (FILE *) f;
 }
 
 int fclose(FILE *fp)
 {
 	struct qd_file *f = (struct qd_file *) fp;
+	int std, r;
+
 	if (f == NULL)
 		return EOF;
-	if (f == &con_in || f == &con_out || f == &con_err) {
-		/* the standard streams stay open; pending output is written */
+	std = (f == &con_in || f == &con_out || f == &con_err);
+	if (std && f->kind != KIND_FILE) {
+		/* the console streams stay open; pending output is written */
 		(void) stream_flush(f);
 		return 0;
 	}
-	qd_close(f->ch);
+	r = stream_close_file(f);
+	if (std) {
+		f->kind = KIND_CON;         /* a redirected standard stream falls back to the console */
+		f->ch = 0;
+		f->has_unget = 0;
+		f->wlen = 0;
+		return r;
+	}
 	free(f);
-	return 0;
+	return r;
 }
 
 size_t fread(void *ptr, size_t size, size_t nmemb, FILE *fp)
@@ -875,7 +1314,7 @@ size_t fread(void *ptr, size_t size, size_t nmemb, FILE *fp)
 	unsigned long want, total = 0;
 	char *p = (char *) ptr;
 
-	if (f == NULL || f->kind != KIND_FILE || f->dir != DIR_READ || size == 0 || nmemb == 0)
+	if (f == NULL || f->kind != KIND_FILE || !(f->dir & DIR_READ) || size == 0 || nmemb == 0)
 		return 0;
 	if (nmemb > (size_t) -1 / size) {
 		f->err = 1;
@@ -889,21 +1328,53 @@ size_t fread(void *ptr, size_t size, size_t nmemb, FILE *fp)
 		total = 1;
 	}
 	while (total < want) {
-		unsigned int chunk = (unsigned int) (want - total);
-		int got;
-		if (chunk > QD_READ_MAX)
-			chunk = QD_READ_MAX;
-		got = qd_read(f->ch, p + total, chunk);
-		if (got > 0) {
-			total += (unsigned long) got;
-			f->pos += (unsigned long) got;
+		unsigned long left = want - total;
+		if (f->fb_mode == 1 && f->fb_cur < f->fb_len) {
+			unsigned int avail = f->fb_len - f->fb_cur;
+			unsigned int take = left < avail ? (unsigned int) left : avail;
+			unsigned int i;
+			for (i = 0; i < take; i++)
+				p[total + i] = (char) f->fb[f->fb_cur + i];
+			f->fb_cur += take;
+			f->pos += take;
+			total += take;
 			continue;
 		}
-		if (got == 0)
-			f->eof = 1;
-		else
-			f->err = 1;
-		break;
+		if (f->fb_mode == 2 && file_flush_w(f) == EOF)
+			break;
+		if (left >= FB_SIZE && (f->fb_mode == 0 || f->fb_mode == 1)) {
+			/* buffer drained: read whole blocks straight into the caller's memory */
+			unsigned long blk = left & ~(unsigned long) (FB_SIZE - 1u);
+			unsigned long got = 0;
+			f->fb_mode = 0;
+			f->fb_len = f->fb_cur = 0;
+			while (got < blk) {
+				unsigned int chunk = (unsigned int) (blk - got);
+				int r;
+				if (chunk > QD_READ_MAX)
+					chunk = QD_READ_MAX;
+				r = qd_read(f->ch, p + total + got, chunk);
+				if (r > 0) {
+					got += (unsigned long) r;
+					continue;
+				}
+				if (r == 0)
+					f->eof = 1;
+				else
+					file_fail(f, r);
+				break;
+			}
+			total += got;
+			f->pos += got;
+			if (got < blk)
+				break;
+			continue;
+		}
+		{
+			int n = file_fill(f);
+			if (n <= 0)
+				break;
+		}
 	}
 	return (size_t) (total / size);
 }
@@ -915,16 +1386,40 @@ int fseek(FILE *fp, long off, int whence)
 
 	if (f == NULL || f->kind != KIND_FILE)
 		return -1;
+	if (file_flush_w(f) == EOF)
+		return -1;
 	if (whence == SEEK_SET)
 		target = off;
 	else if (whence == SEEK_CUR)
 		target = (long) f->pos + off;
-	else
-		return -1;                   /* SEEK_END: no file size in the kernel */
-	if (target < 0)
+	else if (whence == SEEK_END) {
+		long sz = qd_fsize(f->ch);
+		if (sz < 0) {
+			qd_set_errno((int) sz);
+			return -1;
+		}
+		target = sz + off;
+	} else {
+		errno = EINVAL;
 		return -1;
-	if (qd_seek(f->ch, (unsigned long) target) < 0)
+	}
+	if (target < 0) {
+		errno = EINVAL;
 		return -1;
+	}
+	f->fb_mode = 0;                  /* the read buffer is dropped; the kernel seek below sets the position */
+	f->fb_len = f->fb_cur = 0;
+	if (qd_seek(f->ch, (unsigned long) target) < 0) {
+		/* past the end: a writable file is extended with zeros (C semantics of a gap) */
+		if ((f->dir & DIR_WRITE) && qd_truncate(f->ch, (unsigned long) target) == 0 &&
+		    qd_seek(f->ch, (unsigned long) target) == 0)
+			;
+		else {
+			(void) qd_seek(f->ch, f->pos);
+			errno = EINVAL;
+			return -1;
+		}
+	}
 	f->pos = (unsigned long) target;
 	f->eof = 0;
 	f->has_unget = 0;                /* seeking discards a pushed-back character */

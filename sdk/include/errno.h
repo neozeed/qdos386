@@ -10,5 +10,25 @@ extern int errno;
 
 #define EDOM   33
 #define ERANGE 34
+/* R11L: set by the file functions (fopen, fclose, fwrite, remove, rename, fseek ...) from the
+ * kernel's error code; numbering follows the common historical values. */
+#define ENOENT 2
+#define EIO    5
+#define EBADF  9
+#define ENOMEM 12
+#define EACCES 13
+#define EBUSY  16
+#define EEXIST 17
+#define EINVAL 22
+#define EMFILE 24
+#define ENOSPC 28
+#define ESPIPE 29
+#define EROFS  30
+#define ENAMETOOLONG 36
+#define ENOSYS 38
+
+/* Maps a kernel error code (negative, see qdos386.h) to an errno value and stores it in errno;
+ * returns the errno value. */
+int qd_set_errno(int kernel_error);
 
 #endif

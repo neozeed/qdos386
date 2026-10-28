@@ -59,6 +59,8 @@ size_t fread(void *ptr, size_t size, size_t nmemb, FILE *fp);
 /* Files and positioning. */
 FILE *fopen(const char *name, const char *mode);
 int fclose(FILE *fp);
+int fileno(FILE *fp);                       /* R11L: POSIX view, see sdk/libc/posixio.c */
+FILE *fdopen(int fd, const char *mode);    /* R11L */
 int fseek(FILE *fp, long off, int whence);
 long ftell(FILE *fp);
 int feof(FILE *fp);
@@ -78,8 +80,8 @@ int sscanf(const char *s, const char *fmt, ...);
 int vsscanf(const char *s, const char *fmt, va_list ap);
 char *gets(char *buf);
 
-/* Errors and files.  remove, rename, tmpfile, tmpnam and freopen fail: the
- * FAT16 volume is read only (see docs/R11D-BLOCKED-APIS.md). */
+/* Errors and files (R11L: remove, rename, tmpnam and freopen work on a writable volume; tmpfile
+ * returns NULL). */
 void perror(const char *s);
 int remove(const char *name);
 int rename(const char *from, const char *to);

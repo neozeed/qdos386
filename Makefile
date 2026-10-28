@@ -75,6 +75,12 @@ build/apps/shellt.o: apps/shell/shell.c apps/common/appcalls.h
 	$(GCC) -c -O -DSHELL_SELFTEST -Iapps/common $< -o $@
 build/apps/shell.aout: build/apps/shell.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
 	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shell.o build/apps/qtrap.o
+# R11L: the same shell with a 160 character input line (the ported tools take long command lines).
+build/apps/shell-l.o: apps/shell/shell.c apps/common/appcalls.h
+	mkdir -p build/apps
+	$(GCC) -c -O -DSH_LINE_MAX=160 -Iapps/common $< -o $@
+build/apps/shell-l.aout: build/apps/shell-l.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
+	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shell-l.o build/apps/qtrap.o
 build/apps/shellt.aout: build/apps/shellt.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
 	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shellt.o build/apps/qtrap.o
 
@@ -220,6 +226,27 @@ r11k-pc-paging:
 	$(MAKE) build/pc-r9/boot2.bin
 	$(MAKE) pc PCD=build/r11k/pc-paging PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11K_PAGING)" PCIMG=r11k-paging.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r11k/pc-paging/paging.o build/r11k/pc-paging/paging_s.o"
 	$(MAKE) pc PCD=build/r11k/pc-paging-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11K_PAGING)" PCIMG=r11k-paging-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r11k/pc-paging-vga/paging.o build/r11k/pc-paging-vga/paging_s.o"
+
+# R11L: opt-in writable FAT16 (-DQDOS_FS_WRITE; docs/R11L-FAT-WRITE-ABI.md).  Separate output
+# directories; no default or R11K image is rebuilt by these targets.
+#   r11l-i386vm-fs      i386VM block mode, writable volume (harness i386vm-r9-blockrw ... rw)
+#   r11l-i386vm-fs-pg   the same with R11K paging
+#   r11l-pc-fs / -vga   Tiny386 / QEMU PC with the R11K boot sector, writable volume
+# R11L kernels: writable volume + 64 KiB application stacks (cccp alloca()s whole include files, cc1 recurses; the
+# default 16 KiB stack is kept for every other image)
+R11L_FS = -DQDOS_FS_WRITE -DQDOS_APP_STACK=65536u
+r11l-i386vm-fs:
+	$(MAKE) i386vm I386D=build/r11l/vm-fs I386FLAGS="$(R9_FLAGS) -DQDOS_I386VM_BLOCK $(R11L_FS)" I386IMG=qdos386-r11l-fs.bin I386WIN= IMGENV="QDOS_LAYOUT=r9"
+r11l-i386vm-fs-pg:
+	$(MAKE) i386vm I386D=build/r11l/vm-fs-pg I386FLAGS="$(R9_FLAGS) -DQDOS_I386VM_BLOCK $(R11L_FS) $(R11K_PAGING)" I386IMG=qdos386-r11l-fs-pg.bin I386WIN= IMGENV="QDOS_LAYOUT=r9" I386EXTRA="kernel/paging.c kernel/paging.s"
+r11l-pc-fs:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r11l/pc-fs PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11L_FS)" PCIMG=r11l-fs.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py
+	$(MAKE) pc PCD=build/r11l/pc-fs-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11L_FS)" PCIMG=r11l-fs-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py
+r11l-pc-fs-pg:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r11l/pc-fs-pg PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11L_FS) $(R11K_PAGING)" PCIMG=r11l-fs-pg.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r11l/pc-fs-pg/paging.o build/r11l/pc-fs-pg/paging_s.o"
+	$(MAKE) pc PCD=build/r11l/pc-fs-pg-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11L_FS) $(R11K_PAGING)" PCIMG=r11l-fs-pg-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r11l/pc-fs-pg-vga/paging.o build/r11l/pc-fs-pg-vga/paging_s.o"
 
 # Canonical R11H PC images (the shipped set).  Requires I386VM=<tree>.  The R9 boot
 # sector (transfer address 0x340000) is built by its own rule.

@@ -27,6 +27,7 @@ extern unsigned int inw(unsigned int port);
 #define ST_BSY  0x80
 
 #define IDE_CMD_READ      0x20
+#define IDE_CMD_WRITE     0x30        /* R11L, QDOS_FS_WRITE only */
 #define IDE_CMD_IDENTIFY  0xec
 #define IDE_SLAVE_LBA    0xf0    /* LBA mode, slave drive (bit 4) */
 #define IDE_POLL_LIMIT   2000000u
@@ -116,3 +117,49 @@ int disk_read_sector(unsigned int lba, unsigned char *buf)
 	ide_read_words(buf, 256);
 	return 0;
 }
+
+#ifdef QDOS_FS_WRITE
+/* R11L: WRITE SECTORS (0x30), LBA28, polled PIO, one sector.  After the data the controller goes busy
+ * while it writes; a clear BSY with ERR/DF clear means the sector was accepted.  A write-protected
+ * disk (Tiny386 opens hdb read-write; QEMU read-only drives) answers ERR: reported as -2. */
+static void ide_write_words(const unsigned char *buf, int words)
+{
+	int i;
+	for (i = 0; i < words; i++) {
+		unsigned int w = (unsigned int) buf[2 * i] | ((unsigned int) buf[2 * i + 1] << 8);
+		__asm__ volatile ("outw %%ax,%%dx" : : "a" (w), "d" (IDE_DATA));
+	}
+}
+
+int disk_write_sector(unsigned int lba, const unsigned char *buf)
+{
+	int st;
+
+	if (disk_sector_count() == 0 || lba >= ide_sectors)
+		return -1;
+	if (ide_wait_ready() < 0)
+		return -1;
+	outb(IDE_DRIVE, (unsigned int) (IDE_SLAVE_LBA | ((lba >> 24) & 0x0f)));
+	outb(IDE_COUNT, 1);
+	outb(IDE_LBA0, lba & 0xff);
+	outb(IDE_LBA1, (lba >> 8) & 0xff);
+	outb(IDE_LBA2, (lba >> 16) & 0xff);
+	outb(IDE_COMMAND, IDE_CMD_WRITE);
+	st = ide_wait_ready();
+	if (st < 0)
+		return -1;
+	if (st & (ST_ERR | ST_DF))
+		return -2;
+	if (!(st & ST_DRQ))
+		return -1;
+	ide_write_words(buf, 256);
+	st = ide_wait_ready();
+	if (st < 0)
+		return -1;
+	if (st & ST_DF)
+		return -1;
+	if (st & ST_ERR)
+		return -2;
+	return 0;
+}
+#endif

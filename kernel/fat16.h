@@ -28,6 +28,29 @@
 #define FAT_ERR_NAME  (-46)   /* name is not a valid uppercase 8.3 name */
 #define FAT_ERR_RANGE (-47)   /* sector or seek position outside the volume */
 
+#ifdef QDOS_FS_WRITE
+/* R11L write errors (opt-in, -DQDOS_FS_WRITE; see docs/R11L-FAT-WRITE-ABI.md). */
+#define FAT_ERR_WPROT   (-80)  /* device is write-protected, or the open mode does not allow writing */
+#define FAT_ERR_FULL    (-81)  /* no free cluster */
+#define FAT_ERR_DIRFULL (-82)  /* root directory has no free entry */
+#define FAT_ERR_EXIST   (-83)  /* create-exclusive, rename target, or a directory/label with that name */
+#define FAT_ERR_BUSY    (-84)  /* the file is open on another channel (checked by win1.c) */
+#define FAT_ERR_WIO     (-85)  /* sector write failed */
+#define FAT_ERR_NOTOPEN (-86)  /* operation needs a file opened for it */
+
+/* Open flags for fat16_open_ex. */
+#define FAT_O_READ   0x01u
+#define FAT_O_WRITE  0x02u
+#define FAT_O_CREATE 0x04u     /* create if missing (needs FAT_O_WRITE) */
+#define FAT_O_TRUNC  0x08u     /* truncate to 0 if present (needs FAT_O_WRITE) */
+#define FAT_O_APPEND 0x10u     /* every write goes to the end (needs FAT_O_WRITE) */
+#define FAT_O_EXCL   0x20u     /* with CREATE: fail if the file exists */
+
+/* Sector sink: writes buf (512 bytes) to sector lba.  0 on success, -2 if write-protected,
+ * other negative on error. */
+typedef int (*fat_write_fn)(void *ctx, unsigned int lba, const unsigned char *buf);
+#endif
+
 /* Sector source: fills buf (512 bytes) with sector lba.  Returns 0 on success. */
 typedef int (*fat_read_fn)(void *ctx, unsigned int lba, unsigned char *buf);
 
@@ -43,6 +66,12 @@ struct fat16_vol {
 	unsigned int spc;                /* sectors per cluster */
 	unsigned int clusters;           /* data clusters: valid numbers 2..clusters+1 */
 	int mounted;
+#ifdef QDOS_FS_WRITE
+	fat_write_fn write;              /* 0: read-only volume */
+	unsigned int next_free;          /* allocation hint (cluster number) */
+	unsigned long sectors_written;   /* diagnostics */
+	int wstate;                      /* 0 not probed, 1 writable, -1 write-protected (latched) */
+#endif
 };
 
 struct fat16_file {
@@ -56,6 +85,10 @@ struct fat16_file {
 	unsigned int dir_off;
 	unsigned int is_dir;             /* R7: an enumeration cursor, not a file */
 	unsigned int dir_next;           /* R7: next root entry index to examine */
+#ifdef QDOS_FS_WRITE
+	unsigned int mode;               /* FAT_O_* flags the file was opened with */
+	unsigned int dirty;              /* size or first cluster changed, directory entry not yet written */
+#endif
 };
 
 /* One listed root-directory file (R7).  name is "BASE.EXT" in 12 bytes,
@@ -97,5 +130,47 @@ int fat16_seek(struct fat16_file *f, unsigned long pos);
 int fat16_dir_open(struct fat16_vol *v, struct fat16_file *f);
 int fat16_dir_next(struct fat16_file *f, struct fat16_dirent *out);
 extern volatile unsigned long fat16_dir_skipped;
+
+
+#ifdef QDOS_FS_WRITE
+/* ---- R11L: writable volume ---------------------------------------------------------------------
+ * Every write is write-through.  Order for a growing file: data sector, then FAT (new cluster =
+ * end-of-chain, then the predecessor's link; first copy, then second copy), then the directory
+ * entry.  The directory entry is also written at fat16_flush / close.  No journal, no power-loss
+ * atomicity: a cut between the FAT link and the directory update leaves a chain longer than the
+ * size, which fat16_open_ex refuses (FAT_ERR_CHAIN) rather than misreads; the host checker
+ * (tools/r11l-fatcheck.py) reports and repairs it. */
+void fat16_set_writer(struct fat16_vol *v, fat_write_fn w);
+
+/* Open by flags.  FAT_O_READ alone behaves like fat16_open_root.  A missing file is created with
+ * FAT_O_CREATE (FAT_ERR_DIRFULL if the root has no free entry).  FAT_O_TRUNC empties an existing
+ * file. */
+int fat16_open_ex(struct fat16_vol *v, const char *name, unsigned int flags, struct fat16_file *f);
+
+/* Write n bytes at f->pos (at the end if FAT_O_APPEND).  *put receives the count written.  A short
+ * count with FAT_OK means the next call will report the error (disk full, I/O error). */
+int fat16_write(struct fat16_file *f, const unsigned char *src, unsigned int n, unsigned int *put);
+
+/* Write the directory entry if size or first cluster changed. */
+int fat16_flush(struct fat16_file *f);
+
+/* Set the size.  Shrinking frees clusters; growing appends zero bytes (disk full -> FAT_ERR_FULL,
+ * size left where it got to). */
+int fat16_truncate(struct fat16_file *f, unsigned long size);
+
+/* Delete a closed file (entry marked deleted, then its chain freed).  A file whose chain does not
+ * validate is not deleted (the chain error is returned). */
+int fat16_remove(struct fat16_vol *v, const char *name);
+
+/* Rename within the root.  FAT_ERR_EXIST if to exists, FAT_ERR_NOFILE if from does not. */
+int fat16_rename(struct fat16_vol *v, const char *from, const char *to);
+
+/* Where a root file's directory entry is (sector and byte offset), or FAT_ERR_NOFILE.  Used by the
+ * volume driver to refuse a second writer, a delete or a rename of an open file. */
+int fat16_lookup(struct fat16_vol *v, const char *name, unsigned int *lba, unsigned int *off);
+
+/* Count free clusters (scans the FAT). */
+int fat16_free_clusters(struct fat16_vol *v, unsigned long *nfree);
+#endif
 
 #endif

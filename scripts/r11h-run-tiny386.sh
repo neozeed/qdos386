@@ -15,7 +15,7 @@ printf '[pc]\nbios = bios.bin\nvga_bios = vgabios.bin\nmem_size = 8M\nhda = hda.
 cp "$VOL" "$D/win1-r11h.img"
 set --
 while IFS= read -r line; do set -- "$@" "$line"; done < "$SEQ"
-PC_CMD_TIMEOUT=${PC_CMD_TIMEOUT:-300} PC_INPUT_PAUSE=${PC_INPUT_PAUSE:-8} \
+PC_CMD_TIMEOUT=${PC_CMD_TIMEOUT:-300} PC_INPUT_PAUSE=${PC_INPUT_PAUSE:-8} PC_KEY_DELAY=${PC_KEY_DELAY:-0} \
   python3 tests/interactive/run_pc_multi.py "$TINY386" "$D" "$D/win1-r11h.img" "$OUT/tiny386-$TAG.txt" "$@" \
   > "$OUT/tiny386-$TAG.stdout" 2>&1 || echo "tiny386 $TAG: harness rc!=0"
 echo "done: $OUT/tiny386-$TAG.txt"

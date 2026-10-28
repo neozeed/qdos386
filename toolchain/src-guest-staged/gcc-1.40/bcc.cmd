@@ -1,0 +1,1 @@
+cl /Od /G3 /c -D%1 -c gnulib.c /Fo%1.obj

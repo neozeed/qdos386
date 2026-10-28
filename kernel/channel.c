@@ -179,7 +179,16 @@ static int check(unsigned int id, unsigned int owner, struct chan_object **out)
 
 /* ---- service entry points -------------------------------------------------- */
 
+#ifdef QDOS_FS_WRITE
 int chan_open(unsigned int owner, unsigned int name_addr)
+{
+	return chan_open_ex(owner, name_addr, CHAN_O_READ);
+}
+
+int chan_open_ex(unsigned int owner, unsigned int name_addr, unsigned int flags)
+#else
+int chan_open(unsigned int owner, unsigned int name_addr)
+#endif
 {
 	char name[CHAN_NAME_MAX];
 	struct chan_object *ch;
@@ -222,6 +231,9 @@ int chan_open(unsigned int owner, unsigned int name_addr)
 	ch->tag = newtag;
 	ch->drv = drivers[d];
 	ch->bytes_out = 0;
+#ifdef QDOS_FS_WRITE
+	ch->mode = flags;
+#endif
 
 	rc = ch->drv->open(ch, name);
 	if (rc != 0) {
@@ -242,13 +254,23 @@ int chan_close(unsigned int id, unsigned int owner)
 	int rc = check(id, owner, &ch);
 	if (rc != 0)
 		return rc;
+#ifdef QDOS_FS_WRITE
+	/* R11L: the directory entry is written before the channel goes; the channel is closed whatever
+	 * the result, and a failed flush is reported to the caller. */
+	if (ch->drv->ctl != 0)
+		rc = ch->drv->ctl(ch, CHAN_CTL_FLUSH, 0);
+#endif
 	ch->drv->close(ch);
 	slots[ch->index].obj = 0;
 	live--;
 	chan_closed++;
 	if (mem_free(ch, owner) != MEM_OK)
 		return CHAN_ERR_BADID;       /* cannot happen: the block is ours */
+#ifdef QDOS_FS_WRITE
+	return rc;
+#else
 	return 0;
+#endif
 }
 
 int chan_write(unsigned int id, unsigned int owner, unsigned int buf_addr, unsigned int n)
@@ -324,6 +346,53 @@ int chan_seek(unsigned int id, unsigned int owner, unsigned int pos)
 	return rc;
 }
 
+#ifdef QDOS_FS_WRITE
+int chan_ctl(unsigned int id, unsigned int owner, unsigned int op, unsigned int arg)
+{
+	struct chan_object *ch;
+	int rc = check(id, owner, &ch);
+	if (rc != 0)
+		return rc;
+	if (ch->drv->ctl == 0)
+		return CHAN_ERR_NOTSUP;
+	return ch->drv->ctl(ch, op, arg);
+}
+
+/* Name operations: the driver is chosen by the first name.  Only prefix drivers with an fsop. */
+int chan_fsop(unsigned int op, unsigned int a_addr, unsigned int b_addr)
+{
+	char na[CHAN_NAME_MAX], nb[CHAN_NAME_MAX];
+	int rc, d;
+
+	if (!drivers_ready) {
+		drivers_init();
+		drivers_ready = 1;
+	}
+	rc = copy_name(a_addr, na);
+	if (rc != 0)
+		return rc;
+	nb[0] = 0;
+	if (op == CHAN_FS_RENAME) {
+		rc = copy_name(b_addr, nb);
+		if (rc != 0)
+			return rc;
+	}
+	for (d = 0; drivers[d] != 0; d++)
+		if (name_match(drivers[d], na))
+			break;
+	if (drivers[d] == 0)
+		return CHAN_ERR_NAME;
+	if (drivers[d]->fsop == 0)
+		return CHAN_ERR_NOTSUP;
+	if (op == CHAN_FS_RENAME) {
+		/* both names must belong to the same driver */
+		if (!name_match(drivers[d], nb))
+			return CHAN_ERR_NAME;
+	}
+	return drivers[d]->fsop(op, na, nb);
+}
+#endif
+
 unsigned int chan_close_owner(unsigned int owner)
 {
 	unsigned int slot;
@@ -332,6 +401,10 @@ unsigned int chan_close_owner(unsigned int owner)
 		struct chan_object *ch = slots[slot].obj;
 		if (ch == 0 || ch->owner != owner)
 			continue;
+#ifdef QDOS_FS_WRITE
+		if (ch->drv->ctl != 0)
+			(void) ch->drv->ctl(ch, CHAN_CTL_FLUSH, 0);   /* best effort at job exit */
+#endif
 		ch->drv->close(ch);
 		slots[slot].obj = 0;
 		live--;

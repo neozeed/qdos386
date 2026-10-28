@@ -76,13 +76,24 @@ int qd_heap_ok(void)
 	return qtrap(QD_TRAP_MEM_VALIDATE, 0, 0, 0) == 0;
 }
 
+#ifdef QD_MEMSTAT
+extern void qd_ms_chan(int);
+#endif
 int qd_open(const char *name)
 {
-	return (int) qtrap(QD_TRAP_CH_OPEN, (unsigned int) name, 0, 0);
+	int r = (int) qtrap(QD_TRAP_CH_OPEN, (unsigned int) name, 0, 0);
+#ifdef QD_MEMSTAT
+	if (r > 0)
+		qd_ms_chan(1);
+#endif
+	return r;
 }
 
 int qd_close(int ch)
 {
+#ifdef QD_MEMSTAT
+	qd_ms_chan(-1);
+#endif
 	return (int) qtrap(QD_TRAP_CH_CLOSE, (unsigned int) ch, 0, 0);
 }
 

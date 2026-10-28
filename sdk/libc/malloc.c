@@ -39,6 +39,9 @@ void *malloc(size_t n)
 		return NULL;
 	h->magic = MAGIC_LIVE;
 	h->size = (unsigned long) n;
+#ifdef QD_MEMSTAT
+	{ extern void qd_ms_alloc(unsigned long); qd_ms_alloc((unsigned long) n + HDR); }
+#endif
 	return (void *) ((char *) h + HDR);
 }
 

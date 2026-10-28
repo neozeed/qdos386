@@ -1,0 +1,191 @@
+tool,symbol,library,member,referenced_by
+AS,___fixdfsi,libgcc,fixdfsi.o,atof-generic.o
+AS,_abort,libc,stdlib.o,atof-generic.o obstack.o
+AS,_errno,libc,errno.o,messages.o
+AS,_exit,libc,stdlib.o,as.o error.o messages.o output-file.o
+AS,_fclose,libc,stdio.o,input-file.o output-file.o
+AS,_ferror,libc,stdio.o,output-file.o
+AS,_fgets,libc,stdio.o,input-file.o
+AS,_fopen,libc,stdio.o,input-file.o output-file.o
+AS,_fprintf,libc,stdio.o,as.o error.o input-scrub.o messages.o
+AS,_fread,libc,stdio.o,input-file.o
+AS,_free,libc,malloc.o,hash.o i386.o read.o subsegs.o
+AS,_getc,libc,stdio.o,app.o input-file.o
+AS,_isalpha,libc,ctype.o,i386.o read.o
+AS,_isdigit,libc,ctype.o,atof-generic.o expr.o i386.o read.o
+AS,_islower,libc,ctype.o,i386.o
+AS,_isprint,libc,ctype.o,i386.o
+AS,_isupper,libc,ctype.o,expr.o i386.o
+AS,_malloc,libc,malloc.o,atof-generic.o hash.o i386.o xmalloc.o
+AS,_memcpy,libc,string.o,append.o bignum-copy.o flonum-copy.o i386.o input-scrub.o re
+AS,_memset,libc,string.o,app.o as.o atof-generic.o atof-ieee.o bignum-copy.o flonum-c
+AS,_putc,libc,stdio.o,input-scrub.o messages.o output-file.o
+AS,_realloc,libc,malloc.o,xrealloc.o
+AS,_setvbuf,libc,stdio.o,input-file.o
+AS,_signal,libc,misc.o,as.o
+AS,_sprintf,libc,stdio.o,app.o atof-ieee.o i386.o
+AS,_sscanf,libc,scanf.o,i386.o
+AS,_stderr,libc,stdio.o,as.o error.o input-scrub.o messages.o
+AS,_stdin,libc,stdio.o,input-file.o
+AS,_stdout,libc,stdio.o,output-file.o
+AS,_strchr,libc,string.o,atof-generic.o expr.o i386.o input-file.o read.o
+AS,_strcmp,libc,string.o,as.o i386.o input-file.o
+AS,_strcpy,libc,string.o,as.o
+AS,_strlen,libc,string.o,as.o i386.o symbols.o write.o
+AS,_strncmp,libc,string.o,read.o
+AS,_strstr,libc,string.o,read.o
+AS,_sys_errlist,libc,errno.o,messages.o
+AS,_sys_nerr,libc,errno.o,messages.o
+AS,_tolower,libc,ctype.o,expr.o i386.o
+AS,_ungetc,libc,stdio.o,app.o input-file.o
+AS,_vfprintf,libc,stdio.o,messages.o
+CCCP,_abort,libc,stdlib.o,cccp.o
+CCCP,_atoi,libc,stdlib.o,cccp.o
+CCCP,_bcopy,libc,posixio.o,cccp.o
+CCCP,_bzero,libc,posixio.o,cccp.o
+CCCP,_close,libc,posixio.o,cccp.o
+CCCP,_errno,libc,errno.o,cccp.o
+CCCP,_exit,libc,stdlib.o,cccp.o
+CCCP,_fclose,libc,stdio.o,cccp.o
+CCCP,_ferror,libc,stdio.o,cccp.o
+CCCP,_fileno,libc,stdio.o,cccp.o
+CCCP,_fopen,libc,stdio.o,cccp.o
+CCCP,_fprintf,libc,stdio.o,cccp.o
+CCCP,_fputc,libc,stdio.o,cccp.o
+CCCP,_fputs,libc,stdio.o,cccp.o
+CCCP,_free,libc,malloc.o,cccp.o
+CCCP,_freopen,libc,stdio.o,cccp.o
+CCCP,_fstat,libc,posixio.o,cccp.o
+CCCP,_fwrite,libc,stdio.o,cccp.o
+CCCP,_getenv,libc,stdlib.o,cccp.o
+CCCP,_isalnum,libc,ctype.o,cccp.o
+CCCP,_isdigit,libc,ctype.o,cccp.o
+CCCP,_isprint,libc,ctype.o,cccp.o
+CCCP,_localtime,libc,time.o,cccp.o
+CCCP,_longjmp,libc,jmp.o,cexp.o
+CCCP,_malloc,libc,malloc.o,cccp.o
+CCCP,_memset,libc,string.o,cccp.o
+CCCP,_open,libc,posixio.o,cccp.o
+CCCP,_printf,libc,stdio.o,cccp.o
+CCCP,_putc,libc,stdio.o,cccp.o
+CCCP,_putchar,libc,stdio.o,cccp.o
+CCCP,_read,libc,posixio.o,cccp.o
+CCCP,_realloc,libc,malloc.o,cccp.o
+CCCP,_setjmp,libc,jmp.o,cexp.o
+CCCP,_sprintf,libc,stdio.o,cccp.o
+CCCP,_stderr,libc,stdio.o,cccp.o
+CCCP,_stdout,libc,stdio.o,cccp.o
+CCCP,_strcat,libc,string.o,cccp.o
+CCCP,_strchr,libc,string.o,cccp.o
+CCCP,_strcmp,libc,string.o,cccp.o
+CCCP,_strcpy,libc,string.o,cccp.o
+CCCP,_strerror,libc,errno.o,cccp.o
+CCCP,_strlen,libc,string.o,cccp.o
+CCCP,_strncat,libc,string.o,cccp.o
+CCCP,_strncmp,libc,string.o,cccp.o cexp.o
+CCCP,_strncpy,libc,string.o,cccp.o
+CCCP,_strrchr,libc,string.o,cccp.o
+CCCP,_time,libc,time.o,cccp.o
+CCCP,_vfprintf,libc,stdio.o,cccp.o
+CCCP,_write,libc,posixio.o,cccp.o
+CC1,___fixdfsi,libgcc,fixdfsi.o,fold-const.o global-alloc.o
+CC1,___fixunsdfsi,libgcc,fixunsdfsi.o,fold-const.o
+CC1,_abort,libc,stdlib.o,c-decl.o c-tab.o c-typeck.o caller-save.o combine.o cse.o db
+CC1,_atof,libc,strtod.o,c-conv.o c-tab.o
+CC1,_atoi,libc,stdlib.o,final.o rtl.o toplev.o
+CC1,_close,libc,posixio.o,symout.o
+CC1,_ctime,libc,time.o,symout.o
+CC1,_errno,libc,errno.o,c-tab.o
+CC1,_exit,libc,stdlib.o,toplev.o
+CC1,_fclose,libc,stdio.o,toplev.o
+CC1,_ferror,libc,stdio.o,symout.o toplev.o
+CC1,_fflush,libc,stdio.o,symout.o toplev.o
+CC1,_fileno,libc,stdio.o,symout.o toplev.o
+CC1,_fopen,libc,stdio.o,symout.o toplev.o
+CC1,_fprintf,libc,stdio.o,c-tab.o combine.o dbxout.o final.o flow.o global-alloc.o ins
+CC1,_fputc,libc,stdio.o,insn-out.o toplev.o
+CC1,_fputs,libc,stdio.o,insn-out.o symout.o toplev.o varasm.o
+CC1,_free,libc,malloc.o,c-tab.o final.o flow.o stmt.o toplev.o tree.o
+CC1,_fseek,libc,stdio.o,symout.o
+CC1,_fstat,libc,posixio.o,toplev.o
+CC1,_ftell,libc,stdio.o,rtl.o symout.o
+CC1,_fwrite,libc,stdio.o,symout.o
+CC1,_getc,libc,stdio.o,c-tab.o rtl.o
+CC1,_getcwd,libc,posixio.o,symout.o
+CC1,_getenv,libc,stdlib.o,toplev.o
+CC1,_ldexp,libm,ldexp.o,optabs.o
+CC1,_longjmp,libc,jmp.o,toplev.o
+CC1,_lseek,libc,posixio.o,symout.o
+CC1,_malloc,libc,malloc.o,optabs.o symout.o toplev.o
+CC1,_memcmp,libc,string.o,varasm.o
+CC1,_memcpy,libc,string.o,c-decl.o c-tab.o combine.o cse.o emit-rtl.o flow.o global-al
+CC1,_memset,libc,string.o,caller-save.o combine.o cse.o dbxout.o emit-rtl.o expr.o flo
+CC1,_perror,libc,misc.o,toplev.o
+CC1,_putc,libc,stdio.o,dbxout.o final.o insn-out.o rtl.o symout.o varasm.o
+CC1,_qsort,libc,stdlib.o,global-alloc.o local-alloc.o reload1.o stupid.o
+CC1,_realloc,libc,malloc.o,toplev.o
+CC1,_setjmp,libc,jmp.o,cse.o fold-const.o varasm.o
+CC1,_sprintf,libc,stdio.o,c-tab.o dbxout.o final.o print-tree.o varasm.o
+CC1,_stderr,libc,stdio.o,c-tab.o print-tree.o rtl.o toplev.o
+CC1,_stdin,libc,stdio.o,toplev.o
+CC1,_stdout,libc,stdio.o,toplev.o
+CC1,_strcat,libc,string.o,c-tab.o c-typeck.o final.o toplev.o
+CC1,_strcmp,libc,string.o,c-decl.o c-tab.o cse.o emit-rtl.o expr.o final.o jump.o loop
+CC1,_strcpy,libc,string.o,c-tab.o c-typeck.o final.o rtl.o symout.o toplev.o varasm.o
+CC1,_strlen,libc,string.o,c-tab.o dbxout.o final.o rtl.o symout.o toplev.o varasm.o
+CC1,_strncmp,libc,string.o,toplev.o tree.o
+CC1,_time,libc,time.o,symout.o
+CC1,_ungetc,libc,stdio.o,c-tab.o rtl.o toplev.o
+CC1,_vfprintf,libc,stdio.o,toplev.o
+CC1,_write,libc,posixio.o,symout.o
+LD,_abort,libc,stdlib.o,obstack.o opncls.o section.o
+LD,_bcopy,libc,posixio.o,opncls.o
+LD,_chmod,libc,posixio.o,opncls.o
+LD,_errno,libc,errno.o,archive.o bfd.o ldlex.o
+LD,_exit,libc,stdlib.o,bfd.o ldlex.o ldmisc.o libbfd.o
+LD,_fclose,libc,stdio.o,cache.o ldlex.o
+LD,_fcntl,libc,posixio.o,opncls.o
+LD,_fdopen,libc,stdio.o,opncls.o
+LD,_fgetc,libc,stdio.o,ldlex.o
+LD,_fileno,libc,stdio.o,bfd.o ldlex.o
+LD,_fopen,libc,stdio.o,cache.o ldfile.o
+LD,_fprintf,libc,stdio.o,aout32.o bfd.o ldexp.o ldgram.o ldlang.o ldlex.o ldmisc.o ld
+LD,_fread,libc,stdio.o,libbfd.o
+LD,_free,libc,malloc.o,aout32.o ldfile.o ldlex.o ldwrite.o opncls.o section.o
+LD,_fseek,libc,stdio.o,cache.o libbfd.o
+LD,_fstat,libc,posixio.o,bfd.o
+LD,_ftell,libc,stdio.o,cache.o libbfd.o
+LD,_fwrite,libc,stdio.o,ldlex.o libbfd.o
+LD,_getenv,libc,stdlib.o,i386.o ldmain.o ldvanilla.o targets.o
+LD,_getgid,libc,posixio.o,archive.o
+LD,_getuid,libc,posixio.o,archive.o
+LD,_isalpha,libc,ctype.o,ldlex.o
+LD,_isatty,libc,posixio.o,ldlex.o
+LD,_isdigit,libc,ctype.o,archures.o ldlex.o
+LD,_isupper,libc,ctype.o,ldfile.o
+LD,_malloc,libc,malloc.o,ldlex.o ldmisc.o libbfd.o
+LD,_memcpy,libc,string.o,archive.o ldexp.o ldlex.o ldmisc.o libbfd.o opncls.o
+LD,_memset,libc,string.o,archive.o ldlex.o libbfd.o opncls.o section.o
+LD,_perror,libc,misc.o,bfd.o
+LD,_printf,libc,stdio.o,bfd.o ldlang.o ldmisc.o ldsym.o
+LD,_putc,libc,stdio.o,ldmisc.o
+LD,_realloc,libc,malloc.o,ldlex.o libbfd.o
+LD,_sprintf,libc,stdio.o,aout32.o archive.o ldfile.o
+LD,_stat,libc,posixio.o,archive.o opncls.o
+LD,_stderr,libc,stdio.o,bfd.o ldgram.o ldlex.o ldmisc.o
+LD,_stdin,libc,stdio.o,ldlex.o
+LD,_stdout,libc,stdio.o,ldlang.o ldlex.o ldmain.o ldmisc.o ldsym.o ldver.o
+LD,_strcat,libc,string.o,ldctor.o
+LD,_strchr,libc,string.o,aout32.o
+LD,_strcmp,libc,string.o,aout32.o archive.o archures.o ldctor.o ldemul.o ldlang.o ldl
+LD,_strcpy,libc,string.o,aout32.o archive.o ldctor.o ldfile.o
+LD,_strerror,libc,errno.o,bfd.o
+LD,_strlen,libc,string.o,aout32.o archive.o ldctor.o ldlex.o ldmisc.o libbfd.o
+LD,_strncmp,libc,string.o,archive.o
+LD,_strncpy,libc,string.o,aout32.o archive.o
+LD,_strrchr,libc,string.o,archive.o
+LD,_strtol,libc,stdlib.o,archive.o
+LD,_time,libc,time.o,archive.o
+LD,_tolower,libc,ctype.o,ldfile.o
+LD,_unlink,libc,posixio.o,ldmain.o ldmisc.o
+LD,_write,libc,posixio.o,libbfd.o

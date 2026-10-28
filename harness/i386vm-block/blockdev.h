@@ -39,6 +39,14 @@
 #define BLK_PORT_LAST    0x80001AUL
 
 #define BLK_CMD_READ     0x01u
+/* R11L (compiled in only with -DBLK_RW; a default build answers these as unknown commands):
+ *   0x03 WRBEGIN  reset the write index of the sector buffer to 0
+ *   DATA writes   store the next byte (auto-increment; bytes past 512 are dropped and counted)
+ *   0x02 WRITE    write the 512-byte buffer to the LBA in 0x800011..0x800014; the buffer must be
+ *                 complete (exactly 512 DATA writes since WRBEGIN) or the status is BLK_WRSHORT.
+ * A device opened read-only answers WRITE with BLK_WPROT. */
+#define BLK_CMD_WRITE    0x02u
+#define BLK_CMD_WRBEGIN  0x03u
 #define BLK_SECTOR_SIZE  512UL
 
 /* STATUS values */
@@ -48,6 +56,9 @@
 #define BLK_SHORT        3u   /* the host gave fewer than 512 bytes (end of file inside the sector) */
 #define BLK_BADCMD       4u   /* unknown command */
 #define BLK_IOERR        5u   /* host read error */
+#define BLK_WPROT        6u   /* R11L: WRITE to a device that was opened read-only */
+#define BLK_WRSHORT      7u   /* R11L: WRITE with an incomplete or overfull sector buffer */
+#define BLK_WRIOERR      8u   /* R11L: host write error, or an injected fault */
 
 /* blk_open results (0 is success; negative codes are host-side refusals) */
 #define BLK_OPEN_OK        0
@@ -59,6 +70,20 @@
 
 /* Opens path read-only ("rb") and sets the sector count.  Closes any previous image first. */
 int blk_open(const char *path);
+
+#ifdef BLK_RW
+/* R11L: opens path read-write ("r+b") for the guest write protocol.  Same checks as blk_open. */
+int blk_open_rw(const char *path);
+
+/* R11L test faults.  mode 0 = none.  mode 1 ("io"): after n successful sector writes every
+ * further WRITE fails with BLK_WRIOERR and the file is not changed.  mode 2 ("exit"): the
+ * harness calls exit(77) when the (n+1)th WRITE arrives, before touching the file (a power
+ * cut between two sector writes).  n counts WRITE commands that reached the file. */
+void blk_set_fault(int mode, unsigned long n);
+
+/* Number of sector writes that reached the file since the device was opened. */
+unsigned long blk_writes_done(void);
+#endif
 
 /* Closes the image.  The device then reports BLK_NODISK and a zero count. */
 void blk_close(void);

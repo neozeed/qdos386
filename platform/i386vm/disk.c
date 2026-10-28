@@ -52,6 +52,38 @@ int disk_read_sector(unsigned int lba, unsigned char *buf)
 	return rc;
 }
 
+#ifdef QDOS_FS_WRITE
+/* R11L: WRBEGIN, 512 DATA writes, WRITE.  Interrupts stay off for the whole transfer, as for reads.
+ * A read-only harness answers WRBEGIN with BADCMD and WRITE with BADCMD or WPROT: both are refusals. */
+int disk_write_sector(unsigned int lba, const unsigned char *buf)
+{
+	unsigned int flags;
+	unsigned int i;
+	int rc = 0;
+
+	flags = irq_save();
+	BLK(BLK_REG_CMD) = BLK_CMD_WRBEGIN;
+	if (BLK(BLK_REG_STATUS) != BLK_ST_OK) {
+		rc = -2;                     /* no write protocol: read-only harness */
+	} else {
+		for (i = 0; i < 512; i++)
+			BLK(BLK_REG_DATA) = buf[i];
+		BLK(BLK_REG_LBA0) = (unsigned char) lba;
+		BLK(BLK_REG_LBA0 + 1) = (unsigned char) (lba >> 8);
+		BLK(BLK_REG_LBA0 + 2) = (unsigned char) (lba >> 16);
+		BLK(BLK_REG_LBA0 + 3) = (unsigned char) (lba >> 24);
+		BLK(BLK_REG_CMD) = BLK_CMD_WRITE;
+		i = BLK(BLK_REG_STATUS);
+		if (i == BLK_ST_WPROT)
+			rc = -2;
+		else if (i != BLK_ST_OK)
+			rc = -1;
+	}
+	irq_restore(flags);
+	return rc;
+}
+#endif
+
 unsigned long disk_sector_count(void)
 {
 	unsigned long n;
@@ -84,5 +116,15 @@ unsigned long disk_sector_count(void)
 {
 	return RAMDISK_SECTORS;
 }
+
+#ifdef QDOS_FS_WRITE
+/* The preloaded RAM disk is read only (R11L does not extend it). */
+int disk_write_sector(unsigned int lba, const unsigned char *buf)
+{
+	(void) lba;
+	(void) buf;
+	return -2;
+}
+#endif
 
 #endif

@@ -41,6 +41,9 @@ int qtrap(unsigned int fn, unsigned int a, unsigned int b, unsigned int c);
 #define QD_TRAP_JOB_RECLAIMED 0x1Eu
 #define QD_TRAP_IMG_LOAD     0x1Du
 #define QD_TRAP_JOB_SELF     0x21u   /* R11E: added to the kernel in R11E */
+#define QD_TRAP_CH_OPENX     0x2Au   /* R11L: open with flags (kernels built with -DQDOS_FS_WRITE) */
+#define QD_TRAP_CH_CTL       0x2Bu   /* R11L: flush, truncate, size, tell */
+#define QD_TRAP_FS_OP        0x2Cu   /* R11L: remove, rename, free space */
 #define QD_TRAP_IMG_START    0x24u   /* R11H: start at a profile (0..3) or -1 for any */
 #define QD_TRAP_JOB_SLOT     0x22u   /* R11E: added to the kernel in R11E */
 
@@ -164,5 +167,42 @@ int qd_pg_startv(const char *name, const char *packed, unsigned int len, unsigne
                                                                /* packed = len bytes of NUL-terminated strings: argv[1], argv[2], ... (the last NUL included) */
 int qd_pg_cancel(int id);                                      /* 0: a held job that never ran is removed; QD_PG_ERR_NOTHELD otherwise */
 int qd_pginfo(int id, struct qd_pginfo *out);                  /* id 0 = the caller; 0, or QD_ERR_NOJOB */
+
+
+/* ---- R11L: writable WIN1_ volume (kernels built with -DQDOS_FS_WRITE only) ------------------------
+ * A kernel without the option answers every call below with a negative error (the trap number is
+ * unknown there); qd_fs_writable() tells the two apart.  Names are "WIN1_" + an uppercase 8.3 name.
+ * Error codes (negative, passed through from the kernel):
+ *   -80 write-protected device or read-only open   -81 disk full   -82 root directory full
+ *   -83 already exists   -84 file is open elsewhere   -85 sector write failed
+ * Rules: a file has many readers or one writer; remove/rename need it closed; seek never goes past
+ * the end (use qd_truncate to extend with zeros); writes are write-through (each qd_write is on the
+ * device when it returns, the directory entry at qd_flush/qd_close/job exit); at most 256 bytes
+ * per qd_write call (qd_write_all chunks). */
+#define QD_O_READ    0x01u
+#define QD_O_WRITE   0x02u
+#define QD_O_CREATE  0x04u
+#define QD_O_TRUNC   0x08u
+#define QD_O_APPEND  0x10u
+#define QD_O_EXCL    0x20u
+#define QD_ERR_WPROT   (-80)
+#define QD_ERR_FULL    (-81)
+#define QD_ERR_DIRFULL (-82)
+#define QD_ERR_EXIST   (-83)
+#define QD_ERR_BUSY    (-84)
+#define QD_ERR_WIO     (-85)
+#define QD_WRITE_MAX   256u
+int qd_open_ex(const char *name, unsigned int flags);   /* channel id, or negative */
+int qd_flush(int ch);                                   /* write the directory entry; 0 or negative */
+int qd_truncate(int ch, unsigned long size);            /* shrink (frees clusters) or extend with zeros */
+long qd_fsize(int ch);                                  /* size in bytes, or negative */
+long qd_tell(int ch);                                   /* position, or negative */
+int qd_remove(const char *name);                        /* "WIN1_NAME.EXT"; the file must be closed */
+int qd_rename(const char *from, const char *to);
+long qd_fs_free_clusters(void);                         /* free clusters, or negative */
+long qd_fs_cluster_bytes(void);
+long qd_fs_total_clusters(void);
+int qd_fs_writable(void);                               /* 1 if this kernel has the write traps */
+int qd_write_all(int ch, const void *buf, unsigned int n);   /* chunks of QD_WRITE_MAX; n, or negative */
 
 #endif

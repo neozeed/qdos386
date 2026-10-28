@@ -134,6 +134,8 @@ int atexit(void (*fn)(void))
  * flushes stdio, then ends the job.  Return from main reaches exit through
  * crt0_libc.s. */
 /* Shared part of exit and of main's return: the atexit functions, then stdio. */
+void qd_close_std(void);          /* stdio.c */
+
 static void qd_run_exit_hooks(void)
 {
 	while (qd_atexit_n > 0) {
@@ -141,6 +143,10 @@ static void qd_run_exit_hooks(void)
 		fn();
 	}
 	qd_flush_std();
+	qd_close_std();
+#ifdef QD_MEMSTAT
+	{ extern void qd_ms_report(const char *); qd_ms_report("run"); }
+#endif
 }
 
 void exit(int status)

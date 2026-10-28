@@ -39,6 +39,13 @@ void pic_eoi_slave(void);
 int disk_read_sector(unsigned int lba, unsigned char *buf);
 unsigned long disk_sector_count(void);
 
+#ifdef QDOS_FS_WRITE
+/* R11L, opt-in (-DQDOS_FS_WRITE): write one 512-byte sector.  Returns 0 on success, negative on
+ * error; -2 means the device is write-protected (i386VM harness opened read-only).  Synchronous:
+ * the sector is on the device when the call returns (the host may still cache it). */
+int disk_write_sector(unsigned int lba, const unsigned char *buf);
+#endif
+
 /* Console input (R7).  input_init configures the keyboard device before
  * interrupts are enabled; on PC it sets up the i8042 and unmasks IRQ1.
  * input_irq1 is the IRQ1 body (PC; empty on i386VM, which has no PIC).

@@ -28,7 +28,9 @@
  */
 #include "appcalls.h"
 
-#define SH_LINE_MAX  80
+#ifndef SH_LINE_MAX
+#define SH_LINE_MAX  80            /* R11L volumes use -DSH_LINE_MAX=160 (SHELL.AOU of the self-hosting volume) */
+#endif
 #define SH_RUN_MAX_ARGS 15         /* user arguments; argv[0] is the name */
 #define SH_PATH_MAX  18            /* "WIN1_" plus a name, NUL included (R11E) */
 #define SH_NAME_MAX  12            /* longest 8.3 name: 8 + dot + 3 (R11E) */

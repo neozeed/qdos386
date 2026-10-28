@@ -6,6 +6,8 @@
 
 typedef int sig_atomic_t;
 
+#define SIGHUP 1
+#define SIGPIPE 13
 #define SIGABRT 6
 #define SIGFPE 8
 #define SIGILL 4

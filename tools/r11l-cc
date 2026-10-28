@@ -1,0 +1,26 @@
+#!/bin/sh
+# R11L: compile one C89/K&R source for the QDOS/386 guest with the historical GCC 1.40 stages
+# (cccp, cc1, as) WITHOUT the host's /usr/include: -nostdinc, then port/include, then sdk/include.
+#   usage: r11l-cc [-O] [-Idir] [-Dname[=v]] [-Uname] -c src.c -o out.o
+# Environment: QDOS386_TOOLS.  The intermediates are kept next to the output if R11L_KEEP is set.
+set -eu
+ROOT=$(cd "$(dirname "$0")/.." && pwd); T=${QDOS386_TOOLS:?}
+opt=; pp=; src=; out=
+while [ $# -gt 0 ]; do
+	case "$1" in
+	-O) opt=-O ;;
+	-I*|-D*|-U*) pp="$pp $1" ;;
+	-c) ;;
+	-o) out=$2; shift ;;
+	*.c) src=$1 ;;
+	*) echo "r11l-cc: unsupported $1" >&2; exit 2 ;;
+	esac
+	shift
+done
+[ -n "$src" ] && [ -n "$out" ] || { echo "r11l-cc: need src and -o" >&2; exit 2; }
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/r11lcc.XXXXXX"); trap 'rm -rf "$tmp"' EXIT
+"$T/bin/cccp" -nostdinc -undef -Di386 -D__i386__ -D__GNUC__=1 -I"$ROOT/port/include" $pp -I"$ROOT/sdk/include" "$src" "$tmp/x.i"
+CC1=${R11L_CC1:-$ROOT/build/r11l/host-cc1/cc1}; [ -x "$CC1" ] || CC1=$T/bin/cc1
+"$CC1" -quiet $opt "$tmp/x.i" -o "$tmp/x.s"
+"$T/bin/as" -o "$out" "$tmp/x.s"
+if [ -n "${R11L_KEEP:-}" ]; then cp "$tmp/x.i" "${out%.o}.i"; cp "$tmp/x.s" "${out%.o}.s"; fi
