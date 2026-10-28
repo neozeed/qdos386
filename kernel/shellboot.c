@@ -13,8 +13,11 @@
 #include "win1.h"
 #include "cin.h"
 #include "irq.h"
-#ifdef QDOS_PAGING_POC
+#ifdef QDOS_PAGING
 #include "paging.h"
+#endif
+#ifdef QDOS_TEST_BIGK
+extern int bigk_check(void);   /* R11K TEST ONLY: platform/pc/bigk_check.c */
 #endif
 
 #define SHELL_TIMER_UNITS 16        /* same period as the R6 test build */
@@ -43,6 +46,9 @@ int shell_boot(void)
 
 	con_puts("QDOS/386 R7\n");
 	con_puts("Native i386 kernel\n\n");
+#ifdef QDOS_TEST_BIGK
+	bigk_check();
+#endif
 
 	descriptors_init();
 	input_init();                  /* i8042 and IRQ1 before the timer */
@@ -55,8 +61,11 @@ int shell_boot(void)
 	arena = ((unsigned int) bss_end + MEM_ALIGN - 1) & ~(MEM_ALIGN - 1);
 	if (mem_init(arena, MEM_ARENA_END) != MEM_OK)
 		boot_fail("heap arena rejected");
-#ifdef QDOS_PAGING_POC
+#ifdef QDOS_PAGING
 	pg_init();                     /* R11J: identity paging before the volume and shell */
+#ifdef QDOS_TEST_PG_TASKS
+	pg_test_tasks_register();      /* R11K TEST ONLY: kernel poll/schedule tasks */
+#endif
 #endif
 
 	if (win1_mount() != FAT_OK)

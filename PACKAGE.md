@@ -1,36 +1,33 @@
-# qdos386-R11J-PAGING-POC
+# qdos386-R11K-PAGING-INTEGRATION
 
-Base: frozen R11I `bc9a90f` (archive SHA256 `fb7b341495d0cd1fe6ec75649b163733010f82e7e5164f11259777b871539924`),
-itself on frozen R11H-FIX1 `4affc37`; both unchanged.  Branch `r11j-paging`.  Final source commit: `f7664d7`.
+Base: frozen R11J `f7664d7` (archive SHA256 `24c5c635...`; R11I `bc9a90f` and R11H-FIX1 `4affc37` below it, all unchanged).
+Branch `r11k-integration`.  Final source commit: `82405025f873dcf13dea8bf352399add195ebaca`.
 
-**Proof of concept.**  Paging exists only in images built with `-DQDOS_PAGING_POC`.  Every default
-image is byte-identical to R11I.  Ring 0 only; no memory protection.
+**Bounded checkpoint, not an isolation release.**  Ring 0 only; only the 1 MiB image window of a paged
+process is private; the heap, stacks and kernel are shared.  Paging exists only in images built with
+`-DQDOS_PAGING`; every default image is byte-identical to R11I (`logs/r11k/default/identity.txt`).  The new
+PC loader (`boot2`) is selectable independently of paging; the original loader is still the default.
 
 Contents
-- Source tree (git archive of `f7664d7`): kernel (incl. `kernel/paging.{c,h,s}`), platform, SDK, tools,
-  scripts, docs, tests, patches, third_party, logs.
-- `patches/i386vm-faultdump.patch`: optional harness-only (machine.c) CPU-state dump for i386VM faults.
-  The R11I patches and harness sources are unchanged.  The CPU core is not patched.
-- `build/r11j/vm-poc/qdos386-r11j-poc.bin`: POC kernel-only image, i386VM block mode.
-- `build/r11j/pc-poc/r11j-poc.img`, `build/r11j/pc-poc-vga/r11j-poc-vga.img`: POC PC disks (Tiny386; VGA for QEMU).
-- `build/r11j/test-*`: TEST ONLY images (failed copy, 2 MiB pool cap, interrupt around every CR3 load, and the shared-frames NEGATIVE CONTROL `test-vm-share`, which must FAIL).
-- `build/r11j/apps/SAME.AOU`, `SAMELNCH.AOU`: proof programs (unchanged SDK, slot 1).
-- `build/fat16/win1-r11j.img`: R11J test volume = the R11H release volume's files + the two programs.
-- Everything from the R11I package's `build/` (default images, R11H volumes, firmware), unchanged.
-- `logs/r11j/`: baseline, matrix (3 rounds; QEMU 3 rounds), test images, `matrix/results.json`.
+- Source tree (git archive of `82405025f873dcf13dea8bf352399add195ebaca`): kernel, platform (incl. `platform/pc/boot2.s`, `make-image2.py`), SDK
+  (`qdospg.c`, `examples/r11k`), tools, scripts, docs (`docs/R11K-*.md`), tests, patches, logs.
+- `build/r11k/`: paging kernels (i386VM block; PC; PC VGA), default kernels with the new loader, TEST ONLY kernels
+  (failed copy, pool cap, interrupt around CR3, kernel tasks, shared-frames negative control), bootloader boundary
+  disks (`bootimg/`), `apps/` (TWICE, PGRUN, TWICET, SAME, SAMELNCH), `vol/BIG.BIN`.
+- `build/fat16/win1-r11k.img`: R11K test volume = the frozen R11H release files + R11J and R11K programs + BIG.BIN.
+- Everything carried forward from R11J's package `build/` (default images, R11H volumes, firmware, harness binaries).
+- `logs/r11k/`: baseline, audit, default identity, boot matrix (3 rounds), old-limit experiment, full matrix
+  (3 rounds each), `results.json` from `scripts/r11k-assert.py`.
 
-Not included (deliberately)
-- Emulator binaries (Tiny386, i386VM harnesses, QEMU) and the historical GCC 1.40 tree: identified by
-  hash in `docs/R11J-PAGING-RUNTIME-REPORT.md`.
-- The private Zork I story.
+Not included (deliberately): emulator binaries (Tiny386, QEMU) and the historical GCC 1.40 tree (identified by
+hash in `docs/R11K-RUNTIME-REPORT.md`); the private Zork I story.
 
 Rebuild (fresh extraction)
     export I386VM=<historical tree> QDOS386_TOOLS=<same tree>
     sh scripts/r11j-build-harness.sh build/harness
-    sh scripts/r11j-images.sh        # POC and TEST kernels
-    sh scripts/r11j-build.sh         # SDK libraries, SAME/SAMELNCH, win1-r11j.img (checks R11H reproduction)
+    sh scripts/r11k-images.sh            # paging, default-with-new-loader and TEST kernels
+    sh scripts/r11k-boot-images.sh       # bootloader boundary disks
+    sh scripts/r11k-build.sh             # SDK libraries, TWICE/PGRUN/TWICET, win1-r11k.img
 
-Verification
-- `docs/R11J-PAGING-RUNTIME-REPORT.md`: live-proven / build-only / not tested, per platform.
-- `scripts/r11j-assert.py logs/r11j/matrix`: re-judges every transcript (375 PASS, 0 FAIL, 9 NA).
-- `SHA256SUMS` lists every file in this package except itself.
+Verification: `docs/R11K-RUNTIME-REPORT.md`; `python3 scripts/r11k-assert.py logs/r11k/matrix`; `SHA256SUMS` lists
+every file in this package except itself.

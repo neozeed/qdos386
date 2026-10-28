@@ -1,3 +1,17 @@
+# QDOS/386 SDK (R11K)
+
+## R11K: paged launch (kernels built with `-DQDOS_PAGING` only)
+
+`libqdos` gains five calls in a separate archive member (`qdospg.o`); a program that does not call them
+links exactly the bytes it linked before.  `qd_pg_available`, `qd_pg_caps`, `qd_pg_start`, `qd_pg_startv`,
+`qd_pg_cancel`, `qd_pginfo` start a standard slot-1 program in its own 1 MiB address-space window.  Programs
+need no change and no second build: the same `qdos386-gcc -slot 1` output runs paged or unpaged.  See
+`docs/R11K-PAGING-APP-ABI.md` for the contract, errors and what is shared (the heap and the stacks are).
+Examples: `examples/r11k/twice.c` (the ordinary program), `pgrun.c` (the launcher),
+`twicet.c` (acceptance driver).  Build them with `sh scripts/r11k-build.sh`.
+
+---
+
 # QDOS/386 SDK (R11F)
 
 R11F adds calendar time to the C89 library and a kernel wall-clock service, and

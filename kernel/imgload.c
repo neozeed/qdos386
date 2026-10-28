@@ -6,7 +6,7 @@
 #include "channel.h"
 #include "fat16.h"
 #include "win1.h"
-#ifdef QDOS_PAGING_POC
+#ifdef QDOS_PAGING
 #include "paging.h"
 #endif
 
@@ -145,7 +145,7 @@ int img_start_request(unsigned int name_addr, int profile)
 	return img_load_named(name, profile, img_packed, n + 1);
 }
 
-#ifdef QDOS_PAGING_POC
+#ifdef QDOS_PAGING
 /* R11J: QT_PG_START.  The named WIN1_ root file, linked for slot 1, is loaded into a new
  * address space: private frames at the common window PG_VBASE.  Arguments as for RUN. */
 int img_pg_start_request(unsigned int name_addr, unsigned int args_addr, unsigned int args_len)
@@ -157,6 +157,14 @@ int img_pg_start_request(unsigned int name_addr, unsigned int args_addr, unsigne
 	struct fat_src src;
 	int rc;
 
+	int held = 0;
+
+	if (args_len & PG_START_FLAGS) {
+		if ((args_len & PG_START_FLAGS) != PG_START_HELD)
+			return APP_ERR_ARGS;
+		held = 1;
+		args_len &= ~PG_START_FLAGS;
+	}
 	if (!copy_user_name(name_addr, name))
 		return FAT_ERR_NAME;
 	while (name[n] != 0)
@@ -187,6 +195,6 @@ int img_pg_start_request(unsigned int name_addr, unsigned int args_addr, unsigne
 	if (f.size > IMG_FILE_MAX)
 		return APP_ERR_TOOBIG;
 	src.f = &f;
-	return app_load_paged(fat_rd, &src, (unsigned int) f.size, img_packed, total);
+	return app_load_paged(fat_rd, &src, (unsigned int) f.size, img_packed, total, held);
 }
 #endif

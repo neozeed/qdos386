@@ -679,7 +679,7 @@ int app_load_bytes(const unsigned char *img, unsigned int ilen)
 	return app_load_src(mem_rd, &m, ilen, -1, 0, 0);
 }
 
-#ifdef QDOS_PAGING_POC
+#ifdef QDOS_PAGING
 /* ---- R11J paging proof of concept (docs/R11J-ADDRESS-SPACE-ABI.md) ------------------
  * Frames for a paged process are one physically contiguous run taken from the region pool
  * inside [lo, hi).  Contiguity matters on the i386VM harness: its CPU core sends a
@@ -755,7 +755,7 @@ static void args_write_at(unsigned char *blk, unsigned int vbase, unsigned int a
  * app_load_src.
  */
 int app_load_paged(app_rd_fn rd, void *ctx, unsigned int len,
-                   const unsigned char *packed, unsigned int plen)
+                   const unsigned char *packed, unsigned int plen, int held)
 {
 	struct app_image info;
 	unsigned int flags, frames = 0, argc_n, i, *w;
@@ -827,7 +827,7 @@ int app_load_paged(app_rd_fn rd, void *ctx, unsigned int len,
 	jobs[js].entry = (void (*)(void)) info.entry;
 	jobs[js].args = PG_VBASE + PG_VSIZE - APP_ARG_BYTES;
 	pg_rec_bind(rec, js, (unsigned int) id, h, frames);
-	jobs[js].prio_inc = 2;
+	jobs[js].prio_inc = held ? 0 : 2;
 	irq_restore(flags);
 	return id;
 }

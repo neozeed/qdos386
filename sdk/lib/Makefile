@@ -8,12 +8,16 @@ AS  = $(QDOS386_TOOLS)/bin/as
 AR  = ar
 SDK = $(abspath ..)
 
-libqdos.a: qdos.o qtrap.o
+libqdos.a: qdos.o qtrap.o qdospg.o
 	rm -f $@
-	$(AR) rc $@ qdos.o qtrap.o
+	$(AR) rc $@ qdos.o qtrap.o qdospg.o
 
 qdos.o: qdos.c ../include/qdos386.h
 	$(GCC) -c -O -I../include qdos.c -o $@
+
+# R11K: paging entry points, a separate member so programs that do not call them are unchanged.
+qdospg.o: qdospg.c ../include/qdos386.h
+	$(GCC) -c -O -I../include qdospg.c -o $@
 
 qtrap.o: qtrap.s
 	$(AS) -o $@ qtrap.s

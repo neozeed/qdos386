@@ -1,5 +1,5 @@
 /*
- * QDOS/386 R11J - paging proof of concept (opt-in: -DQDOS_PAGING_POC).
+ * QDOS/386 R11J/R11K - paging (opt-in: -DQDOS_PAGING; ABI version 2 in R11K).
  *
  * Nothing here is compiled into a default image.  See docs/R11J-ADDRESS-SPACE-ABI.md.
  *
@@ -56,9 +56,29 @@
 #define PG_PROC_TABLES  4                    /* private page tables per process, at most */
 #define PG_OWNER_BASE   0x7F00u              /* region owner of a record's frames (< any job id) */
 
-/* Service traps (R11J; POC builds only). */
+/* Service traps (R11J; paging builds only).  R11K adds QT_PG_CAPS and, in test builds, QT_PG_TEST. */
 #define QT_PG_START   0x25   /* a = name, b = args (NUL-terminated strings), c = args length -> job id */
 #define QT_PG_INFO    0x26   /* a = job id (0 = caller), b = struct pg_info pointer -> 0 */
+#define QT_PG_CAPS    0x27   /* R11K: -> (PG_ABI_VERSION << 24) | (max paged spaces << 16) | capability bits */
+#define QT_PG_CANCEL  0x29   /* R11K: a = job id of a HELD paged job that has never run -> 0 (frames, record, job released) */
+#define QT_PG_TEST    0x28   /* R11K TEST ONLY (QDOS_TEST_PG_TASKS): a = counter index -> value */
+
+/* ABI version 1 = R11J (QT_PG_START, QT_PG_INFO; any #PF in the window ends the job; other exceptions halt).
+ * ABI version 2 = R11K (adds QT_PG_CAPS; every exception raised in a paged job's own window ends only that job). */
+#define PG_ABI_VERSION  2
+#define PG_CAP_START    0x0001u   /* QT_PG_START */
+#define PG_CAP_INFO     0x0002u   /* QT_PG_INFO */
+#define PG_CAP_ANYEXC   0x0004u   /* any recoverable exception in the window ends only that job */
+#define PG_CAP_HOLD     0x0008u   /* hold-flag writes are made in the owner's address space */
+#define PG_CAP_TASKS    0x0010u   /* poll/schedule-list tasks run under the template directory */
+#define PG_CAP_HELD     0x0020u   /* QT_PG_START flag PG_START_HELD and QT_PG_CANCEL */
+
+/* QT_PG_START: c = args_len | flags.  Bits 0..15 are the argument length; bits 16..31 are flags.
+ * A kernel of ABI version 1 (R11J) refuses any flag with -34 (its length check), so a caller needs no
+ * special case.  PG_START_HELD: the job is created inactive (increment 0): it holds its frames and a
+ * job slot but is never scheduled until qd_job_activate(), or removed with QT_PG_CANCEL. */
+#define PG_START_HELD   0x00010000u
+#define PG_START_FLAGS  0xFFFF0000u
 
 /* Errors. */
 #define PG_ERR_NOFRAMES (-60)   /* no contiguous frame run free in the pool */
@@ -66,6 +86,7 @@
 #define PG_ERR_REFUSED  (-62)   /* operation not available to a paged process */
 #define PG_ERR_NOREC    (-63)   /* no free address-space record */
 #define PG_ERR_ACTIVE   (-64)   /* internal: directory still active, not released */
+#define PG_ERR_NOTHELD  (-65)   /* QT_PG_CANCEL: the job is not a held paged job that has never run */
 
 /* QT_PG_INFO result: 18 words. */
 #define PG_INFO_WORDS 18
@@ -113,16 +134,26 @@ unsigned int pg_enter_template(void);                     /* run poll/schedule t
 void pg_leave_template(unsigned int was);
 unsigned int pg_held_bytes(void);
 
+/* QT_PG_CAPS body. */
+int pg_caps(void);
+
+#ifdef QDOS_TEST_PG_TASKS
+/* TEST ONLY: kernel-registered poll and schedule-list tasks that record the CR3 they run under. */
+void pg_test_tasks_register(void);
+int pg_test_value(unsigned int idx);
+#endif
+
 /* QT_PG_INFO body.  id 0 = calling job. */
 int pg_info_fill(unsigned int id, unsigned int user_addr);
 
 /* Exception entry (paging.s): returns saved_sp | fmt for the job to resume. */
 unsigned int pg_exception(unsigned int sp);
 
-/* imgload.c / aout.c (QDOS_PAGING_POC): QT_PG_START and the paged loader. */
+/* imgload.c / aout.c (QDOS_PAGING): QT_PG_START and the paged loader. */
 int img_pg_start_request(unsigned int name_addr, unsigned int args_addr, unsigned int args_len);
 int app_load_paged(app_rd_fn rd, void *ctx, unsigned int len,
-                   const unsigned char *packed, unsigned int plen);
+                   const unsigned char *packed, unsigned int plen, int held);
+int pg_cancel_held(unsigned int job_id);   /* QT_PG_CANCEL body */
 
 /* paging.s */
 void pg_load_cr3(unsigned int dir);

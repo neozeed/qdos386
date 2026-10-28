@@ -1,3 +1,54 @@
+# QDOS/386 R11K - bigger PC boot loader and supported paged launch (opt-in)
+
+R11K (branch `r11k-integration`, from frozen R11J `f7664d7`) does two things.  **1. Boot:** a
+multi-transfer PC boot sector (`platform/pc/boot2.s`, `make-image2.py`) lifts the 120-sector kernel
+ceiling to 896 sectors, with checked BIOS reads, a verified A20 line, a checksum and a one-letter
+diagnostic on failure; the original loader is still the default build.  **2. Paging:** the R11J
+mechanism becomes a supported opt-in launch path (`-DQDOS_PAGING`, ABI 2): a library entry point
+(`qd_pg_start` ...), a bounded launcher (`PGRUN.AOU`), held starts for all-or-nothing group launch,
+and any exception in a paged copy ends only that copy.  Two copies of one ordinary C89 executable
+(`TWICE.AOU`, `CATFIL.AOU`), linked once at 0x240000, run concurrently under different CR3 values, use
+console, FAT16, `malloc` and the x87, exit, release everything and can be launched again.
+
+**Not a ring-3, security or isolation release.**  Kernel and applications run at CPL 0; only the 1 MiB
+image window is private; the heap, job stacks and the kernel are shared and writable.  Default images
+(no `-DQDOS_PAGING`) are byte-identical to R11I.
+
+Documents: `docs/R11K-BOOT-AUDIT.md`, `docs/R11K-PAGING-ABI-AUDIT.md`, `docs/R11K-BOOT-ABI.md`,
+`docs/R11K-PAGING-APP-ABI.md`, `docs/R11K-MEMORY-MAP.md`, `docs/R11K-RUNTIME-REPORT.md`,
+`docs/R11K-KNOWN-LIMITATIONS.md`.
+
+## Build
+
+    export I386VM=/path/to/i386vm-tree QDOS386_TOOLS=/path/to/i386vm-tree
+    sh scripts/r11j-build-harness.sh build/harness   # i386vm-r9, -block, -block-fd
+    sh scripts/r11k-images.sh                        # paging, default-with-new-loader and TEST kernels
+    sh scripts/r11k-boot-images.sh                   # bootloader boundary disks (needs the default build)
+    sh scripts/r11k-build.sh                         # SDK libs, TWICE/PGRUN/TWICET, build/fat16/win1-r11k.img
+
+Choosing the PC loader (independent of paging):
+
+    make pc ... PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py    # R11K, 896 sectors
+    make pc ... PCBOOT=build/pc-r9/boot.bin                                         # original (default), 120 sectors
+
+## Run
+
+    # two copies of the same file, from the shell (i386VM block mode shown):
+    printf 'RUN PGRUN.AOU 2 TWICE.AOU 30 1\nRUN PGRUN.AOU 2 CATFIL.AOU\nRUN TWICET.AOU M\n' | \
+        build/harness/i386vm-r9-block build/r11k/vm-paging/qdos386-r11k-paging.bin build/fat16/win1-r11k.img
+    # Tiny386: SHELLIMG=build/r11k/pc-paging/r11k-paging.img sh scripts/r11h-run-tiny386.sh ...
+    # Full matrix and independent log checks:
+    HARNESS_DIR=build/harness TINY386=... FW=... sh scripts/r11k-matrix.sh OUT
+    python3 scripts/r11k-assert.py OUT
+    # Bootloader boundary matrix:
+    TINY386=... FW=... python3 scripts/r11k-boot-matrix.py OUT 3 build/fat16/win1-r11k.img
+
+`TWICET` modes: `M` main acceptance, `H` held/cancel/group rollback, `N` negative starts, `E` exhaustion,
+`S` repeated cycles, `T` failed copy (TEST kernel), `F` faults (Tiny386/QEMU), `W` console single waiter,
+`Z` shared-heap demonstration, `K` kernel tasks (TEST kernel).
+
+---
+
 # QDOS/386 R11J - paging proof of concept (opt-in)
 
 R11J (branch `r11j-paging`, from frozen R11I `bc9a90f`) proves that two live copies of **one

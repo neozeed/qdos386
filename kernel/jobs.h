@@ -17,6 +17,9 @@
 
 #include "fpu.h"
 
+#ifdef QDOS_PAGING_POC
+#error "R11K: the paging feature macro is now QDOS_PAGING (ABI 2); QDOS_PAGING_POC was the R11J name"
+#endif
 #define JOB_MAX 6                 /* R10: slot 0 SYSTEM, IDLE, shell, and room for two
                                   * floating-point application jobs beside them */
 #define JOB_STACK_BYTES 4096      /* heap-allocated, 16-byte aligned */

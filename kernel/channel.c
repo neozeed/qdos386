@@ -17,7 +17,7 @@
 #include "cin.h"
 #include "memory.h"
 #include "platform.h"
-#ifdef QDOS_PAGING_POC
+#ifdef QDOS_PAGING
 #include "paging.h"
 #endif
 
@@ -97,7 +97,7 @@ static int drivers_ready = 0;
 
 int chan_user_range_ok(unsigned int addr, unsigned int n)
 {
-#ifdef QDOS_PAGING_POC
+#ifdef QDOS_PAGING
 	/* R11J: a paged caller may name only its own window and the shared kernel heap. */
 	{
 		int pr = pg_user_range_ok(addr, n);

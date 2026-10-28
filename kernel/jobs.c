@@ -40,13 +40,13 @@
 #include "imgload.h"
 #include "fpu.h"
 #include "clock_boot.h"
-#ifdef QDOS_PAGING_POC
+#ifdef QDOS_PAGING
 #include "paging.h"
 #endif
 
 /* R11J: a hold-flag release.  In the paging POC the flag may live in a paged job's
  * private window, so the write is made in that job's address space (paging.c). */
-#ifdef QDOS_PAGING_POC
+#ifdef QDOS_PAGING
 #define HOLD_RELEASE(slot, j) pg_hold_release(slot)
 #define RUN_TASKS(t, c) run_tasks_template(t, c)
 #else
@@ -114,7 +114,7 @@ static void run_tasks(struct qtask *t, unsigned long *counter)
 	}
 }
 
-#ifdef QDOS_PAGING_POC
+#ifdef QDOS_PAGING
 /* R11J: task nodes and code belong to unpaged registrants; run them in the template. */
 static void run_tasks_template(struct qtask *t, unsigned long *counter)
 {
@@ -150,7 +150,7 @@ static void reclaim_dead(void)
 		struct job *j = &jobs[i];
 		if (i == job_current || !(dead_mask & bit))
 			continue;
-#ifdef QDOS_PAGING_POC
+#ifdef QDOS_PAGING
 		/* R11J: first the address space; if its directory were active, keep the slot dead
 		 * and retry on a later pass (never reached: guard). */
 		if (pg_release_owner(j->id, i) != 0)
@@ -252,7 +252,7 @@ static unsigned int schedule(unsigned int sp, int fmt, int from_irq)
 		fpu_save(out->fpu);
 		job_current = next;
 		fpu_restore(jobs[job_current].fpu);
-#ifdef QDOS_PAGING_POC
+#ifdef QDOS_PAGING
 		/* R11J: the incoming job's address space.  IF is off, and every stack and the
 		 * kernel are in the shared template mapping, so the switch may happen here. */
 		pg_activate(job_current);
@@ -501,12 +501,12 @@ unsigned int trap_dispatch(unsigned int sp)
 
 	reclaim_dead();
 
-#ifdef QDOS_PAGING_POC
+#ifdef QDOS_PAGING
 	/* R11J: services whose pointers the kernel uses later, in other contexts, or that
 	 * load images, are not available to a paged process (docs/R11J-ADDRESS-SPACE-ABI.md). */
 	if (pg_slot_paged(job_current) &&
 	    (fn == QT_CREATE || fn == QT_POLL_ADD || fn == QT_SCHED_ADD ||
-	     fn == QT_IMG_LOAD || fn == QT_IMG_START || fn == QT_PG_START)) {
+	     fn == QT_IMG_LOAD || fn == QT_IMG_START || fn == QT_PG_START || fn == QT_PG_CANCEL)) {
 		f[7] = (unsigned int) PG_ERR_REFUSED;
 		return sp | 1u;
 	}
@@ -737,7 +737,7 @@ unsigned int trap_dispatch(unsigned int sp)
 		f[7] = 0;
 		return schedule(sp, 1, 0);
 
-#ifdef QDOS_PAGING_POC
+#ifdef QDOS_PAGING
 	case QT_PG_START:
 		result = img_pg_start_request(a, b, c);
 		break;
@@ -745,6 +745,19 @@ unsigned int trap_dispatch(unsigned int sp)
 	case QT_PG_INFO:
 		result = pg_info_fill(a, b);
 		break;
+
+	case QT_PG_CAPS:
+		result = pg_caps();
+		break;
+
+	case QT_PG_CANCEL:
+		result = pg_cancel_held(a);
+		break;
+#ifdef QDOS_TEST_PG_TASKS
+	case QT_PG_TEST:
+		result = pg_test_value(a);
+		break;
+#endif
 #endif
 
 	default:
@@ -755,7 +768,7 @@ unsigned int trap_dispatch(unsigned int sp)
 	return sp | 1u;                       /* same frame, no scheduling */
 }
 
-#ifdef QDOS_PAGING_POC
+#ifdef QDOS_PAGING
 /* R11J: end the current job from an exception frame (paging.c pg_exception).  The frame
  * at sp is saved but never resumed; the job is reclaimed like any other dead job. */
 unsigned int job_kill_current(unsigned int sp)

@@ -1,6 +1,6 @@
 /*
- * QDOS/386 R11J - paging proof of concept.  See paging.h and docs/R11J-ADDRESS-SPACE-ABI.md.
- * Compiled only into -DQDOS_PAGING_POC images (Makefile: PAGING_SRC).
+ * QDOS/386 R11J/R11K - paging.  See paging.h, docs/R11J-ADDRESS-SPACE-ABI.md and docs/R11K-PAGING-APP-ABI.md.
+ * Compiled only into -DQDOS_PAGING images (Makefile: I386EXTRA / PCEXTRA).
  *
  * Page-table memory is a static, page-aligned pool in kernel BSS (below HEAP_END), so it is
  * identity-mapped in every directory and the CPU's table walk always finds it in RAM.
@@ -16,12 +16,12 @@
 extern unsigned int irq_save(void);
 extern void irq_restore(unsigned int flags);
 
-/* aout.c (QDOS_PAGING_POC): frame runs from the application region pool. */
+/* aout.c (QDOS_PAGING): frame runs from the application region pool. */
 long app_frames_alloc(unsigned int lo, unsigned int hi, unsigned int bytes,
                       unsigned int owner, unsigned int *base);
 int app_frames_release(long handle, unsigned int owner);
 void app_pool_stats(unsigned int *count, unsigned int *bytes);
-/* jobs.c (QDOS_PAGING_POC): end the current job from an exception frame. */
+/* jobs.c (QDOS_PAGING): end the current job from an exception frame. */
 unsigned int job_kill_current(unsigned int sp);
 
 #define PG_TPL_PAGES   (1 + PG_DIRS_USED)                 /* directory + identity tables */
@@ -352,6 +352,36 @@ int pg_release_owner(unsigned int job_id, int slot)
 	return 0;
 }
 
+/* QT_PG_CANCEL: remove a paged job that was started held and has never been dispatched.  Releases
+ * its frames and record (pg_release_owner), its stack and any heap it owns (job_cancel), and the
+ * job id goes stale.  Anything else (not paged, already active, ever dispatched) is refused
+ * and left untouched, so a mistaken id cannot hurt a running job. */
+int pg_cancel_held(unsigned int job_id)
+{
+	unsigned int flags;
+	int js, rc;
+
+	flags = irq_save();
+	js = job_lookup(job_id);
+	if (js == JOB_NONE) {
+		irq_restore(flags);
+		return -2;                       /* QD_ERR_NOJOB */
+	}
+	if (!pg_slot_paged(js) || jobs[js].prio_inc != 0 || jobs[js].dispatches != 0 ||
+	    js == job_current) {
+		irq_restore(flags);
+		return PG_ERR_NOTHELD;
+	}
+	rc = pg_release_owner(job_id, js);
+	if (rc != 0) {
+		irq_restore(flags);
+		return rc;
+	}
+	job_cancel(job_id);
+	irq_restore(flags);
+	return 0;
+}
+
 unsigned int pg_held_bytes(void)
 {
 	return held_bytes;
@@ -376,6 +406,59 @@ static unsigned int pte_of(unsigned int d, unsigned int va)
 		return 0;
 	return ((unsigned int *) (pde & ~(PG_PAGE - 1u)))[(va >> 12) & 1023u];
 }
+
+int pg_caps(void)
+{
+	unsigned int windows = (PG_POOL_HI - PG_POOL_LO) / PG_VSIZE;
+	unsigned int spaces = windows < (unsigned int) PG_PROC_MAX ? windows : (unsigned int) PG_PROC_MAX;
+
+	return (int) (((unsigned int) PG_ABI_VERSION << 24) | (spaces << 16) |
+	              PG_CAP_START | PG_CAP_INFO | PG_CAP_ANYEXC | PG_CAP_HOLD | PG_CAP_TASKS | PG_CAP_HELD);
+}
+
+#ifdef QDOS_TEST_PG_TASKS
+/*
+ * TEST ONLY.  Kernel functions registered as poll-list and schedule-list tasks (a kernel function never
+ * goes away, so the missing removal service is not an issue).  Each call records the directory it runs
+ * under.  Expected: always the template; counted separately while the current job is a paged one.
+ * Counters (QT_PG_TEST index): 0 poll calls, 1 poll calls with a paged job current, 2 poll calls under a
+ * directory other than the template, 3 schedule calls, 4 .. with a paged job current, 5 .. under another dir.
+ */
+static struct qtask tt_poll_node, tt_sched_node;
+static volatile unsigned int tt_cnt[6];
+
+static void tt_record(int base)
+{
+	tt_cnt[base]++;
+	if (pg_slot_paged(job_current))
+		tt_cnt[base + 1]++;
+	if (pg_read_cr3() != tpl_dir)
+		tt_cnt[base + 2]++;
+}
+
+static void tt_poll(void)
+{
+	tt_record(0);
+}
+
+static void tt_sched(void)
+{
+	tt_record(3);
+}
+
+void pg_test_tasks_register(void)
+{
+	tt_poll_node.fn = tt_poll;
+	tt_sched_node.fn = tt_sched;
+	qtrap(QT_POLL_ADD, (unsigned int) &tt_poll_node, 0, 0);
+	qtrap(QT_SCHED_ADD, (unsigned int) &tt_sched_node, 0, 0);
+}
+
+int pg_test_value(unsigned int idx)
+{
+	return idx < 6u ? (int) tt_cnt[idx] : -1;
+}
+#endif
 
 int pg_info_fill(unsigned int id, unsigned int user_addr)
 {
@@ -415,9 +498,31 @@ int pg_info_fill(unsigned int id, unsigned int user_addr)
 /*
  * Exception entry.  Frame (lowest first): pushal (edi esi ebp esp ebx edx ecx eax),
  * vector, error code (0 if the CPU pushed none), eip, cs, eflags.
- * A #PF in a paged job's own window code ends that job; anything else halts the machine.
- * The report uses only con_putc on the console, which every directory maps.
+ *
+ * R11K: an exception raised at an EIP inside a paged job's own window ends THAT job (the report says
+ * so; its exit status is QD_ERR_NOSTATUS) and every other job continues.  Faults at any other EIP
+ * (kernel code, unpaged jobs) halt the machine, as before.  NMI, double fault and machine check are
+ * never treated as a job's own fault.  The report uses only con_putc on the console, which every
+ * directory maps.  The first line keeps the R11J format.
  */
+static const char *const exc_name[20] = {
+	"#DE divide error", "#DB debug", "NMI", "#BP breakpoint", "#OF overflow",
+	"#BR bound range", "#UD invalid opcode", "#NM no x87", "#DF double fault", "coprocessor overrun",
+	"#TS invalid TSS", "#NP segment not present", "#SS stack fault", "#GP general protection",
+	"#PF page fault", "reserved", "#MF x87 error", "#AC alignment", "#MC machine check", "#XM SIMD"
+};
+
+static int exc_job_fault(unsigned int vec)
+{
+	return vec < 20u && vec != 2u && vec != 8u && vec != 15u && vec != 18u;
+}
+
+static void put_reg(const char *name, unsigned int v)
+{
+	con_puts(name);
+	put_hex(v);
+}
+
 unsigned int pg_exception(unsigned int sp)
 {
 	unsigned int *f = (unsigned int *) sp;
@@ -442,7 +547,20 @@ unsigned int pg_exception(unsigned int sp)
 	con_puts(" cr3 ");
 	put_hex(pg_read_cr3());
 	con_puts("\n");
-	if (vec == 14u && pg_slot_paged(slot) && in_window(eip)) {
+	con_puts("PGFAULT: ");
+	con_puts(vec < 20u ? exc_name[vec] : "unknown");
+	put_reg(" eax ", f[7]);
+	put_reg(" ecx ", f[6]);
+	put_reg(" edx ", f[5]);
+	put_reg(" ebx ", f[4]);
+	put_reg(" ebp ", f[2]);
+	put_reg(" esi ", f[1]);
+	put_reg(" edi ", f[0]);
+	con_puts("\n");
+	/* R11K review: the window addresses 0x240000.. also hold UNPAGED slot-1 code (and poll/schedule tasks
+	 * run under the template directory), so a fault is the paged job's own only if its directory is the
+	 * one that was active. */
+	if (pg_slot_paged(slot) && pg_read_cr3() == dir_of_slot(slot) && in_window(eip) && exc_job_fault(vec)) {
 		con_puts("PGFAULT: paged job ended\n");
 		exc_depth = 0;
 		return job_kill_current(sp);

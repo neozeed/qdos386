@@ -126,4 +126,43 @@ struct qd_dirent {
 int qd_dir_open(void);
 int qd_dir_next(int ch, struct qd_dirent *e);
 
+/* ---- R11K: paged launch (kernels built with -DQDOS_PAGING only) -------------------------------
+ * qd_pg_start runs a standard slot-1 program (linked once at 0x240000, the SDK default) in a NEW
+ * address space: its 1 MiB image window is private, everything else - kernel, heap, stacks, devices -
+ * is shared and writable (this is not memory protection).  Arguments are one C string, as qd_run.
+ * Returns a tagged job id (use the ordinary qd_job_* calls), or a negative error:
+ *   -60 no free 1 MiB frame run   -61 image not linked at 0x240000   -62 refused to a paged caller
+ *   -63 no free address-space record   -34 bad arguments   -20..-25 bad a.out   others as qd_run.
+ * QD_PG_HELD starts the job inactive: it holds its resources but is not scheduled until
+ * qd_job_activate(id, 2) - or is discarded with qd_pg_cancel(id).  A paged program cannot start
+ * programs itself.  Not callable from a paged program.  On a kernel without paging every call
+ * returns QD_PG_ERR_NOPAGING (qd_pg_available returns 0). */
+#define QD_PG_HELD          1u
+#define QD_PG_ERR_NOPAGING  (-70)
+#define QD_PG_ERR_BADFLAGS  (-71)
+#define QD_PG_ERR_NOTHELD   (-65)
+#define QD_PG_CAP_START     0x0001
+#define QD_PG_CAP_INFO      0x0002
+#define QD_PG_CAP_ANYEXC    0x0004
+#define QD_PG_CAP_HOLD      0x0008
+#define QD_PG_CAP_TASKS     0x0010
+#define QD_PG_CAP_HELD      0x0020
+struct qd_pginfo {
+	unsigned int paged;        /* 1 if the job has its own address space */
+	unsigned int space;        /* opaque: equal exactly when two jobs share an address space */
+	unsigned int vbase;        /* start of the private window (0x240000) */
+	unsigned int vsize;        /* its size (1 MiB) */
+	unsigned int dispatches;   /* times the job has been dispatched */
+	unsigned int preempts;     /* timer preemptions of the job */
+	unsigned int spaces_live;  /* live paged address spaces now */
+	unsigned int held_bytes;   /* window bytes held by all paged processes */
+};
+int qd_pg_available(void);                                     /* 1 if this kernel can start paged programs */
+int qd_pg_caps(void);                                          /* (ABI version << 24) | (max spaces << 16) | QD_PG_CAP_*, or QD_PG_ERR_NOPAGING */
+int qd_pg_start(const char *name, const char *args, unsigned int flags);   /* job id, or a negative error */
+int qd_pg_startv(const char *name, const char *packed, unsigned int len, unsigned int flags);
+                                                               /* packed = len bytes of NUL-terminated strings: argv[1], argv[2], ... (the last NUL included) */
+int qd_pg_cancel(int id);                                      /* 0: a held job that never ran is removed; QD_PG_ERR_NOTHELD otherwise */
+int qd_pginfo(int id, struct qd_pginfo *out);                  /* id 0 = the caller; 0, or QD_ERR_NOJOB */
+
 #endif

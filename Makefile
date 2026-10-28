@@ -106,7 +106,7 @@ build/xfer.bin: $(APPS) tools/make-xfer.py
 	python3 tools/make-xfer.py $@ HELO=build/apps/hello.aout PREP=build/apps/prep.aout HEL2=build/apps/hello.aout
 
 # ---- i386VM ---------------------------------------------------------------
-# R11J: I386EXTRA adds the paging POC sources (empty for every default image).
+# R11J/R11K: I386EXTRA adds the paging sources (empty for every default image).
 I386EXTRA ?=
 I386VM_SRC = $(KCORE) kernel/context.s platform/i386vm/platform.c platform/i386vm/disk.c platform/i386vm/halt.s $(I386EXTRA)
 
@@ -139,7 +139,7 @@ PC_OBJS = $(PCD)/main.o $(PCD)/region.o $(PCD)/jobs.o $(PCD)/clock.o $(PCD)/cloc
           $(PCD)/fat16.o $(PCD)/win1.o $(PCD)/test_fs.o $(PCD)/disk.o \
           $(PCD)/cin.o $(PCD)/kbd.o $(PCD)/vga.o $(PCD)/test_console.o $(PCD)/test_r8.o $(PCD)/i8042.o $(PCD)/test_dir.o $(PCD)/imgload.o $(PCD)/shellboot.o $(PCD)/test_shell.o
 
-# R11J: PCEXTRA adds the paging POC objects (empty for every default image).
+# R11J/R11K: PCEXTRA adds the paging objects (empty for every default image).
 PCEXTRA ?=
 PC_OBJS += $(PCEXTRA)
 
@@ -184,8 +184,12 @@ $(PCD)/kernel.raw: $(PCD)/kernel.aout
 # PCBOOT is the boot sector: the R5-R8 one, or the R9 copy whose transfer
 # address is 0x340000 (see the R9 section).
 PCBOOT ?= platform/pc/boot.bin
-$(PCD)/$(PCIMG): $(PCD)/kernel.raw build/xfer.bin $(PCBOOT) platform/pc/make-image.py
-	python3 platform/pc/make-image.py $(PCBOOT) $(PCD)/kernel.raw build/xfer.bin $@
+# R11K: PCMKIMG is the image builder that matches PCBOOT.  The default pair (boot.bin + make-image.py)
+# is the original loader and gives byte-identical images; the multi-transfer loader is the pair
+# build/pc-r9/boot2.bin + platform/pc/make-image2.py (see the R11K section).
+PCMKIMG ?= platform/pc/make-image.py
+$(PCD)/$(PCIMG): $(PCD)/kernel.raw build/xfer.bin $(PCBOOT) $(PCMKIMG)
+	python3 $(PCMKIMG) $(PCBOOT) $(PCD)/kernel.raw build/xfer.bin $@
 
 platform/pc/boot.bin: platform/pc/boot.s
 	cd platform/pc && $(AS) -o boot.o boot.s && $(LD) -N -T boot.ld -e start -o boot.aout boot.o && python3 $(I386VM)/tools/aout-to-raw.py boot.aout boot.bin
@@ -205,15 +209,17 @@ r11h-i386vm:
 r11i-i386vm-block:
 	$(MAKE) i386vm I386D=build/r11i/block I386FLAGS="$(R9_FLAGS) -DQDOS_I386VM_BLOCK" I386IMG=qdos386-r11i-block.bin I386WIN= IMGENV="QDOS_LAYOUT=r9"
 
-# R11J: paging proof of concept (opt-in; docs/R11J-ADDRESS-SPACE-ABI.md).  Default images
-# are unchanged: the POC sources enter only through I386EXTRA / PCEXTRA here.
-R11J_POC = -DQDOS_PAGING_POC
-r11j-i386vm-poc:
-	$(MAKE) i386vm I386D=build/r11j/vm-poc I386FLAGS="$(R9_FLAGS) -DQDOS_I386VM_BLOCK $(R11J_POC)" I386IMG=qdos386-r11j-poc.bin I386WIN= IMGENV="QDOS_LAYOUT=r9" I386EXTRA="kernel/paging.c kernel/paging.s"
-r11j-pc-poc:
-	$(MAKE) build/pc-r9/boot.bin
-	$(MAKE) pc PCD=build/r11j/pc-poc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11J_POC)" PCIMG=r11j-poc.img PCBOOT=build/pc-r9/boot.bin PCEXTRA="build/r11j/pc-poc/paging.o build/r11j/pc-poc/paging_s.o"
-	$(MAKE) pc PCD=build/r11j/pc-poc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11J_POC)" PCIMG=r11j-poc-vga.img PCBOOT=build/pc-r9/boot.bin PCEXTRA="build/r11j/pc-poc-vga/paging.o build/r11j/pc-poc-vga/paging_s.o"
+# R11K: opt-in paging (docs/R11K-PAGING-APP-ABI.md; R11J's POC flag QDOS_PAGING_POC is now QDOS_PAGING, ABI 2).
+# Default images are unchanged: the paging sources enter only through I386EXTRA / PCEXTRA here.
+# The multi-transfer boot sector is selected with PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py
+# (docs/R11K-BOOT-ABI.md); the default pair is the original boot.bin + make-image.py.
+R11K_PAGING = -DQDOS_PAGING
+r11k-i386vm-paging:
+	$(MAKE) i386vm I386D=build/r11k/vm-paging I386FLAGS="$(R9_FLAGS) -DQDOS_I386VM_BLOCK $(R11K_PAGING)" I386IMG=qdos386-r11k-paging.bin I386WIN= IMGENV="QDOS_LAYOUT=r9" I386EXTRA="kernel/paging.c kernel/paging.s"
+r11k-pc-paging:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r11k/pc-paging PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11K_PAGING)" PCIMG=r11k-paging.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r11k/pc-paging/paging.o build/r11k/pc-paging/paging_s.o"
+	$(MAKE) pc PCD=build/r11k/pc-paging-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11K_PAGING)" PCIMG=r11k-paging-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r11k/pc-paging-vga/paging.o build/r11k/pc-paging-vga/paging_s.o"
 
 # Canonical R11H PC images (the shipped set).  Requires I386VM=<tree>.  The R9 boot
 # sector (transfer address 0x340000) is built by its own rule.
@@ -311,6 +317,15 @@ build/pc-r9/boot.bin: platform/pc/boot.s
 	$(AS) -o build/pc-r9/boot.o build/pc-r9/boot.s
 	$(LD) -N -T platform/pc/boot.ld -e start -o build/pc-r9/boot.aout build/pc-r9/boot.o
 	python3 $(I386VM)/tools/aout-to-raw.py build/pc-r9/boot.aout build/pc-r9/boot.bin
+
+# R11K multi-transfer boot sector with the R9 transfer address (PCBOOT=build/pc-r9/boot2.bin
+# PCMKIMG=platform/pc/make-image2.py selects it; the original loader stays the default).
+build/pc-r9/boot2.bin: platform/pc/boot2.s
+	mkdir -p build/pc-r9
+	sed 's/movl $$0x280000,%edi/movl $$0x340000,%edi/' platform/pc/boot2.s > build/pc-r9/boot2.s
+	$(AS) -o build/pc-r9/boot2.o build/pc-r9/boot2.s
+	$(LD) -N -T platform/pc/boot.ld -e start -o build/pc-r9/boot2.aout build/pc-r9/boot2.o
+	python3 $(I386VM)/tools/aout-to-raw.py build/pc-r9/boot2.aout build/pc-r9/boot2.bin
 
 r9-pc-shell: build/pc-r9/boot.bin build/fat16/win1-r9.img
 	$(MAKE) pc PCD=build/pc-r9 PCFLAGS="$(R9_FLAGS)" PCIMG=r9shell.img PCBOOT=build/pc-r9/boot.bin PCWIN=build/fat16/win1-r9.img

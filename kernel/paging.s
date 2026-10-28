@@ -1,5 +1,5 @@
 /*
- * QDOS/386 R11J - paging proof of concept, assembly part (QDOS_PAGING_POC images only).
+ * QDOS/386 R11J - paging proof of concept, assembly part (QDOS_PAGING images only).
  *
  *   pg_load_cr3(dir), pg_read_cr3(), pg_read_cr2(), pg_enable()
  *   pg_exc_table: 20 exception stubs for the IDT (vectors 0..19, interrupt gates).
