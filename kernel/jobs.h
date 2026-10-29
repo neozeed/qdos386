@@ -81,6 +81,12 @@
 #define QT_PROC_VA    0x34        /* a = virtual address -> its PTE in the caller's space (diagnostic) */
 extern unsigned int kx_lo, kx_hi, kx_entry;   /* the current job's kernel-entry stack (kctx.s reads them) */
 #endif
+#ifdef QDOS_ENV
+/* R12B per-process environment (docs/R12B-ENV-PROCESS-ABI.md). */
+#define QT_ENV_GET    0x35        /* a = name, b = buffer, c = size -> value length (copy truncated to size-1), -7 absent */
+#define QT_ENV_SET    0x36        /* a = name, b = value (0 = unset) -> 0, or -15 name, -4 value, -5 full, -3 memory, -7 */
+#define QT_ENV_LIST   0x37        /* a = index (0xFFFFFFFF: (count << 16) | bytes), b = buffer, c = size -> length, -7 end */
+#endif
 #define QT_CON_WAIT   0x1C        /* b = flag byte, set when console input arrives -> 0.
                                      Returns at once if input or end is pending; otherwise
                                      the job sleeps.  The caller retries its CON read. */

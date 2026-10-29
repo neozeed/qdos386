@@ -19,6 +19,10 @@ void abort(void);
 int atexit(void (*fn)(void));
 int system(const char *cmd);
 char *getenv(const char *name);
+/* R12B extensions (not C89): change the calling process's environment.  0 on success, -1 on failure (errno is not
+ * set).  A child started later gets a copy; pointers from getenv may be invalid after a change. */
+int setenv(const char *name, const char *value, int overwrite);
+int unsetenv(const char *name);
 int rand(void);
 void srand(unsigned int seed);
 div_t div(int num, int den);

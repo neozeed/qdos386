@@ -147,6 +147,14 @@ int chan_fsop(unsigned int op, unsigned int a_addr, unsigned int b_addr);
 /* Job exit: close every channel owned by 'owner'.  Called by reclaim_dead
  * before the job's heap blocks are reclaimed.  Returns channels closed. */
 unsigned int chan_close_owner(unsigned int owner);
+#ifdef QDOS_SYNC
+/* R12C: write the pending directory entry of every file channel open for writing (fat16_flush).  Returns 0 or the
+ * first error; *files gets the number of entries written. */
+int chan_flush_files(unsigned int *files);
+#ifdef QDOS_SURFACES
+void chan_con_retarget(unsigned int owner, int from, int to);   /* R13: CON channels of owner follow it to a session */
+#endif
+#endif
 
 /* Diagnostics for the tests. */
 unsigned long chan_objects_live(void);

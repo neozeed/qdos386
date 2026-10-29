@@ -1,5 +1,8 @@
 # R12 Stage 4: SuperBASIC/C89 (SB4) on QDOS/386 — `BASIC.AOU`
 
+> R12B note: the core now also has the host extension-name hooks (LOAD/SAVE/MERGE/DIR/EXEC...); see
+> `docs/R12B-SUPERBASIC-FILE-ABI.md` §1 and `apps/superbasic/qdos386-core-changes.patch`. The text below describes R12.
+
 Scope: the interpreter supplied as `SuperBASIC-C89-SB4.tar.gz` runs natively in the guest as `BASIC.AOU`, on its own virtual console, next to the editor and the shell. This is the **real SB4 core, unchanged**, cross-built with the historical GCC 1.40; only the operating-system-dependent layer (channels, console, stack) is new. It is a **subset** of SuperBASIC (see the supplied `KNOWN-LIMITATIONS.md`, copied to `apps/superbasic/docs/`); nothing here claims full SuperBASIC or QL compatibility.
 
 Evidence classes: **host build** (host compile only), **guest executed** (QEMU full machine VGA/keyboard/IDE, `tests/r12/run-s4.sh`, `logs/r12/stage4/`), **independent comparison** (the supplied `.out` oracle files and the supplied host runner on the same files), **NOT TESTED**.

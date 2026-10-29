@@ -526,6 +526,45 @@ unsigned int chan_close_owner(unsigned int owner)
 	return n;
 }
 
+#ifdef QDOS_SYNC
+#ifdef QDOS_SURFACES
+/* R13: a job moved from session from to session to: its CON channels follow it. */
+void chan_con_retarget(unsigned int owner, int from, int to)
+{
+	unsigned int slot;
+
+	for (slot = 0; slot < CHAN_MAX; slot++) {
+		struct chan_object *ch = slots[slot].obj;
+
+		if (ch != 0 && ch->drv == &con_driver && ch->owner == owner && ch->con == from)
+			ch->con = to;
+	}
+}
+#endif
+
+int chan_flush_files(unsigned int *files)
+{
+	unsigned int slot;
+	int rc, first = 0;
+
+	*files = 0;
+	for (slot = 0; slot < CHAN_MAX; slot++) {
+		struct chan_object *ch = slots[slot].obj;
+
+		if (ch == 0 || (ch->drv != &win1_driver && ch->drv != &win1n_driver))
+			continue;                         /* only file channels hold a fat16_file */
+		if (ch->ff.is_dir || !(ch->ff.mode & FAT_O_WRITE) || !ch->ff.dirty)
+			continue;
+		rc = fat16_flush(&ch->ff);
+		if (rc == FAT_OK)
+			(*files)++;
+		else if (first == 0)
+			first = rc;
+	}
+	return first;
+}
+#endif
+
 unsigned long chan_objects_live(void)
 {
 	return live;

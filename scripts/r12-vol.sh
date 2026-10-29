@@ -5,7 +5,7 @@
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd); cd "$ROOT"
 export MTOOLS_SKIP_CHECK=1 LC_ALL=C.UTF-8
-E=sdk/examples
+E=${QDOS_BIN_DIR:-sdk/examples}       # R12B: QDOS_BIN_DIR=build/frozen-r12a runs the regressions with the frozen R12A binaries
 OUT=${1:?usage}; KIB=${2:-3072}
 EXTRA=""
 for n in CONAPI CONDEMO EDIT LEAK CONLOAD BASIC BASTEST; do   # R12 programs, included once they exist

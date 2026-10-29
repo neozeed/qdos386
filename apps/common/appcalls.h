@@ -24,6 +24,9 @@ int qtrap(unsigned int fn, unsigned int a, unsigned int b, unsigned int c);
 #define APP_QT_PG_CAPS   0x27u
 #define APP_QT_JOB_QUERY 0x2Du     /* R11M job control */
 #define APP_QT_JOB_KILL  0x2Eu
+#define APP_QT_ENV_GET   0x35u     /* R12B (QDOS_ENV kernels): process environment */
+#define APP_QT_ENV_SET   0x36u
+#define APP_QT_ENV_LIST  0x37u
 #define APP_QT_MEM_ALLOC      0x10u
 #define APP_QT_MEM_FREE       0x11u
 #define APP_QT_MEM_FREE_BYTES 0x12u

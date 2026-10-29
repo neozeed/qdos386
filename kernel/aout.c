@@ -430,6 +430,90 @@ int aout_check_src(app_rd_fn rd, void *ctx, unsigned int len, struct app_image *
 	return APP_OK;
 }
 
+#ifdef QDOS_TITLES
+/* R12C: the compiled program title of an image, from its symbol table: the global data symbol "__prog_name" (C68
+ * convention, char _prog_name[] = "Hack-1.03";) and the bytes it names in the data section of the file.  Works for
+ * binaries linked before R12C (no relink: every QDOS/386 a.out keeps its symbol table, the loader needs _start).
+ * Two forward passes, as start_symbol_src: (1) up to PN_CAND global data symbols whose value lies in the data section
+ * are collected; (2) their names are read in string-table order, so the source never seeks backwards inside a pass.
+ * out gets 0..outsz-1 printable ASCII bytes (others '?'), NUL-terminated.  Returns the length, or -1 when there is no
+ * such symbol (or the image is not a valid OMAGIC file, or the scan failed): out is then empty.  Changes nothing else. */
+#define PN_CAND 256u
+static unsigned int pn_strx[PN_CAND], pn_val[PN_CAND];
+
+int aout_prog_name_src(app_rd_fn rd, void *ctx, unsigned int len, char *out, unsigned int outsz)
+{
+	static const char want[] = "__prog_name";        /* the C name _prog_name, with the a.out leading underscore */
+	unsigned char hb[AOUT_HDR_BYTES], name[12], vb[64];
+	unsigned int text, data, syms, entry, off_sym, off_str, strsz, nsym, ncand = 0, i, n, c, k;
+	int rc;
+
+	out[0] = 0;
+	if (outsz < 2 || len < AOUT_HDR_BYTES || rd(ctx, 0, hb, AOUT_HDR_BYTES) != APP_OK)
+		return -1;
+	text = rd32(hb + 4);
+	data = rd32(hb + 8);
+	syms = rd32(hb + 16);
+	entry = rd32(hb + 20);
+	if (rd32(hb) != AOUT_MAGIC || syms % AOUT_SYM_BYTES != 0 || text > len - AOUT_HDR_BYTES ||
+	    data > len - AOUT_HDR_BYTES - text || syms > len - AOUT_HDR_BYTES - text - data)
+		return -1;
+	off_sym = AOUT_HDR_BYTES + text + data;
+	off_str = off_sym + syms;
+	if (len - off_str < 4 || rd_u32(rd, ctx, off_str, &strsz) != APP_OK || strsz < 4 || strsz > len - off_str)
+		return -1;
+	nsym = syms / AOUT_SYM_BYTES;
+	for (i = 0; i < nsym && ncand < PN_CAND; i += START_CHUNK) {
+		n = nsym - i;
+		if (n > START_CHUNK)
+			n = START_CHUNK;
+		if (rd(ctx, off_sym + i * AOUT_SYM_BYTES, start_buf, n * AOUT_SYM_BYTES) != APP_OK)
+			return -1;
+		for (c = 0; c < n && ncand < PN_CAND; c++) {
+			unsigned char *sym = start_buf + c * AOUT_SYM_BYTES;
+			unsigned int strx = rd32(sym), value = rd32(sym + 8);
+
+			if (sym[4] != 0x07u)                     /* N_DATA | N_EXT */
+				continue;
+			if (value < entry + text || value - entry - text >= data)
+				continue;
+			if (strx < 4 || strx >= strsz || strsz - strx < sizeof want)
+				continue;
+			k = ncand++;                              /* insertion by string offset */
+			while (k > 0 && pn_strx[k - 1] > strx) {
+				pn_strx[k] = pn_strx[k - 1];
+				pn_val[k] = pn_val[k - 1];
+				k--;
+			}
+			pn_strx[k] = strx;
+			pn_val[k] = value;
+		}
+	}
+	for (i = 0; i < ncand; i++) {
+		if (rd(ctx, off_str + pn_strx[i], name, sizeof want) != APP_OK)
+			return -1;
+		for (k = 0; k < sizeof want; k++)
+			if (name[k] != (unsigned char) want[k])
+				break;
+		if (k < sizeof want)
+			continue;
+		n = entry + text + data - pn_val[i];             /* bytes of data from the symbol to the end of the section */
+		if (n > outsz - 1)
+			n = outsz - 1;
+		if (n > sizeof vb)
+			n = sizeof vb;
+		rc = rd(ctx, AOUT_HDR_BYTES + (pn_val[i] - entry), vb, n);
+		if (rc != APP_OK)
+			return -1;
+		for (k = 0; k < n && vb[k] != 0; k++)
+			out[k] = (char) ((vb[k] < 0x20 || vb[k] > 0x7e) ? '?' : vb[k]);
+		out[k] = 0;
+		return (int) k;
+	}
+	return -1;
+}
+#endif
+
 int aout_check(const unsigned char *img, unsigned int len, struct app_image *out)
 {
 	struct mem_src m;

@@ -89,6 +89,43 @@ void vcon_job_gone(int slot);                   /* the job in slot ended: waiter
 int vcon_set_child(int slot, int con);          /* the next job slot's job creates goes to con (-1 clears); 0, or -14 */
 int vcon_job_set(int slot, int con);            /* put a job on a console (used by the job creation path) */
 
+#ifdef QDOS_TASKMGR
+/* ---- R12C: the task selector overlay (kernel/taskmgr.c) ---- */
+void vcon_overlay(int on);                      /* 1: the selector owns the display; 0: redraw the foreground console */
+int vcon_users(int con);                        /* live jobs on the console */
+int taskmgr_key(unsigned char c);               /* 1 if the open selector took the key */
+void taskmgr_hotkey(void);                      /* Ctrl+Esc (keyboard IRQ) */
+void taskmgr_console_key(int con);              /* Alt+F1..F4 (keyboard IRQ): close the selector, show console con */
+#endif
+
+#ifdef QDOS_SURFACES
+/* ---- R13: sessions beyond the four legacy consoles (docs/R13-DISPLAY-ABI.md) ---- */
+#define VSESS_MAX      20              /* sessions in all: 0..3 legacy consoles, 4..19 private sessions */
+#define VCON_CHILD_NEW 0xfe            /* vcon_set_child: the next job the caller creates gets a new private session */
+#define VSESS_OWNER    0x7E00u         /* heap owner of session and surface blocks (never a job id) */
+#define VSESS_ERR_FULL (-5)            /* no free session */
+#define VSESS_ERR_MEM  (-3)            /* no kernel heap for the session */
+struct gsurf;
+int vsess_new(unsigned int owner_id);           /* -> session index, or VSESS_ERR_*; interrupts off */
+int vsess_valid(int idx);
+unsigned int vsess_tag(int idx);                /* changes every time the index is reused (0: no session) */
+int vsess_move(int slot, int idx);              /* the job in slot, and its CON channels, to session idx */
+struct gsurf *vsess_gfx(int idx);               /* the session's INDEX8 surface, or 0 (TEXT80x25) */
+void vsess_set_gfx(int idx, struct gsurf *g);
+int vsess_users(int idx);
+int vsess_dynamic(int idx);                     /* 1 for a private session (4..19) */
+unsigned int vsess_owner(int idx);              /* tagged id of the job that created a private session */
+int vsess_count(void);                          /* sessions in use */
+int vsess_new_failures(void);                   /* VCON_CHILD_NEW requests that fell back to the creator's session */
+int vcon_overlay_on(void);
+void vcon_present_text(void);                   /* the presenter is in text mode again: draw what the display shows */
+int vcon_write_cells(int con, unsigned int row, unsigned int col, const unsigned short *cells, unsigned int n);
+/* Provided by kernel/surface.c: a surface leaves its session (closed, or its session or owner ended). */
+void surf_release(struct gsurf *g);
+void surf_job_ended(unsigned int job_id, int idx);
+/* Provided by the presenter (platform/pc/vgapres.c on VGA builds, stubs otherwise; kernel/present.h). */
+#endif
+
 /* ---- waiter (one per console) ---- */
 int vcon_waiter(int con);                       /* job slot or -1 */
 void vcon_set_waiter(int con, int slot);        /* slot, or -1 to clear */

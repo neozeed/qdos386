@@ -115,6 +115,10 @@ int kbd_feed(struct kbd_decoder *d, unsigned char sc, unsigned char *out)
 	if (!make)
 		return 0;
 
+#ifdef QDOS_TASKMGR
+	if (code == 0x01 && d->ctrl)         /* R12C: Ctrl+Esc opens the task selector; never reaches a program */
+		return 3;
+#endif
 #ifdef QDOS_VCON
 	if (code == 0x01) {                  /* R12: Esc */
 		*out = 0x1b;

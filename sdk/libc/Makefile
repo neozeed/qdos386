@@ -11,7 +11,7 @@ AS  = $(QDOS386_TOOLS)/bin/as
 INC = -I../include -I../../port/include
 
 OBJS = string.o malloc.o stdlib.o stdio.o ctype.o errno.o strtod.o fpbig.o \
-	misc.o time.o scanf.o posixio.o jmp.o
+	misc.o time.o scanf.o posixio.o jmp.o envx.o
 
 ../lib/libc.a: $(OBJS)
 	mkdir -p ../lib

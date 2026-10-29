@@ -172,11 +172,20 @@ void abort(void)
 
 /* ---- environment and command processor ----------------------------------- */
 
-/* QDOS/386 has no environment: getenv always finds nothing. */
+/* R12B: the calling process's environment (QT_ENV_GET, kernels built with QDOS_ENV).  The value is copied into one
+ * static buffer: the pointer stays valid until the next getenv call or a change of the environment.  On an older
+ * kernel the trap is unknown (-1) and getenv finds nothing, as before. */
 char *getenv(const char *name)
 {
-	(void) name;
-	return NULL;
+	static char envbuf[256];
+	int n;
+
+	if (name == NULL)
+		return NULL;
+	n = (int) qtrap(0x35u, (unsigned int) name, (unsigned int) envbuf, sizeof envbuf);
+	if (n < 0)
+		return NULL;
+	return envbuf;
 }
 
 /* There is no command processor.  system(NULL) reports that none exists

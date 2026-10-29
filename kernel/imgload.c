@@ -65,6 +65,78 @@ static int copy_user_name(unsigned int addr, char *out)
 	return 0;
 }
 
+#ifdef QDOS_ENV
+#include "env.h"
+#include "jobs.h"
+#include "pathres.h"
+/* R12B: every load (RUN, START, QT_IMG_START, qd_spawn, BASIC EXEC) searches with path_resolve (pathres.h) using the
+ * caller's PATH; candidates are opened like a name given directly (win1_open_img: relative to the caller's directory,
+ * without regard to case). */
+static char img_cand[PATH_CAND_MAX];
+#ifdef QDOS_TITLES
+static int img_cand_ok;
+#endif
+
+static int img_open_cb(void *ctx, const char *cand)
+{
+	return win1_open_img(cand, (struct fat16_file *) ctx);
+}
+
+static int img_resolve_open(const char *name, struct fat16_file *f)
+{
+	unsigned int vlen = 0;
+	const char *pv = env_value_of(job_current, "PATH", &vlen);
+
+#ifdef QDOS_TITLES
+	{
+		int rc = path_resolve(name, pv, pv ? vlen : 0u, img_open_cb, f, img_cand);
+		img_cand_ok = rc == 0;
+		return rc;
+	}
+#else
+	return path_resolve(name, pv, pv ? vlen : 0u, img_open_cb, f, img_cand);
+#endif
+}
+
+#ifdef QDOS_TITLES
+/* R12C: the file the last successful load actually opened (e.g. "/GAMES/PHOON.AOU" for "PHOON"), or 0.  Read by
+ * jobctl_note_launch right after the load, before any other load can run (traps do not nest). */
+const char *img_resolved_name(void)
+{
+	return img_cand_ok ? img_cand : 0;
+}
+#endif
+#endif /* QDOS_ENV */
+
+#ifdef QDOS_TITLES
+/* R12C: the compiled title (_prog_name) of the image the last successful load used, read from its symbol table after
+ * the load (aout_prog_name_src); "" when it has none.  Read by jobctl_note_launch like img_resolved_name. */
+static char img_symtitle[64];
+
+const char *img_symbol_title(void)
+{
+	return img_symtitle;
+}
+
+static int img_title_after(int rc, struct fat_src *src, unsigned int size)
+{
+	if (rc >= 0)
+		(void) aout_prog_name_src(fat_rd, src, size, img_symtitle, sizeof img_symtitle);
+	return rc;
+}
+#define IMG_TITLE_CLEAR() (img_symtitle[0] = 0)
+#define IMG_TITLE_AFTER(rc, src, size) img_title_after((rc), (src), (size))
+#else
+#define IMG_TITLE_CLEAR() ((void) 0)
+#define IMG_TITLE_AFTER(rc, src, size) (rc)
+#endif
+
+#ifdef QDOS_ENV
+#define IMG_OPEN(name, f) img_resolve_open((name), (f))
+#else
+#define IMG_OPEN(name, f) win1_open_img((name), (f))
+#endif
+
 /* Load the file called name into want_slot, with packed as its arguments. */
 static int img_load_named(const char *name, int want_slot,
                           const unsigned char *packed, unsigned int plen)
@@ -74,11 +146,12 @@ static int img_load_named(const char *name, int want_slot,
 	struct fat_src src;
 	int rc;
 
+	IMG_TITLE_CLEAR();
 	v = win1_volume();
 	if (v == 0)
 		return CHAN_ERR_NOVOL;
 #ifdef QDOS_FS_WRITE
-	rc = win1_open_img(name, &f);
+	rc = IMG_OPEN(name, &f);
 #else
 	rc = fat16_open_root(v, name, &f);
 #endif
@@ -92,10 +165,10 @@ static int img_load_named(const char *name, int want_slot,
 #ifdef QDOS_DYNPROC
 	/* R12A: every load is a new process; only the boot shell stays in its slot until it becomes a process. */
 	if (want_slot == 0 && !proc_shell_is_process())
-		return app_load_src(fat_rd, &src, (unsigned int) f.size, 0, packed, plen);
-	return proc_load(fat_rd, &src, (unsigned int) f.size, want_slot, packed, plen, 0);
+		return IMG_TITLE_AFTER(app_load_src(fat_rd, &src, (unsigned int) f.size, 0, packed, plen), &src, (unsigned int) f.size);
+	return IMG_TITLE_AFTER(proc_load(fat_rd, &src, (unsigned int) f.size, want_slot, packed, plen, 0), &src, (unsigned int) f.size);
 #else
-	return app_load_src(fat_rd, &src, (unsigned int) f.size, want_slot, packed, plen);
+	return IMG_TITLE_AFTER(app_load_src(fat_rd, &src, (unsigned int) f.size, want_slot, packed, plen), &src, (unsigned int) f.size);
 #endif
 }
 
@@ -202,11 +275,12 @@ int img_pg_start_request(unsigned int name_addr, unsigned int args_addr, unsigne
 		img_packed[total + i] = *(unsigned char *) (args_addr + i);
 	total += args_len;
 
+	IMG_TITLE_CLEAR();
 	v = win1_volume();
 	if (v == 0)
 		return CHAN_ERR_NOVOL;
 #ifdef QDOS_FS_WRITE
-	rc = win1_open_img(name, &f);
+	rc = IMG_OPEN(name, &f);
 #else
 	rc = fat16_open_root(v, name, &f);
 #endif
@@ -219,7 +293,8 @@ int img_pg_start_request(unsigned int name_addr, unsigned int args_addr, unsigne
 	src.f = &f;
 #ifdef QDOS_DYNPROC
 	/* R12A veneer: the same request through the common process loader. */
-	rc = proc_load(fat_rd, &src, (unsigned int) f.size, 1, img_packed, total, held ? PROC_LOAD_HELD : 0u);
+	rc = IMG_TITLE_AFTER(proc_load(fat_rd, &src, (unsigned int) f.size, 1, img_packed, total, held ? PROC_LOAD_HELD : 0u),
+	                     &src, (unsigned int) f.size);
 	return rc == APP_ERR_NOTSLOT1 ? PG_ERR_ORIGIN : rc;
 #else
 	return app_load_paged(fat_rd, &src, (unsigned int) f.size, img_packed, total, held);
@@ -257,10 +332,11 @@ int img_spawn_request(unsigned int name_addr, unsigned int args_addr, unsigned i
 	for (i = 0; i < args_len; i++)
 		img_packed[total + i] = *(unsigned char *) (args_addr + i);
 	total += args_len;
+	IMG_TITLE_CLEAR();
 	v = win1_volume();
 	if (v == 0)
 		return CHAN_ERR_NOVOL;
-	rc = win1_open_img(name, &f);
+	rc = IMG_OPEN(name, &f);
 	if (rc != FAT_OK)
 		return rc;
 	if (f.size == 0)
@@ -268,6 +344,6 @@ int img_spawn_request(unsigned int name_addr, unsigned int args_addr, unsigned i
 	if (f.size > IMG_FILE_MAX)
 		return APP_ERR_TOOBIG;
 	src.f = &f;
-	return proc_load(fat_rd, &src, (unsigned int) f.size, -1, img_packed, total, flags);
+	return IMG_TITLE_AFTER(proc_load(fat_rd, &src, (unsigned int) f.size, -1, img_packed, total, flags), &src, (unsigned int) f.size);
 }
 #endif

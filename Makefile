@@ -93,6 +93,24 @@ build/apps/shell-a.o: apps/shell/shell.c apps/shell/shell_r11m.inc apps/shell/sh
 	$(GCC) -c -O -DSH_LINE_MAX=160 -DR11M_SHELL -DR11M_JOBS -DR12A_SHELL -DJC_MAXJOBS=16 -DSJ_MAX=16 -Iapps/common -Iapps/shell $< -o $@
 build/apps/shell-a.aout: build/apps/shell-a.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
 	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shell-a.o build/apps/qtrap.o
+# R12B: the R12A shell plus SET/UNSET/ECHO, %NAME% expansion, CALL/SOURCE scripts and /ETC/STARTUP.CMD (-DR12B_SHELL).
+build/apps/shell-b.o: apps/shell/shell.c apps/shell/shell_r11m.inc apps/shell/shell_jobs.inc apps/shell/shell_edit.inc apps/shell/shell_env.inc apps/common/appcalls.h
+	mkdir -p build/apps
+	$(GCC) -c -O -DSH_LINE_MAX=160 -DR11M_SHELL -DR11M_JOBS -DR12A_SHELL -DR12B_SHELL -DJC_MAXJOBS=16 -DSJ_MAX=16 -Iapps/common -Iapps/shell $< -o $@
+build/apps/shell-b.aout: build/apps/shell-b.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
+	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shell-b.o build/apps/qtrap.o
+# R12C: the R12B shell plus TASKS and SYNC (-DR12C_SHELL).
+build/apps/shell-c.o: apps/shell/shell.c apps/shell/shell_r11m.inc apps/shell/shell_jobs.inc apps/shell/shell_edit.inc apps/shell/shell_env.inc apps/shell/shell_parse.inc apps/shell/shell_r12c.inc apps/common/appcalls.h
+	mkdir -p build/apps
+	$(GCC) -c -O -DSH_LINE_MAX=160 -DR11M_SHELL -DR11M_JOBS -DR12A_SHELL -DR12B_SHELL -DR12C_SHELL -DJC_MAXJOBS=16 -DSJ_MAX=16 -Iapps/common -Iapps/shell $< -o $@
+build/apps/shell-c.aout: build/apps/shell-c.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
+	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shell-c.o build/apps/qtrap.o
+# R13: the R12C shell plus sessions: START /NEW, CON/CONDUMP/KILL for sessions 0..19, TASKS /L with MODE (-DR13_SHELL).
+build/apps/shell-d.o: apps/shell/shell.c apps/shell/shell_r11m.inc apps/shell/shell_jobs.inc apps/shell/shell_edit.inc apps/shell/shell_env.inc apps/shell/shell_parse.inc apps/shell/shell_r12c.inc apps/common/appcalls.h
+	mkdir -p build/apps
+	$(GCC) -c -O -DSH_LINE_MAX=160 -DR11M_SHELL -DR11M_JOBS -DR12A_SHELL -DR12B_SHELL -DR12C_SHELL -DR13_SHELL -DJC_MAXJOBS=16 -DSJ_MAX=16 -Iapps/common -Iapps/shell $< -o $@
+build/apps/shell-d.aout: build/apps/shell-d.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
+	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shell-d.o build/apps/qtrap.o
 build/apps/shellt.aout: build/apps/shellt.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
 	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shellt.o build/apps/qtrap.o
 
@@ -298,6 +316,44 @@ r12a-pc:
 	$(MAKE) build/pc-r9/boot2.bin
 	$(MAKE) pc PCD=build/r12a/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12A_OPTS)" PCIMG=r12a.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r12a/pc/kctx.o PCEXTRA="$(addprefix build/r12a/pc/,$(R12A_OBJS))"
 	$(MAKE) pc PCD=build/r12a/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12A_OPTS)" PCIMG=r12a-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r12a/pc-vga/kctx.o PCEXTRA="$(addprefix build/r12a/pc-vga/,$(R12A_OBJS))"
+# R12B (opt-in): R12A + per-process environment (QDOS_ENV) and the program search path (docs/R12B-*.md).
+R12B_OPTS = $(R12A_OPTS) -DQDOS_ENV $(R12B_EXTRA)
+R12B_OBJS = $(R12A_OBJS) env.o pathres.o
+r12b-pc:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r12b/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12B_OPTS)" PCIMG=r12b.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r12b/pc/kctx.o PCEXTRA="$(addprefix build/r12b/pc/,$(R12B_OBJS))"
+	$(MAKE) pc PCD=build/r12b/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12B_OPTS)" PCIMG=r12b-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r12b/pc-vga/kctx.o PCEXTRA="$(addprefix build/r12b/pc-vga/,$(R12B_OBJS))"
+# R12C: SYSTASK task selector (Ctrl+Esc, TASKS), program titles, storage SYNC (docs/R12C-*.md).
+# QEMU kernel build/r12c/pc-vga/r12c-vga.img, headless (Tiny386) build/r12c/pc/r12c.img.
+R12C_OPTS = $(R12B_OPTS) -DQDOS_TITLES -DQDOS_SYNC -DQDOS_TASKMGR $(R12C_EXTRA)
+R12C_OBJS = $(R12B_OBJS) sync.o taskmgr.o
+r12c-pc:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r12c/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12C_OPTS)" PCIMG=r12c.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r12c/pc/kctx.o PCEXTRA="$(addprefix build/r12c/pc/,$(R12C_OBJS))"
+	$(MAKE) pc PCD=build/r12c/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12C_OPTS)" PCIMG=r12c-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r12c/pc-vga/kctx.o PCEXTRA="$(addprefix build/r12c/pc-vga/,$(R12C_OBJS))"
+# R13: process-owned display sessions, INDEX8 surfaces, the VGA presenter (mode 13h), the bitmap font
+# (docs/R13-*.md).  QEMU kernel build/r13/pc-vga/r13-vga.img, headless (Tiny386) build/r13/pc/r13.img.
+# R13_FONT=minerva (default: Minerva 1.98's QL fonts, GPL-2.0, third_party/minerva) or R13_FONT=qdos5x9 (the original
+# fallback font, no GPL material): r13-pc-qdos5x9 builds that variant in build/r13/pc-vga-q5.
+R13_FONT ?= minerva
+ifeq ($(R13_FONT),qdos5x9)
+R13_FONT_OPT = -DQDOS_FONT_QDOS5X9
+R13_FONT_OBJ = font5x9.o
+else
+R13_FONT_OPT =
+R13_FONT_OBJ = font_minerva.o
+endif
+R13_OPTS = $(R12C_OPTS) -DQDOS_SURFACES $(R13_FONT_OPT) $(R13_EXTRA)
+R13_OBJS = $(R12C_OBJS) surface.o gsurf.o font.o $(R13_FONT_OBJ) vgapres.o
+r13-pc:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r13/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13_OPTS)" PCIMG=r13.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13/pc/kctx.o PCEXTRA="$(addprefix build/r13/pc/,$(R13_OBJS))"
+	$(MAKE) pc PCD=build/r13/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13_OPTS)" PCIMG=r13-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13/pc-vga/kctx.o PCEXTRA="$(addprefix build/r13/pc-vga/,$(R13_OBJS))"
+R13Q5_OPTS = $(R12C_OPTS) -DQDOS_SURFACES -DQDOS_FONT_QDOS5X9 $(R13_EXTRA)
+R13Q5_OBJS = $(R12C_OBJS) surface.o gsurf.o font.o font5x9.o vgapres.o
+r13-pc-qdos5x9:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r13/pc-vga-q5 PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13Q5_OPTS)" PCIMG=r13-vga-q5.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13/pc-vga-q5/kctx.o PCEXTRA="$(addprefix build/r13/pc-vga-q5/,$(R13Q5_OBJS))"
 r11m-kernels: r11m-i386vm r11m-i386vm-pg r11m-pc r11m-pc-pg
 
 # Canonical R11H PC images (the shipped set).  Requires I386VM=<tree>.  The R9 boot

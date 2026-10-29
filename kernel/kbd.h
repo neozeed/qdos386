@@ -41,5 +41,6 @@ void kbd_reset(struct kbd_decoder *d);
  * R11M (-DQDOS_VCON): Alt+F1..F4 and Alt+1..4 return 2 and set *out to the console number 0..3; the
  * key and its release produce no byte (the hotkey never reaches a program). */
 int kbd_feed(struct kbd_decoder *d, unsigned char sc, unsigned char *out);
+/* R12C (-DQDOS_TASKMGR): Ctrl+Esc returns 3 (the task selector hotkey); no byte is produced. */
 
 #endif

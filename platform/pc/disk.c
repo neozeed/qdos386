@@ -131,6 +131,37 @@ static void ide_write_words(const unsigned char *buf, int words)
 	}
 }
 
+#ifdef QDOS_SYNC
+#define IDE_ERROR         0x1f1
+#define IDE_CMD_FLUSH     0xe7
+#define IDE_FLUSH_LIMIT   50000000u      /* a host fsync can take long; still bounded */
+
+int disk_flush(unsigned int *err)
+{
+	unsigned int i, st = ST_BSY;
+
+	*err = 0;
+	if (disk_sector_count() == 0)
+		return -1;
+	if (ide_wait_ready() < 0)
+		return -1;
+	outb(IDE_DRIVE, IDE_SLAVE_LBA);
+	outb(IDE_COMMAND, IDE_CMD_FLUSH);
+	for (i = 0; i < IDE_FLUSH_LIMIT; i++) {
+		st = inb(IDE_STATUS);
+		if (!(st & ST_BSY))
+			break;
+	}
+	if (st & ST_BSY)
+		return -1;
+	if (st & (ST_ERR | ST_DF)) {
+		*err = inb(IDE_ERROR) & 0xffu;
+		return -2;
+	}
+	return 0;
+}
+#endif
+
 int disk_write_sector(unsigned int lba, const unsigned char *buf)
 {
 	int st;

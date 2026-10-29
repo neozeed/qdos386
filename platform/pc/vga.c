@@ -119,8 +119,18 @@ void vga_putc(unsigned char c)
 #ifdef QDOS_VCON
 /* R11M: the virtual console layer drives the screen through these three calls (kernel/vcon.h).  The
  * foreground console is drawn cell by cell, or reloaded whole when it scrolls or the focus changes. */
+#ifdef QDOS_SURFACES
+#include "present.h"
+/* R13: while the presenter has the card in graphics mode (or is switching it), text output only updates the cells;
+ * the presenter redraws them when text mode is back. */
+#define TEXT_GUARD() do { if (!pres_text_ok()) return; } while (0)
+#else
+#define TEXT_GUARD() do { } while (0)
+#endif
+
 void vdisp_put(unsigned int row, unsigned int col, unsigned short cell)
 {
+	TEXT_GUARD();
 	VGA_TEXT[row * VGA_COLS + col] = cell;
 }
 
@@ -128,6 +138,7 @@ void vdisp_load(const unsigned short *cells)
 {
 	unsigned int i;
 
+	TEXT_GUARD();
 	for (i = 0; i < VGA_COLS * VGA_ROWS; i++)
 		VGA_TEXT[i] = cells[i];
 }
@@ -135,10 +146,19 @@ void vdisp_load(const unsigned short *cells)
 static unsigned int vd_pos = 0xffffffffu;
 static int vd_vis = -1;
 
+#ifdef QDOS_SURFACES
+void vdisp_reset_cache(void)
+{
+	vd_pos = 0xffffffffu;
+	vd_vis = -1;
+}
+#endif
+
 void vdisp_cursor(unsigned int row, unsigned int col, int visible)
 {
 	unsigned int pos = row * VGA_COLS + col;
 
+	TEXT_GUARD();
 	if (visible != vd_vis) {                  /* cursor start register: bit 5 disables the cursor */
 		outb(VGA_CRTC_ADDR, 0x0a);
 		outb(VGA_CRTC_DATA, visible ? 0x0d : 0x20);

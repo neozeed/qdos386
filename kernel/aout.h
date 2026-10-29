@@ -115,4 +115,8 @@ unsigned int app_args_of(int job_slot);
 int app_slot_owner(int slot);                  /* job id, or 0 if free */
 void app_release_owner(unsigned int job_id);   /* called from job reclaim */
 
+#ifdef QDOS_TITLES
+/* R12C: the compiled title (_prog_name) of an image -> length, or -1 (none). */
+int aout_prog_name_src(app_rd_fn rd, void *ctx, unsigned int len, char *out, unsigned int outsz);
+#endif
 #endif

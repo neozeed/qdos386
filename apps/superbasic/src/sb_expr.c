@@ -494,6 +494,14 @@ static int parse_primary(SbState *st, SbLexer *lx, SbValue *out)
             && sb_def_kind(st, name, nlen) == SB_DEF_FUNC) {
             return sb_call_function(st, lx, name, nlen, out);
         }
+        if (is_op(lx, SB_OP_LPAR) && sb_arr_find(st, name, nlen) == NULL
+            && sb_sarr_find(st, name, nlen) == NULL) {
+            /* QDOS/386 R12B: a host extension function with arguments */
+            const SbExtName *e = sb_ext_find(st, name, nlen, 1);
+            if (e != NULL) {
+                return e->func(st, lx, out);
+            }
+        }
         if (is_op(lx, SB_OP_LPAR)) {
             SbSub sub;
             rc = sb_expr_subscripts(st, lx, 1, &sub);
@@ -506,6 +514,13 @@ static int parse_primary(SbState *st, SbLexer *lx, SbValue *out)
         if (v == NULL) {
             if (sb_def_kind(st, name, nlen) == SB_DEF_PROC) {
                 return SB_E_EXPRESSION;   /* a procedure has no value (-17, verified) */
+            }
+            {
+                /* QDOS/386 R12B: a host extension function without arguments */
+                const SbExtName *e = sb_ext_find(st, name, nlen, 1);
+                if (e != NULL) {
+                    return e->func(st, lx, out);
+                }
             }
             sb_val_init_undef(out);
             return SB_OK;

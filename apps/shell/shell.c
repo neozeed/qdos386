@@ -224,7 +224,11 @@ static void cmd_help(void)
 	outs("TYPE path            print a file\n");
 	outs("COPY src dst [/Y]    copy a file (dst may be a directory; /Y replaces)\n");
 	outs("DEL path / REN a b   delete / rename (or move) a file\n");
+#ifdef R12B_SHELL
+	outs("RUN name [args]      run a program (a bare name: cwd, then each PATH entry, then /; .AOU may be left out)\n");
+#else
 	outs("RUN path [args]      run an a.out (cwd, then /BIN)\n");
+#endif
 #ifdef R11M_JOBS
 	outs("START path [args] [/CON:n]   run in the background on console n (default: this one); prints the job id\n");
 	outs("PS                   list jobs (ENDED rows: started jobs that finished, with their status)\n");
@@ -235,6 +239,20 @@ static void cmd_help(void)
 	outs("CONDUMP n            print the text of console n\n");
 	outs("DIAG 0|1|2           diagnostic mirror: console 0 / none / all consoles\n");
 	outs("SLEEP ticks          pause the shell\n");
+#endif
+#ifdef R12B_SHELL
+	outs("SET [NAME[=value]]   list / show / set environment variables (SET NAME= sets an empty value)\n");
+	outs("UNSET NAME           remove a variable;  ECHO text   print text;  %NAME% in a line is replaced by its value\n");
+	outs("CALL script          run the commands in a file (also SOURCE); REM starts a comment line\n");
+#ifdef R13_SHELL
+	outs("START ... /NEW       start in a new private session (any number: Ctrl+Esc selects them)\n");
+	outs("CON / CON n          list the sessions (TEXT or GFX) / show session n (0..19; 0..3 also Alt+F1..F4)\n");
+#endif
+#ifdef R12C_SHELL
+	outs("TASKS [/L]           task selector (also Ctrl+Esc) / list every job with its title\n");
+	outs("SYNC [/STATUS]       write pending file data, flush the drive cache / counters\n");
+	outs("SYNC /INTERVAL:s     sync every s seconds, 0 = off (also SET SYNC_INTERVAL=s)\n");
+#endif
 #endif
 	outs("EXIT                 leave the shell\n");
 	return;
@@ -349,6 +367,10 @@ static unsigned char runargs[APP_ARG_STR_MAX];
 #ifdef R11M_JOBS
 static int run_bg;                          /* START: report the job id and return without waiting */
 static int run_con = -1;                    /* START /CON:n */
+#ifdef R13_SHELL
+static int job_session(unsigned long id);   /* shell_jobs.inc: the session a job is on, or -1 */
+static int run_new;                         /* START /NEW */
+#endif
 static int pg_known, pg_ok;
 
 /* The jobs this shell started (so PS can still name them after they ended, and WAIT knows which ids are its own). */
@@ -459,7 +481,9 @@ static void cmd_run(char *arg)
 				p++;
 		}
 	}
-	fold(name);
+#ifndef R12B_SHELL
+	fold(name);                                /* R12B: the name keeps its case (the volume is searched without regard to case) */
+#endif
 #ifdef R11M_SHELL
 	if (slen(name) > 64) {
 #else
@@ -505,8 +529,8 @@ static void cmd_run(char *arg)
 	}
 
 	id = load_prog(name, plen);
-#ifdef R11M_SHELL
-	if (id == E_NOFILE) {                      /* not in the current directory: try /BIN */
+#if defined(R11M_SHELL) && !defined(R12B_SHELL)
+	if (id == E_NOFILE) {                      /* not in the current directory: try /BIN (R12B: the kernel searches PATH) */
 		unsigned int q;
 		for (q = 0; name[q]; q++)
 			if (name[q] == '/')
@@ -580,6 +604,31 @@ static void cmd_run(char *arg)
 #ifdef R11M_JOBS
 	if (run_bg) {
 		jt_add(id, name);
+#ifdef R13_SHELL
+		{
+			int sc = (int) qtrap(APP_QT_CH_CTL, (unsigned int) con_ch, 0x13u, 3u) & 0xff;
+			int jc = job_session((unsigned long) id);
+
+			outs("job ");
+			outnum(id);
+			outs(" started on session ");
+			outnum(jc);
+			if (jc == sc)
+				outs(run_new ? " (this session: no free private session)" : " (this session; /NEW gives it its own)");
+			else if (jc >= 0 && jc < 4) {
+				outs(" (Alt+F");
+				outnum(jc + 1);
+				outs(" shows it)");
+			} else {
+				outs(" (Ctrl+Esc or CON ");
+				outnum(jc);
+				outs(" shows it)");
+			}
+			outc('\n');
+		}
+		if (1)
+			return;
+#endif
 		{
 			int sc = (int) qtrap(APP_QT_CH_CTL, (unsigned int) con_ch, 0x13u, 3u) & 0xff;
 			int jc = run_con >= 0 ? run_con : sc;
@@ -621,6 +670,16 @@ static void cmd_run(char *arg)
 #ifdef R11M_JOBS
 #include "shell_jobs.inc"
 #endif
+#ifdef R12B_SHELL
+static int exec_line(char *s);
+#ifdef R12C_SHELL
+static void sync_interval_hook(const char *name, const char *value);
+#endif
+#include "shell_env.inc"
+#endif
+#ifdef R12C_SHELL
+#include "shell_r12c.inc"
+#endif
 
 /* Run one line.  Returns 1 for EXIT, 0 otherwise.  The line is changed in place. */
 static int exec_line(char *s)
@@ -628,6 +687,17 @@ static int exec_line(char *s)
 	char *w = s, *arg;
 	unsigned int e;
 
+#ifdef R12B_SHELL
+	sh_fatal = 0;
+	if (sh_expand(s, xline, SH_LINE_MAX, sh_lookup) != 0) {
+		outs("line too long after %NAME% expansion (limit ");
+		outnum(SH_LINE_MAX - 1);
+		outs(" characters): not run\n");
+		sh_fatal = 1;
+		return 0;
+	}
+	w = xline;
+#endif
 	while (*w == ' ')
 		w++;
 	if (*w == 0)
@@ -699,7 +769,31 @@ static int exec_line(char *s)
 #endif
 	else if (same(w, "RUN"))
 		cmd_run(arg);
+#ifdef R12B_SHELL
+	else if (same(w, "SET"))
+		cmd_set(arg);
+	else if (same(w, "UNSET"))
+		cmd_unset(arg);
+	else if (same(w, "ECHO"))
+		cmd_echo(arg);
+	else if (same(w, "CALL") || same(w, "SOURCE"))
+		cmd_call(arg);
+	else if (same(w, "REM"))
+		;
+#endif
+#ifdef R12C_SHELL
+	else if (same(w, "TASKS"))
+		cmd_tasks(arg);
+	else if (same(w, "SYNC"))
+		cmd_sync(arg);
+#endif
 	else if (same(w, "EXIT")) {
+#ifdef R12B_SHELL
+		if (sc_depth > 0) {
+			sc_exit = 1;
+			return 0;
+		}
+#endif
 #ifdef R11M_JOBS
 		if (exit_blocked())
 			return 0;
@@ -710,6 +804,9 @@ static int exec_line(char *s)
 		outs("unknown command: ");
 		outs(w);
 		outc('\n');
+#ifdef R12B_SHELL
+		sh_fatal = 1;
+#endif
 	}
 	return 0;
 }
@@ -721,7 +818,16 @@ int main(void)
 	con_ch = (int) qtrap(APP_QT_CH_OPEN, (unsigned int) "CON", 0, 0);
 	if (con_ch <= 0)
 		return 1;
-#ifdef R11M_SHELL
+#if defined(R13_SHELL)
+	startup();
+	outs("QDOS/386 R13 shell. Type HELP.\n");
+#elif defined(R12C_SHELL)
+	startup();
+	outs("QDOS/386 R12C shell. Type HELP.\n");
+#elif defined(R12B_SHELL)
+	startup();
+	outs("QDOS/386 R12B shell. Type HELP.\n");
+#elif defined(R11M_SHELL)
 	outs("QDOS/386 R11M shell. Type HELP.\n");
 #else
 	outs("QDOS/386 R8 shell. Type HELP.\n");

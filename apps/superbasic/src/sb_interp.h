@@ -38,4 +38,17 @@ int sb_def_kind(SbState *st, const char *name, size_t nlen);
 int sb_call_function(SbState *st, SbLexer *lx, const char *name, size_t nlen,
                      SbValue *out);
 
+/* QDOS/386 R12B: the host extension entry called name (a procedure when
+ * func is 0, a function otherwise), or NULL; see SbExtName in sb_state.h. */
+const SbExtName *sb_ext_find(const SbState *st, const char *name, size_t nlen,
+                             int func);
+
+/* QDOS/386 R12B: what NEW does (program, variables, arrays, loops, GOSUBs,
+ * DATA cursor), for a host procedure such as LOAD. */
+void sb_new(SbState *st);
+
+/* QDOS/386 R12B: nonzero while a typed (direct) line runs outside any
+ * program line or DEFine call; LOAD and MERGE are allowed only then. */
+int sb_in_direct_mode(const SbState *st);
+
 #endif /* SB_INTERP_H */

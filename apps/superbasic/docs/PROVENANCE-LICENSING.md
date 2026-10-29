@@ -93,3 +93,12 @@ strings listed above. Until then this package stays private.
 - The readiness audit (`docs/SB4-QDOS386-READINESS.md`) is a design document. It
   does not integrate with QDOS/386 and does not use or modify its kernel or any
   R8 code.
+- QDOS/386 R12B changes the core in four files (`sb_state.h`, `sb_interp.c`,
+  `sb_interp.h`, `sb_expr.c`): a host extension name table (the hosted
+  counterpart of QDOS `BP.INIT`) and three small exported helpers. The exact
+  difference is `apps/superbasic/qdos386-core-changes.patch`;
+  `apps/superbasic/verify-core.sh` reports every other core file identical to
+  the supplied SB4 sources. The host words themselves (LOAD, SAVE, MERGE, DIR,
+  EXEC, EXEC_W, ...) are QDOS/386 code in `apps/superbasic/qdos/qb_ext.c`.
+  The private-research status above is unchanged: BASIC.AOU and volumes that
+  contain it are not freely redistributable.

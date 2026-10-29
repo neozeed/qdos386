@@ -1,0 +1,164 @@
+--- SB4/src/sb_state.h
++++ src/sb_state.h
+@@ -102,7 +102,13 @@
+ /* Hosted bound, not ROM behaviour.  The JS ROM ran out of memory (-3)
+  * between 5000 and 6000 nested calls of a one-parameter function (probe
+  * sb4probe/p11).  The hosted core stops at SB_MAX_CALL_DEPTH with -3. */
++#ifdef SB_CALL_DEPTH_VAR            /* QDOS/386 port: the limit is a variable set from the stack the host gives the core */
++extern int SB_CALL_DEPTH_VAR;
++#define SB_MAX_CALL_DEPTH SB_CALL_DEPTH_VAR
++#endif
++#ifndef SB_MAX_CALL_DEPTH
+ #define SB_MAX_CALL_DEPTH 5500
++#endif
+ 
+ /* One active DEFine PROCedure or DEFine FuNction call (SB4).  Calls nest
+  * exactly as the C recursion of run_body does.  The frame's locals are the
+@@ -140,6 +146,25 @@
+     struct SbDefEntry *next;
+ } SbDefEntry;
+ 
++/* QDOS/386 R12B (host extension names): the hosted counterpart of the
++ * procedures and functions a QDOS host adds to the SuperBASIC name table with
++ * BP.INIT (LOAD, SAVE, EXEC, ... are such entries in the QL).  A host installs
++ * a table, ended by a NULL name, in SbState.ext.  A name is looked up there
++ * only when it is not a DEFine PROCedure/FuNction of the program (those win),
++ * and, as a function, not a variable or array either.  proc is called with
++ * the lexer at the token after the name and parses its arguments up to the
++ * statement separator; func with the lexer at the token after the name ('('
++ * or anything else) and leaves the result in *out.  Both return SB_OK or an
++ * SB_E_ code.  With no table (ext == NULL, the default) the core behaves as
++ * before.  docs/R12B-SUPERBASIC-FILE-ABI.md. */
++struct SbState;
++struct SbLexer;
++typedef struct SbExtName {
++    const char *name;
++    int (*proc)(struct SbState *st, struct SbLexer *lx);
++    int (*func)(struct SbState *st, struct SbLexer *lx, SbValue *out);
++} SbExtName;
++
+ typedef struct SbState {
+     SbAlloc mem;
+     SbChan *chan[SB_NCHAN];  /* host-owned handles for #0 to #3  */
+@@ -174,6 +199,9 @@
+     size_t jmp_pos;
+     long steps;           /* jumps taken since the top-level command began */
+     long step_limit;      /* hosted safeguard, see SB_DEFAULT_STEP_LIMIT  */
++
++    const SbExtName *ext; /* QDOS/386 R12B: host extension names, or NULL */
++    void *ext_ctx;        /* for the host's extension procedures          */
+ } SbState;
+ 
+ /* Start a fresh interpreter using @a mem (copied).  Channels start unset. */
+--- SB4/src/sb_interp.h
++++ src/sb_interp.h
+@@ -38,4 +38,17 @@
+ int sb_call_function(SbState *st, SbLexer *lx, const char *name, size_t nlen,
+                      SbValue *out);
+ 
++/* QDOS/386 R12B: the host extension entry called name (a procedure when
++ * func is 0, a function otherwise), or NULL; see SbExtName in sb_state.h. */
++const SbExtName *sb_ext_find(const SbState *st, const char *name, size_t nlen,
++                             int func);
++
++/* QDOS/386 R12B: what NEW does (program, variables, arrays, loops, GOSUBs,
++ * DATA cursor), for a host procedure such as LOAD. */
++void sb_new(SbState *st);
++
++/* QDOS/386 R12B: nonzero while a typed (direct) line runs outside any
++ * program line or DEFine call; LOAD and MERGE are allowed only then. */
++int sb_in_direct_mode(const SbState *st);
++
+ #endif /* SB_INTERP_H */
+--- SB4/src/sb_interp.c
++++ src/sb_interp.c
+@@ -112,6 +112,8 @@
+     sb_val_init_undef(&st->ret_val);
+     st->defs = NULL;
+     st->jmp_gosub = 0;
++    st->ext = NULL;
++    st->ext_ctx = NULL;
+ }
+ 
+ static void for_clear(SbState *st)
+@@ -1902,12 +1904,49 @@
+         return SB_E_NOT_FOUND;     /* defined, then removed: -7 (verified) */
+     }
+     /* never defined: an array assignment, or a bare name, which is -12 */
++    if (next_is_op(lx, SB_OP_LPAR) && sb_arr_find(st, name, nlen) != NULL) {
++        return stmt_assign(st, lx);
++    }
++    {
++        /* QDOS/386 R12B: a host extension procedure (SbExtName) */
++        const SbExtName *e = sb_ext_find(st, name, nlen, 0);
++        if (e != NULL) {
++            sb_lex_next(lx);
++            return e->proc(st, lx);
++        }
++    }
+     if (next_is_op(lx, SB_OP_LPAR)) {
+         return stmt_assign(st, lx);
+     }
+     return SB_E_BAD_NAME;
+ }
+ 
++const SbExtName *sb_ext_find(const SbState *st, const char *name, size_t nlen,
++                             int func)
++{
++    const SbExtName *e;
++    if (st->ext == NULL) {
++        return NULL;
++    }
++    for (e = st->ext; e->name != NULL; e++) {
++        if (same_name(e->name, strlen(e->name), name, nlen)
++            && (func ? e->func != NULL : e->proc != NULL)) {
++            return e;
++        }
++    }
++    return NULL;
++}
++
++void sb_new(SbState *st)
++{
++    (void)stmt_new(st);
++}
++
++int sb_in_direct_mode(const SbState *st)
++{
++    return st->in_direct && st->cur_line == -1 && st->frames == NULL;
++}
++
+ /* RETurn [value].  Inside a GOSUB subroutine it returns from the GOSUB;
+  * otherwise, inside a DEFine call, it ends the call (the value is kept for a
+  * function and ignored for a procedure, verified: probe return_value_in_proc). */
+--- SB4/src/sb_expr.c
++++ src/sb_expr.c
+@@ -494,6 +494,14 @@
+             && sb_def_kind(st, name, nlen) == SB_DEF_FUNC) {
+             return sb_call_function(st, lx, name, nlen, out);
+         }
++        if (is_op(lx, SB_OP_LPAR) && sb_arr_find(st, name, nlen) == NULL
++            && sb_sarr_find(st, name, nlen) == NULL) {
++            /* QDOS/386 R12B: a host extension function with arguments */
++            const SbExtName *e = sb_ext_find(st, name, nlen, 1);
++            if (e != NULL) {
++                return e->func(st, lx, out);
++            }
++        }
+         if (is_op(lx, SB_OP_LPAR)) {
+             SbSub sub;
+             rc = sb_expr_subscripts(st, lx, 1, &sub);
+@@ -507,6 +515,13 @@
+             if (sb_def_kind(st, name, nlen) == SB_DEF_PROC) {
+                 return SB_E_EXPRESSION;   /* a procedure has no value (-17, verified) */
+             }
++            {
++                /* QDOS/386 R12B: a host extension function without arguments */
++                const SbExtName *e = sb_ext_find(st, name, nlen, 1);
++                if (e != NULL) {
++                    return e->func(st, lx, out);
++                }
++            }
+             sb_val_init_undef(out);
+             return SB_OK;
+         }

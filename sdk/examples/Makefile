@@ -196,8 +196,8 @@ SBQD = $(SBDIR)/qdos/qb_io.c $(SBDIR)/qdos/qb_stack.c
 SBDEPS = $(wildcard $(SBDIR)/src/*.h $(SBDIR)/src/*.c $(SBDIR)/qdos/*.h $(SBDIR)/qdos/*.c)
 SBFLAGS = -O -I $(SBDIR)/src -I $(SBDIR)/qdos -D SB_CALL_DEPTH_VAR=qb_depth_limit
 
-BASIC.aout: $(SBDIR)/qdos/basic.c $(SBCORE) $(SBQD) $(SBDEPS) $(LIBS)
-	$(WRAP) $(SBFLAGS) -o $@ $(SBDIR)/qdos/basic.c $(SBCORE) $(SBQD)
+BASIC.aout: $(SBDIR)/qdos/basic.c $(SBCORE) $(SBQD) $(SBDIR)/qdos/qb_ext.c $(SBDEPS) $(LIBS)
+	$(WRAP) $(SBFLAGS) -D QB_R12B -o $@ $(SBDIR)/qdos/basic.c $(SBCORE) $(SBQD) $(SBDIR)/qdos/qb_ext.c
 
 BASTEST.aout: $(SBDIR)/qdos/bastest.c $(SBCORE) $(SBQD) $(SBDEPS) $(LIBS)
 	$(WRAP) $(SBFLAGS) -o $@ $(SBDIR)/qdos/bastest.c $(SBCORE) $(SBQD)
@@ -219,3 +219,23 @@ CHILDT.aout: r12a/childt/childt.c $(LIBS)
 	$(WRAP) -o $@ r12a/childt/childt.c
 PINFO.aout: r12a/pinfo/pinfo.c $(LIBS)
 	$(WRAP) -o $@ r12a/pinfo/pinfo.c
+
+# R12B: the process environment (docs/R12B-RUNTIME-REPORT.md).
+ENVT.aout: r12b/envt/envt.c $(LIBS)
+	$(WRAP) -o $@ r12b/envt/envt.c
+NEGDYN.aout: r12b/negdyn/negdyn.c $(LIBS)
+	$(WRAP) -o $@ r12b/negdyn/negdyn.c
+
+# R12C: program titles (docs/R12C-PROGRAM-TITLE-ABI.md).
+TITLET.aout: r12c/titlet/titlet.c $(LIBS)
+	$(WRAP) -o $@ r12c/titlet/titlet.c
+SYNCT.aout: r12c/synct/synct.c $(LIBS)
+	$(WRAP) -o $@ r12c/synct/synct.c
+
+# R13: display surfaces (docs/R13-DISPLAY-ABI.md).
+SURFT.aout: r13/surft/surft.c $(LIBS)
+	$(WRAP) -o $@ r13/surft/surft.c
+COLOUR.aout: r13/colour/colour.c r13/gfxmodel.h $(LIBS)
+	$(WRAP) -o $@ r13/colour/colour.c
+BOUNCE.aout: r13/bounce/bounce.c r13/gfxmodel.h $(LIBS)
+	$(WRAP) -o $@ r13/bounce/bounce.c

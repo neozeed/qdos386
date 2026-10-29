@@ -20,6 +20,9 @@
 #ifdef QDOS_JOBCTL
 #include "jobctl.h"
 #endif
+#ifdef QDOS_ENV
+#include "env.h"
+#endif
 
 extern unsigned int irq_save(void);
 extern void irq_restore(unsigned int flags);
@@ -367,6 +370,17 @@ static int build_space(struct proc *p, app_rd_fn rd, void *ctx, const struct app
 	return VAS_OK;
 }
 
+#ifdef QDOS_TITLES
+/* R12C: the creator of the process in slot (0: created by the kernel), or 0xFFFFFFFF when the slot holds no process
+ * (a kernel job: SYSTEM, IDLE, SYSTASK). */
+unsigned int proc_parent_of(int slot)
+{
+	if (slot < 0 || slot >= JOB_MAX || procs[slot].state != P_LIVE || procs[slot].id != jobs[slot].id)
+		return 0xFFFFFFFFu;
+	return procs[slot].parent;
+}
+#endif
+
 int proc_shell_is_process(void)
 {
 	return shell_is_process;
@@ -399,6 +413,16 @@ int proc_load(app_rd_fn rd, void *ctx, unsigned int len, int want_slot, const un
 		return (id == -1) ? APP_ERR_NOJOB : APP_ERR_NOMEM;
 	}
 	js = job_lookup((unsigned int) id);
+#ifdef QDOS_ENV
+	/* R12B: a snapshot of the creator's environment, owned by the new id, before the job can run.  On failure the job
+	 * (and so the block) is released by job_cancel, like every other failure below. */
+	if (env_inherit(js, (unsigned int) id, job_current) != 0) {
+		job_cancel((unsigned int) id);
+		irq_restore(irq);
+		load_failures++;
+		return APP_ERR_NOMEM;
+	}
+#endif
 	p = &procs[js];
 	p->state = P_BUILD;
 	p->id = (unsigned int) id;
@@ -608,8 +632,16 @@ int proc_spawn(unsigned int name_addr, unsigned int req_addr)
 	for (i = 0; i < 5u; i++)
 		req[i] = ((unsigned int *) req_addr)[i];
 	con = (int) req[4];
+#ifdef QDOS_SURFACES
+	/* R13: -2 = a new private session for the child; 0..VSESS_MAX-1 = an existing session */
+	if (req[0] != 1u || (req[3] & ~PROC_LOAD_HELD) != 0 || con < -2 || con >= VSESS_MAX || (con >= 0 && !vsess_valid(con)))
+		return APP_ERR_ARGS;
+	if (con == -2)
+		con = VCON_CHILD_NEW;
+#else
 	if (req[0] != 1u || (req[3] & ~PROC_LOAD_HELD) != 0 || con < -1 || con > 3)
 		return APP_ERR_ARGS;
+#endif
 	if (children_of(me) >= PROC_CHILD_LIMIT)
 		return PROC_ERR_LIMIT;
 	for (i = 0; i < CREC_MAX; i++)

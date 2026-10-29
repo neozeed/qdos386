@@ -112,6 +112,8 @@ void sb_init(SbState *st, const SbAlloc *mem)
     sb_val_init_undef(&st->ret_val);
     st->defs = NULL;
     st->jmp_gosub = 0;
+    st->ext = NULL;
+    st->ext_ctx = NULL;
 }
 
 static void for_clear(SbState *st)
@@ -1902,10 +1904,47 @@ static int stmt_ident(SbState *st, SbLexer *lx)
         return SB_E_NOT_FOUND;     /* defined, then removed: -7 (verified) */
     }
     /* never defined: an array assignment, or a bare name, which is -12 */
+    if (next_is_op(lx, SB_OP_LPAR) && sb_arr_find(st, name, nlen) != NULL) {
+        return stmt_assign(st, lx);
+    }
+    {
+        /* QDOS/386 R12B: a host extension procedure (SbExtName) */
+        const SbExtName *e = sb_ext_find(st, name, nlen, 0);
+        if (e != NULL) {
+            sb_lex_next(lx);
+            return e->proc(st, lx);
+        }
+    }
     if (next_is_op(lx, SB_OP_LPAR)) {
         return stmt_assign(st, lx);
     }
     return SB_E_BAD_NAME;
+}
+
+const SbExtName *sb_ext_find(const SbState *st, const char *name, size_t nlen,
+                             int func)
+{
+    const SbExtName *e;
+    if (st->ext == NULL) {
+        return NULL;
+    }
+    for (e = st->ext; e->name != NULL; e++) {
+        if (same_name(e->name, strlen(e->name), name, nlen)
+            && (func ? e->func != NULL : e->proc != NULL)) {
+            return e;
+        }
+    }
+    return NULL;
+}
+
+void sb_new(SbState *st)
+{
+    (void)stmt_new(st);
+}
+
+int sb_in_direct_mode(const SbState *st)
+{
+    return st->in_direct && st->cur_line == -1 && st->frames == NULL;
 }
 
 /* RETurn [value].  Inside a GOSUB subroutine it returns from the GOSUB;

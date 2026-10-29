@@ -146,6 +146,25 @@ typedef struct SbDefEntry {
     struct SbDefEntry *next;
 } SbDefEntry;
 
+/* QDOS/386 R12B (host extension names): the hosted counterpart of the
+ * procedures and functions a QDOS host adds to the SuperBASIC name table with
+ * BP.INIT (LOAD, SAVE, EXEC, ... are such entries in the QL).  A host installs
+ * a table, ended by a NULL name, in SbState.ext.  A name is looked up there
+ * only when it is not a DEFine PROCedure/FuNction of the program (those win),
+ * and, as a function, not a variable or array either.  proc is called with
+ * the lexer at the token after the name and parses its arguments up to the
+ * statement separator; func with the lexer at the token after the name ('('
+ * or anything else) and leaves the result in *out.  Both return SB_OK or an
+ * SB_E_ code.  With no table (ext == NULL, the default) the core behaves as
+ * before.  docs/R12B-SUPERBASIC-FILE-ABI.md. */
+struct SbState;
+struct SbLexer;
+typedef struct SbExtName {
+    const char *name;
+    int (*proc)(struct SbState *st, struct SbLexer *lx);
+    int (*func)(struct SbState *st, struct SbLexer *lx, SbValue *out);
+} SbExtName;
+
 typedef struct SbState {
     SbAlloc mem;
     SbChan *chan[SB_NCHAN];  /* host-owned handles for #0 to #3  */
@@ -180,6 +199,9 @@ typedef struct SbState {
     size_t jmp_pos;
     long steps;           /* jumps taken since the top-level command began */
     long step_limit;      /* hosted safeguard, see SB_DEFAULT_STEP_LIMIT  */
+
+    const SbExtName *ext; /* QDOS/386 R12B: host extension names, or NULL */
+    void *ext_ctx;        /* for the host's extension procedures          */
 } SbState;
 
 /* Start a fresh interpreter using @a mem (copied).  Channels start unset. */

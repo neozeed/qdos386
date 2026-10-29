@@ -22,3 +22,20 @@ make USE_SLIRP=n tiny386_headless tiny386        # headless runner + windowed ra
 
 `USE_SLIRP=n` because libslirp headers are not installed in the build environment. The SDL frontend (`sdl/main.c`) is patched but needs `sdl-config`;
 it was not compiled. `emulator/src/` in the package holds the seven patched files; `emulator/bin/` the two binaries built from them.
+
+## R12C addition: runtime FLUSH CACHE (`patches/tiny386-r12c-flush.patch`)
+
+Applied on top of the R11M-FIX1 tree; it changes `ide.c` only (FIX1 `ide.c` 9bbab361… → R12C `ide.c` d31f1e7c…):
+a `flush` method on the block device, `bf_flush` (earlier write error, `fflush`, `ferror`, `fsync`, without closing),
+and `WIN_FLUSH_CACHE` 0xE7 / `WIN_FLUSH_CACHE_EXT` 0xEA in `ide_exec_cmd` (success: READY|SEEK; host failure: ERR,
+error 0x40; no flush method: abort). Test-only fault injection: `TINY386_FLUSH_FAIL=N` (the Nth flush fails as if
+`fsync` failed), `N-` (N and every later one), `TINY386_FLUSH_FAIL_STAGE=fflush`. The 0x8900 shutdown path is
+unchanged. Built the same way (`make USE_SLIRP=n tiny386_headless tiny386`):
+
+| file | SHA-256 |
+|---|---|
+| `patches/tiny386-r12c-flush.patch` | 6b76b1ca091b61021e8cff740261f1221e6149b922b96562e01c232f5f5505f4 |
+| `tiny386_headless` (R12C) | b762d7afd32dc452ac84800d3934cdf69c09eb304e9c75bde2974bbbf0cc9d95 |
+| `tiny386` (R12C, rawdraw) | cd79007f7b9c922d352a185f1f002757afab4e028c2258f79a8a40d2761ab512 |
+
+See `docs/R12C-SYNC-DURABILITY.md`.

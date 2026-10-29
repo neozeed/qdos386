@@ -45,6 +45,12 @@ unsigned long disk_sector_count(void);
  * the sector is on the device when the call returns (the host may still cache it). */
 int disk_write_sector(unsigned int lba, const unsigned char *buf);
 #endif
+#ifdef QDOS_SYNC
+/* R12C: ATA FLUSH CACHE (0xE7) to the volume's drive and wait for it.  0 the device reported completion; -1 no device
+ * or no answer in time; -2 the device reported an error (ERR or DF) - with an older emulator that does not implement
+ * the command this is its abort (error register bit ABRT), which is not success either; *err gets the error register. */
+int disk_flush(unsigned int *err);
+#endif
 
 /* Console input (R7).  input_init configures the keyboard device before
  * interrupts are enabled; on PC it sets up the i8042 and unmasks IRQ1.

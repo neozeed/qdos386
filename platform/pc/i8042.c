@@ -112,8 +112,15 @@ void input_irq1(void)
 			int r = kbd_feed(&dec, sc, &c);
 			if (r == 1)
 				cin_put(c);
+#ifdef QDOS_TASKMGR
+			else if (r == 2)
+				taskmgr_console_key((int) c);  /* R12C: Alt+Fn (closes an open task selector first) */
+			else if (r == 3)
+				taskmgr_hotkey();              /* R12C: Ctrl+Esc */
+#else
 			else if (r == 2)
 				(void) vcon_switch((int) c);    /* Alt+Fn: the focus moves, no byte is queued */
+#endif
 		}
 #else
 		if (kbd_feed(&dec, sc, &c))

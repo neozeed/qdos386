@@ -26,6 +26,9 @@
 #include "sb_mem.h"
 #include "sb_state.h"
 #include "qb.h"
+#ifdef QB_R12B
+#include "qb_ext.h"
+#endif
 
 struct ctx {
 	const char *file;
@@ -138,6 +141,9 @@ static int run(void *p)
 	}
 	if (cx->steps_set)
 		st.step_limit = cx->limit;
+#ifdef QB_R12B
+	qb_ext_install(&st);         /* R12B: LOAD SAVE MERGE DIR EXEC EXEC_W ... (qb_ext.c) */
+#endif
 	if (cx->file != NULL)
 		cx->status = load_file(&st, cx->file);
 	if (!cx->quit_after && cx->status == 0) {

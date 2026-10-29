@@ -372,6 +372,7 @@ int qd_job_kill(unsigned long id);                           /* 0, or a negative
 #define QD_PROC_CAP_GUARD    0x0010
 #define QD_SPAWN_HELD        0x0001u /* created inactive (qd_job_activate starts it) */
 #define QD_SPAWN_CON_OWN     (-1)    /* console: the caller's (inherited) */
+#define QD_SPAWN_CON_NEW     (-2)    /* R13 kernels: a new private session for the child */
 struct qd_procinfo {
 	unsigned long version, id, parent, paged, space;  /* space: directory (opaque, distinct per process) */
 	unsigned long origin, image_end, args;
@@ -391,4 +392,111 @@ int qd_wait(int id, long timeout_ticks);              /* child's exit status (>=
 int qd_poll(int id);                                  /* status if ended, QD_PROC_ERR_TIMEOUT if still running */
 int qd_kill(int id);                                  /* end a child */
 
+
+/* ---- R12B: per-process environment (kernels built with -DQDOS_ENV; docs/R12B-ENV-PROCESS-ABI.md) ---------------------
+ * Names: 1..31 of A-Z a-z 0-9 _ (not starting with a digit), case-insensitive, stored upper case.  Values: 0..255 bytes,
+ * no NUL; an empty value is set, not absent.  At most 32 variables / 2,048 bytes.  A child gets a copy at creation.
+ * Older kernels answer -1 to every call.  libc: getenv; setenv/unsetenv (extensions, <stdlib.h>). */
+#define QD_ENV_NAME_MAX   31
+#define QD_ENV_VALUE_MAX  255
+int qd_env_get(const char *name, char *buf, unsigned int size);   /* value length (copy truncated to size-1), -7 absent */
+int qd_env_set(const char *name, const char *value);              /* 0, -15 bad name, -4 value too long, -5 full, -3 no memory */
+int qd_env_unset(const char *name);                               /* 0, -7 absent */
+int qd_env_list(unsigned int index, char *buf, unsigned int size);/* "NAME=value" length of entry index, -7 past the end */
+int qd_env_summary(unsigned int *count, unsigned int *bytes);
+
+/* ---- R12C: program titles, task list, task selector, storage SYNC (kernels built with QDOS_TITLES, QDOS_TASKMGR,
+ * QDOS_SYNC; docs/R12C-*.md).  Older kernels answer -1. ---------------------------------------------------------------
+ * A title is 0..63 printable ASCII bytes (others are stored as '?'; longer strings are cut at 63).  Shown title:
+ * qd_set_title's > the program's _prog_name (C68: char _prog_name[] = "Hack-1.03";, set by crt0 before main) >
+ * the executable's name.  A program changes only its own title; qd_set_title(0) or "" goes back to the next source. */
+#define QD_TITLE_MAX 64
+int qd_set_title(const char *title);                 /* bytes stored, or -14 bad pointer */
+int qd_get_title(char *buf, unsigned int size);      /* length of the caller's shown title */
+int qd_exe_name(char *buf, unsigned int size);       /* length of the caller's executable name as launched */
+void qd_prog_title(const char *name);                /* crt0 */
+/* v2 task list: a 16-byte header {version 2, entry size 128, count, job table size} then 128-byte records. */
+#define QD_TASK_ENTRY 128
+struct qd_task {
+	unsigned long id;
+	unsigned char slot, state, prio, console, flags, users, title_src, pad;
+	unsigned long parent, dispatches, age_ticks;
+	char exe[32];
+	char title[64];
+	unsigned char reserved[8];
+};
+#define QD_TASK_PROTECTED 0x08u
+#define QD_TASK_KERNEL    0x10u
+int qd_task_list(void *buf, unsigned int bytes);     /* number of records, or negative */
+int qd_taskmgr_open(void);                           /* open the task selector (as Ctrl+Esc) */
+/* SYNC: write the directory entries of files open for writing, then ATA FLUSH CACHE; your own FILE buffers are yours
+ * to fflush first.  0, or -96 the drive refused/failed the flush, -97 no answer, -18 no volume, or a FAT write error. */
+int qd_sync(void);
+int qd_sync_status(unsigned long *words16);          /* 16 counters, see docs/R12C-SYNC-DURABILITY.md */
+int qd_sync_interval(unsigned int seconds);          /* periodic SYNC by SYSTASK: 0 off, 1..3600 -> previous value */
+/* ---- R13: display sessions and surfaces (kernels built with -DQDOS_SURFACES; docs/R13-DISPLAY-ABI.md) -------------
+ * Every job is on a session.  A session shows either its 80x25 text cells (TEXT80x25: the console API) or an
+ * INDEX8 framebuffer the session opened (qd_gfx_open).  Only the foreground session is presented and gets keys;
+ * background sessions keep their state and keep being drawn.  Programs never touch the VGA: the kernel's presenter
+ * copies the foreground surface.  Kernels without surfaces answer -1 to every call (use qd_surface_caps first).
+ * Units: palette entries are R, G, B bytes 0..255 (the VGA shows the top 6 bits); coordinates are pixels from the
+ * top-left; every rectangle is clipped to the surface (negative width/height: QD_SURF_ERR_ARG; wholly outside: 0).
+ * Lifetime: a surface lives until qd_gfx_close, or until the job that opened it ends (exit, kill, fault). */
+#define QD_SURF_VERSION      1
+#define QD_SURF_CAP_TEXT     0x01u   /* text sessions */
+#define QD_SURF_CAP_INDEX8   0x02u   /* INDEX8 surfaces */
+#define QD_SURF_CAP_SHOW_TEXT 0x04u  /* the display presents text sessions */
+#define QD_SURF_CAP_SHOW_GFX 0x08u   /* the display presents INDEX8 surfaces (320x200x256) */
+#define QD_GFX_FOREGROUND    0x01u   /* qd_gfx_open: show it at once */
+#define QD_GFX_SHARE         0x02u   /* qd_gfx_open: stay on a shared session (default: a private one first) */
+#define QD_SURF_TEXT         1u
+#define QD_SURF_INDEX8       2u
+#define QD_SURF_SHOWN        0x01u
+#define QD_SURF_PRIVATE      0x02u
+#define QD_SURF_OVERLAY      0x04u
+#define QD_SURF_OWNER        0x08u
+#define QD_GFX_MAX_W         320
+#define QD_GFX_MAX_H         200
+#define QD_GFX_CELL_W        6       /* the text cell: 5x9 glyphs (Minerva 1.98 QL font, or QDOS5x9), QL character set */
+#define QD_GFX_CELL_H        10
+#define QD_GFX_UNDER         0x01u   /* text attributes */
+#define QD_GFX_INVERSE       0x02u
+#define QD_GFX_BOLD          0x04u
+#define QD_GFX_NOPAPER       0x08u
+#define QD_SURF_ERR_STALE    (-2)
+#define QD_SURF_ERR_MEM      (-3)
+#define QD_SURF_ERR_ARG      (-4)
+#define QD_SURF_ERR_FULL     (-5)
+#define QD_SURF_ERR_BUSY     (-6)
+#define QD_SURF_ERR_NOGFX    (-7)
+#define QD_SURF_ERR_OWNER    (-8)
+#define QD_SURF_ERR_RANGE    (-14)
+struct qd_surface_info {
+	unsigned long version, id, kind, w, h, stride, cols, rows;
+	unsigned long cursor;        /* col | row << 8 | visible << 16 */
+	unsigned long flags, users, owner, pal_gen, gen, frames, session;
+};
+int qd_surface_caps(void);                                       /* (version << 16) | QD_SURF_CAP_*, or -1 */
+int qd_surface_info(long id, struct qd_surface_info *out);       /* id 0: the caller's session */
+long qd_surface_new(void);                                       /* move to a new private text session -> its id */
+long qd_gfx_open(unsigned int w, unsigned int h, unsigned int flags);   /* 0, 0 = 320x200 -> surface id */
+int qd_gfx_close(void);
+long qd_gfx_fill(long x, long y, long w, long h, unsigned int colour);  /* -> pixels changed */
+long qd_gfx_blit(long x, long y, long w, long h, const void *src, unsigned long stride);
+long qd_gfx_read(long x, long y, long w, long h, void *dst, unsigned long stride);
+long qd_gfx_scroll(long x, long y, long w, long h, long dy, unsigned int fill);   /* dy > 0: up */
+int qd_gfx_palette(unsigned int first, unsigned int count, const unsigned char *rgb);
+int qd_gfx_get_palette(unsigned int first, unsigned int count, unsigned char *rgb);
+long qd_gfx_text(long x, long y, const char *s, unsigned int len, unsigned int ink, unsigned int paper, unsigned int attr);  /* -> cells */
+int qd_gfx_print(const char *s, unsigned int len);               /* the text stream (wraps, scrolls), len <= 256 */
+int qd_gfx_colours(unsigned int ink, unsigned int paper, unsigned int attr);
+int qd_gfx_cursor(unsigned int col, unsigned int row, int visible);
+long qd_gfx_cursor_get(void);
+int qd_surface_foreground(long id);                              /* show the caller's own session (id 0 or its id) */
+int qd_surface_focus(void);                                      /* 1 if the caller's session is shown and keyed */
+long qd_gfx_checksum(void);                                      /* 31-bit FNV-1a of pixels + palette */
+long qd_gfx_frame(void);                                         /* count a frame -> the count */
+int qd_surface_list(void *buf, unsigned int bytes);              /* 16-byte header + 32-byte records -> count */
+int qd_text_cells(unsigned int row, unsigned int col, const unsigned short *cells, unsigned int n);
+int qd_surface_stats(unsigned long *w8);
 #endif

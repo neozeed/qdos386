@@ -330,6 +330,7 @@ struct BlockDevice {
                        uint64_t sector_num, const uint8_t *buf, int n,
                        BlockDeviceCompletionFunc *cb, void *opaque);
     void *opaque;
+    int (*flush)(BlockDevice *bs);   /* R12C: write the device's pending data to stable storage; 0 = done, NULL = cannot */
 };
 
 typedef struct IDEState IDEState;
@@ -773,6 +774,22 @@ static void ide_exec_cmd(IDEState *s, int val)
     case WIN_READ_NATIVE_MAX:
         ide_set_sector(s, s->nb_sectors - 1);
         s->status = READY_STAT;
+        ide_set_irq(s);
+        break;
+    case WIN_FLUSH_CACHE:
+    case WIN_FLUSH_CACHE_EXT:
+        /* R12C: FLUSH CACHE is synchronous here: the image file is flushed (stdio buffer, then fsync) before the command
+         * completes.  A device that cannot flush aborts the command (ERR, error ABRT); a host failure completes it with
+         * ERR and error UNC (0x40), so a guest never sees success for data that did not reach the host file. */
+        if (!s->bs || !s->bs->flush) {
+            ide_abort_command(s);
+        } else if (s->bs->flush(s->bs) != 0) {
+            s->status = READY_STAT | ERR_STAT;
+            s->error = ECC_ERR;
+        } else {
+            s->error = 0;
+            s->status = READY_STAT | SEEK_STAT;
+        }
         ide_set_irq(s);
         break;
     default:
@@ -2016,6 +2033,63 @@ static int bf_write_async(BlockDevice *bs,
     return ret;
 }
 
+/* R12C: runtime flush of one writable image (the guest's ATA FLUSH CACHE), without closing it.  Checks the stdio flush,
+ * the stream error flag and fsync (_commit on Windows); an earlier failed write makes every later flush fail (the data is
+ * lost).  Read-only images have nothing pending (success); snapshot images are never written to the file, so a flush of
+ * one fails.  Fault injection for tests: TINY386_FLUSH_FAIL=N makes the Nth flush (counted from 1 over all images) fail
+ * as if fsync had failed, "N-" makes flush N and every later one fail; TINY386_FLUSH_FAIL_STAGE=fflush fakes the fflush
+ * step instead. */
+static int flush_count;
+
+static int flush_injected(void)
+{
+    const char *e = getenv("TINY386_FLUSH_FAIL");
+    int n;
+
+    if (!e || !*e)
+        return 0;
+    n = atoi(e);
+    if (n <= 0)
+        return 0;
+    if (e[strlen(e) - 1] == '-')
+        return flush_count >= n;
+    return flush_count == n;
+}
+
+static int bf_flush(BlockDevice *bs)
+{
+    BlockDeviceFile *bf = bs->opaque;
+    int inject;
+    const char *stage;
+
+    flush_count++;
+    if (bf->mode == BF_MODE_RO)
+        return 0;
+    if (bf->mode != BF_MODE_RW || !bf->f) {
+        fprintf(stderr, "tiny386: flush %d: snapshot image, nothing reaches the file\n", flush_count);
+        return -1;
+    }
+    inject = flush_injected();
+    stage = getenv("TINY386_FLUSH_FAIL_STAGE");
+    if (bf->write_error) {
+        fprintf(stderr, "tiny386: flush %d: an earlier write to the image failed\n", flush_count);
+        return -1;
+    }
+    if ((inject && stage && strcmp(stage, "fflush") == 0) || fflush(bf->f) != 0) {
+        fprintf(stderr, "tiny386: flush %d: fflush failed%s\n", flush_count, inject ? " (injected)" : "");
+        return -1;
+    }
+    if (ferror(bf->f)) {
+        fprintf(stderr, "tiny386: flush %d: stream error\n", flush_count);
+        return -1;
+    }
+    if (inject || fsync(fileno(bf->f)) != 0) {
+        fprintf(stderr, "tiny386: flush %d: fsync failed%s\n", flush_count, inject ? " (injected)" : "");
+        return -1;
+    }
+    return 0;
+}
+
 static BlockDevice *block_device_init(const char *filename,
                                       BlockDeviceModeEnum mode)
 {
@@ -2080,6 +2154,7 @@ static BlockDevice *block_device_init(const char *filename,
     }
     bs->read_async = bf_read_async;
     bs->write_async = bf_write_async;
+    bs->flush = bf_flush;
     return bs;
 }
 

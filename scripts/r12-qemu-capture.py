@@ -12,6 +12,12 @@
 #   %screen LABEL        record the whole current screen as "=== SCREEN LABEL" + 25 rows "NN|text" (exact positions, blank rows kept)
 #   %wait TEXT [S]       like %expect but a missing TEXT is only recorded (=== WAIT-TIMEOUT) and the run goes on
 #   %gone TEXT [S]       wait until TEXT is no longer on the screen
+# R12C addition:
+#   %cursor LABEL        record the VGA hardware cursor as "=== CURSOR LABEL row col start" (CRTC registers 0x0E/0x0F,
+#                        0x0A: start bit 5 set = cursor hidden), read with the guest stopped; the CRTC index is restored
+#   %kill                SIGKILL the emulator at once (no monitor quit, no guest shutdown) and end the run: the volume
+#                        holds exactly what QEMU had written to the image file at that moment
+# R12_HDB_PREFIX (environment) is put in front of the hdb file name, e.g. "blkdebug:CONF:" for error injection.
 # The original R11L notes follow.
 # Generalises scripts/r11h-qemu-capture.py: the commands are arguments, uppercase letters are
 # sent as shift-<key>, and the 80x25 text buffer at 0xB8000 is sampled from boot to the end,
@@ -31,7 +37,7 @@ p = subprocess.Popen(["qemu-system-i386", "-machine", "pc", "-cpu", "pentium", "
     "-bios", "/usr/share/seabios/bios.bin", "-vga", "std", "-display", "none",
     "-monitor", "tcp:127.0.0.1:%d,server,nowait" % PORT,
     "-drive", "file=%s/hda.img,format=raw,if=ide,index=0,media=disk" % W,
-    "-drive", "file=%s/hdb.img,format=raw,if=ide,index=1,media=disk%s" % (W, __import__("os").environ.get("R12_HDB_OPTS", "")),
+    "-drive", "file=%s%s/hdb.img,format=raw,if=ide,index=1,media=disk%s" % (__import__("os").environ.get("R12_HDB_PREFIX", ""), W, __import__("os").environ.get("R12_HDB_OPTS", "")),
     "-boot", "order=c", "-no-reboot"] + __import__("os").environ.get("QEMU_EXTRA", "").split(), cwd=R,
     stdout=open(O + "/stderr.txt", "w"), stderr=subprocess.STDOUT)
 time.sleep(2)
@@ -101,7 +107,15 @@ def prompt_last(rows):
     ne = [r for r in rows if r.strip()]
     return bool(ne) and PROMPT_RE.match(ne[-1].strip()) is not None
 
-run_until(lambda rows: any("Type HELP" in r for r in rows), 90)
+# R12B: QEMU_BOOT_KEY (e.g. "esc") is sent once QEMU_BOOT_KEY_AT (default "press ESC") is on the screen (the startup
+# bypass); QEMU_BOOT_WAIT replaces "Type HELP" as the text that means the boot is over (a startup script may show
+# another console first).  Unset, the behaviour is the R12 one.
+_E = __import__("os").environ
+if _E.get("QEMU_BOOT_KEY"):
+    run_until(lambda rows: any(_E.get("QEMU_BOOT_KEY_AT", "press ESC") in r for r in rows), 90)
+    seen.append("=== BOOT-KEY " + _E["QEMU_BOOT_KEY"])
+    cmd("sendkey " + _E["QEMU_BOOT_KEY"])
+run_until(lambda rows: any(_E.get("QEMU_BOOT_WAIT", "Type HELP") in r for r in rows), 90)
 for c in CMDS:
     open(O + "/lines.txt", "w").write("\n".join(seen) + "\n")      # partial transcript survives a killed run
     seen.append("=== CMD " + c)          # marker: lets the judge cut the capture into one segment per typed command
@@ -149,6 +163,44 @@ for c in CMDS:
         elif op == "prompt":
             if not run_until(prompt_last, 120):
                 seen.append("=== PROMPT-TIMEOUT")
+        elif op == "kill":
+            seen.append("=== KILL emulator (SIGKILL)")
+            open(O + "/lines.txt", "w").write("\n".join(seen) + "\n")
+            p.kill()
+            p.wait()
+            open(O + "/samples.txt", "w").write(str(samples) + "\n")
+            print("killed", len(seen), samples)
+            sys.exit(0)
+        elif op == "cursor":
+            def inb(port):
+                m = re.search(r"=\s*(0x[0-9a-fA-F]+)", cmd("i /b 0x%x" % port))
+                return int(m.group(1), 16) if m else -1
+            cmd("stop", 0.1)
+            idx = inb(0x3d4)
+            regs = {}
+            for r in (0x0e, 0x0f, 0x0a):
+                cmd("o /b 0x3d4 0x%x" % r)
+                regs[r] = inb(0x3d5)
+            if idx >= 0:
+                cmd("o /b 0x3d4 0x%x" % idx)
+            cmd("cont", 0.1)
+            pos = (regs[0x0e] << 8 | regs[0x0f]) if regs[0x0e] >= 0 and regs[0x0f] >= 0 else -1
+            seen.append("=== CURSOR %s %d %d %d" % (rest.strip(), pos // 80 if pos >= 0 else -1, pos % 80 if pos >= 0 else -1, regs[0x0a]))
+        elif op == "cells":                 # R13: the whole text buffer, characters AND attributes (25 rows of 80 hex pairs)
+            out = cmd("xp /4000xb 0xb8000")
+            vals = []
+            for line in out.splitlines():
+                m = re.match(r"^\s*0*b8[0-9a-f]{3}:\s*(.*)$", line)
+                if m:
+                    vals += [int(x, 16) for x in re.findall(r"0x([0-9a-f]{2})", m.group(1))]
+            seen.append("=== CELLS %s %d" % (rest.strip(), len(vals)))
+            for r in range(25):
+                seen.append("C%02d|%s" % (r, "".join("%02x%02x" % (vals[2 * (r * 80 + c)], vals[2 * (r * 80 + c) + 1])
+                                                    for c in range(80) if 2 * (r * 80 + c) + 1 < len(vals))))
+            seen.append("=== CELLS-END")
+        elif op == "screendump":            # R12B: the VGA picture through the monitor (PPM in OUTDIR, NAME.ppm)
+            cmd("screendump %s/%s.ppm" % (__import__("os").path.abspath(O), rest.strip()), 1.0)
+            seen.append("=== SCREENDUMP " + rest.strip())
         continue
     nowait = c.startswith("!")           # "!text": console input for the running program, do not wait for the prompt
     if c[:1] in "!@":

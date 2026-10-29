@@ -16,6 +16,17 @@
 #ifdef QDOS_PAGING
 #include "paging.h"
 #endif
+#ifdef QDOS_TITLES
+#include "jobctl.h"
+#endif
+#ifdef QDOS_TASKMGR
+#include "taskmgr.h"
+#endif
+#ifdef QDOS_SURFACES
+#include "present.h"
+#include "surface.h"
+#include "font.h"
+#endif
 #ifdef QDOS_TEST_BIGK
 extern int bigk_check(void);   /* R11K TEST ONLY: platform/pc/bigk_check.c */
 #endif
@@ -51,6 +62,9 @@ int shell_boot(void)
 #endif
 
 	descriptors_init();
+#ifdef QDOS_SURFACES
+	pres_init();                   /* R13: save the BIOS text-mode state before anything can change the mode */
+#endif
 	input_init();                  /* i8042 and IRQ1 before the timer */
 	sched_init();
 	fpu_reset();                   /* R10: clean x87 before any job runs */
@@ -89,6 +103,20 @@ int shell_boot(void)
 	if (idle_id < 0)
 		boot_fail("no job for IDLE");
 	job_idle_set(idle_id & 0xffff);
+#ifdef QDOS_TITLES
+	jobctl_note_kernel(shell_id, SHELL_IMAGE_NAME);   /* R12C: the shell's name in the task list */
+#endif
+#ifdef QDOS_TASKMGR
+	if (taskmgr_start() < 0)                           /* R12C: SYSTASK (task selector, periodic SYNC) */
+		boot_fail("no job for SYSTASK");
+	con_puts("SYSTASK: task selector on Ctrl+Esc\n");
+#endif
+#ifdef QDOS_SURFACES
+	con_puts((pres_caps() & PRES_CAP_MODE13) ? "SURFACES: sessions, INDEX8, VGA text + 320x200x256, font "
+	                                         : "SURFACES: sessions, INDEX8, no display presenter, font ");
+	con_puts(font_name);
+	con_puts("\n");
+#endif
 
 	cin_enable_poll();             /* i386VM: pull bytes from input_poll */
 #ifndef QDOS_NO_TIMER
@@ -107,6 +135,13 @@ int shell_boot(void)
 		st = qtrap(QT_JOB_EXIT, (unsigned int) shell_id, 0, 0);
 		if (st != JOB_ERR_RUNNING)
 			break;
+#ifdef QDOS_SURFACES
+		surface_poll();            /* R13: free released surfaces (the presenter is not copying: same job) */
+		pres_poll();               /* R13: the presenter - mode switches and frame copies, interrupts on */
+#endif
+#ifdef QDOS_TASKMGR
+		taskmgr_poll();            /* R12C: SYSTASK - the task selector and the periodic SYNC */
+#endif
 		qtrap(QT_SUSPEND, 1, 0, 0);
 	}
 	if (st == JOB_ERR_NOSTATUS) {

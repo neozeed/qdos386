@@ -49,6 +49,24 @@ struct jc_entry {                 /* 40 bytes, little endian, as copied to the c
 #define JC_ERR_SELF     (-68)     /* QT_JOB_KILL: the caller itself */
 #define JC_ERR_DEAD     (-69)     /* QT_JOB_KILL: the job has already ended */
 
+#ifdef QDOS_TITLES
+/* ---- R12C: program titles and the v2 job query (docs/R12C-PROGRAM-TITLE-ABI.md) ---------------------------------- */
+#define QT_JOB_TITLE   0x38       /* a = JT_OP_*, b = string / buffer, c = buffer size -> see below */
+#define JT_OP_SET       0u        /* b = title (0 or "" clears the runtime title) -> bytes stored, or negative */
+#define JT_OP_SET_PROG  1u        /* b = the compiled title (_prog_name, crt0) -> bytes stored, or negative */
+#define JT_OP_GET       2u        /* b = buffer, c = size -> length of the caller's title (copy NUL-terminated) */
+#define JT_OP_EXE       3u        /* b = buffer, c = size -> length of the caller's executable path */
+#define JT_TITLE_MAX   64u        /* bytes including the NUL: titles are 0..63 printable ASCII bytes */
+#define JT_EXE_MAX     72u
+#define JC_VERSION2     2u
+#define JC2_ENTRY_BYTES 128u
+#define JC2_EXE_MAX     32u       /* basename, NUL included */
+/* v2 record: id(4) slot state prio console flags users(1: jobs on that console) src(1: 0 exe, 1 compiled, 2 runtime)
+ * pad(1) parent(4) dispatches(4) age(4) exe[32] title[64] reserved[8] */
+#define JC_F_PROTECTED 0x08u      /* cannot be ended by QT_JOB_KILL (not launched: SYSTEM, IDLE, the shell) */
+#define JC_F_KERNEL    0x10u      /* a kernel job (no program image) */
+#endif
+
 #ifdef QDOS_JOBCTL
 /* From jobs.c / the launch traps. */
 void jobctl_slot_reset(int slot);                     /* job_alloc_sized: a new job in the slot */
@@ -56,6 +74,17 @@ void jobctl_note_launch(int id, unsigned int name_addr, unsigned int flags);   /
 int jobctl_killed(unsigned int id);                   /* 1 if the job with this id was killed */
 int jobctl_query(unsigned int buf, unsigned int bytes, unsigned int version);
 int jobctl_kill(unsigned int id);
+#ifdef QDOS_TITLES
+int jobctl_title_trap(unsigned int op, unsigned int b, unsigned int c);
+void jobctl_note_kernel(int id, const char *exe);     /* a job the kernel started itself (the shell): name only */
+const char *jobctl_title(int slot);                   /* effective title, never NULL (may be "") */
+unsigned int jobctl_start_tick(int slot);             /* tick the job in the slot started (0: kernel/boot job) */
+const char *jobctl_exe_base(int slot);                /* executable basename or kernel job name, never NULL */
+int jobctl_title_src(int slot);                       /* 0 executable name, 1 compiled, 2 runtime */
+unsigned int jobctl_flags(int slot);                  /* JC_F_* as the queries report them */
+unsigned char jobctl_state(int slot);                 /* JC_S_* */
+int jobctl_con_programs(int con);                     /* live non-kernel jobs on a console */
+#endif
 /* Provided by jobs.c. */
 void job_mark_dead_other(int slot);                   /* a non-current job: inactive, dead, reclaimable at the next trap */
 unsigned int job_dead_pending(void);

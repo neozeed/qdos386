@@ -49,11 +49,23 @@
 #ifdef QDOS_DYNPROC
 #include "proc.h"
 #endif
+#ifdef QDOS_ENV
+#include "env.h"
+#endif
 #ifdef QDOS_VCON
 #include "vcon.h"
 #endif
 #ifdef QDOS_JOBCTL
 #include "jobctl.h"
+#endif
+#ifdef QDOS_SYNC
+#include "sync.h"
+#endif
+#ifdef QDOS_TASKMGR
+#include "taskmgr.h"
+#ifdef QDOS_SURFACES
+#include "surface.h"
+#endif
 #endif
 
 /* R11J: a hold-flag release.  In the paging POC the flag may live in a paged job's
@@ -191,6 +203,9 @@ static void reclaim_dead(void)
 #ifdef QDOS_VCON
 		vcon_job_gone(i);                 /* R11M: its console waiter, session count and focus */
 #endif
+#ifdef QDOS_ENV
+		env_job_gone(i);                  /* R12B: the block itself went with the job's heap blocks */
+#endif
 		dead_mask &= ~bit;
 		j->in_use = 0;
 		j->dead = 0;
@@ -314,6 +329,23 @@ unsigned int sched_irq_tick(unsigned int sp)
 #ifdef QDOS_VCON
 /* R11M: one waiter per console, kept in kernel/vcon.c.  vcon_wake_job marks the sleeping job runnable
  * and releases its flag; like the single-console version it never schedules. */
+#ifdef QDOS_TASKMGR
+/* R12C: the SYSTEM job (which runs SYSTASK) sleeps one tick at a time; Ctrl+Esc wakes it at once.  Never schedules. */
+void job_wake(int slot)
+{
+	struct job *j;
+
+	if (slot < 0 || slot >= JOB_MAX)
+		return;
+	j = &jobs[slot];
+	if (j->in_use && j->status != 0) {
+		j->status = 0;
+		if (j->hold != 0)
+			HOLD_RELEASE(slot, j);
+	}
+}
+#endif
+
 void vcon_wake_job(int slot)
 {
 	struct job *j;
@@ -481,6 +513,9 @@ void job_cancel(unsigned int id)
 	(void) mem_reclaim_owner(j->id);
 #ifdef QDOS_VCON
 	vcon_job_gone(i);
+#endif
+#ifdef QDOS_ENV
+	env_job_gone(i);
 #endif
 	j->in_use = 0;
 	j->dead = 0;
@@ -933,6 +968,39 @@ unsigned int trap_dispatch(unsigned int sp)
 	case QT_PROC_SPAWN:
 		result = proc_spawn(a, b);
 		break;
+#ifdef QDOS_ENV
+	case QT_ENV_GET:
+		result = env_get_trap(a, b, c);
+		break;
+#ifdef QDOS_TITLES
+	case QT_JOB_TITLE:                        /* R12C: program titles */
+		result = jobctl_title_trap(a, b, c);
+		break;
+#endif
+#ifdef QDOS_SYNC
+	case QT_SYNC:                             /* R12C: storage sync */
+		result = sync_trap(a, b, c);
+		break;
+#endif
+#ifdef QDOS_TASKMGR
+	case QT_TASKMGR:                          /* R12C: open the task selector (shell TASKS) */
+		result = taskmgr_trap(a);
+		break;
+#endif
+#ifdef QDOS_SURFACES
+	case QT_SURFACE:                          /* R13: display surfaces */
+		result = surface_trap(a, b, c);
+		break;
+#endif
+
+	case QT_ENV_SET:
+		result = env_set_trap(a, b);
+		break;
+
+	case QT_ENV_LIST:
+		result = env_list_trap(a, b, c);
+		break;
+#endif
 
 	case QT_PROC_KILL:
 		result = proc_kill(a);
