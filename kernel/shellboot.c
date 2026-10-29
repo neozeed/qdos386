@@ -79,7 +79,11 @@ int shell_boot(void)
 		con_putc('\n');
 		halt_with(SHELL_HALT_BOOTFAIL);
 	}
+#ifdef QDOS_DYNPROC_SHELL
+	con_puts("SHELL: started as a process\n");
+#else
 	con_puts("SHELL: loaded into slot 0\n");
+#endif
 
 	idle_id = job_alloc("IDLE", boot_idle, 1);
 	if (idle_id < 0)

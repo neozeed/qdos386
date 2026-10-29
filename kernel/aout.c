@@ -679,7 +679,7 @@ int app_load_bytes(const unsigned char *img, unsigned int ilen)
 	return app_load_src(mem_rd, &m, ilen, -1, 0, 0);
 }
 
-#ifdef QDOS_PAGING
+#if defined(QDOS_PAGING) && !defined(QDOS_DYNPROC)
 /* ---- R11J paging proof of concept (docs/R11J-ADDRESS-SPACE-ABI.md) ------------------
  * Frames for a paged process are one physically contiguous run taken from the region pool
  * inside [lo, hi).  Contiguity matters on the i386VM harness: its CPU core sends a

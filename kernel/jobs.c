@@ -46,6 +46,9 @@
 #ifdef QDOS_PAGING
 #include "paging.h"
 #endif
+#ifdef QDOS_DYNPROC
+#include "proc.h"
+#endif
 #ifdef QDOS_VCON
 #include "vcon.h"
 #endif
@@ -76,6 +79,11 @@ volatile unsigned long stack_faults = 0;
 unsigned long jobs_reclaimed = 0;
 unsigned long bytes_reclaimed = 0;
 unsigned int sv_rand = 0;
+#ifdef QDOS_DYNPROC
+/* R12A: the current job's kernel-entry stack, read by every entry stub in kctx.s.  The defaults (whole address space)
+ * mean "already on the kernel stack": template jobs never switch. */
+unsigned int kx_lo = 0, kx_hi = 0xFFFFFFFFu, kx_entry = 0;
+#endif
 
 static struct qtask *poll_list = 0;     /* SV.PLIST */
 static struct qtask *sched_list = 0;    /* SV.SHLST */
@@ -168,6 +176,9 @@ static void reclaim_dead(void)
 		 * and retry on a later pass (never reached: guard). */
 		if (pg_release_owner(j->id, i) != 0)
 			continue;
+#endif
+#ifdef QDOS_DYNPROC
+		proc_job_reaped(j->id, job_exit_status(j->id));   /* R12A: child records, waiting parent */
 #endif
 		if (j->stack_base != 0)
 			j->stack_hwm = stack_high_water(j);
@@ -276,6 +287,11 @@ static unsigned int schedule(unsigned int sp, int fmt, int from_irq)
 #endif
 	}
 	jobs[job_current].dispatches++;
+#ifdef QDOS_DYNPROC
+	kx_lo = jobs[job_current].kx_lo;
+	kx_hi = jobs[job_current].kx_hi;
+	kx_entry = jobs[job_current].kx_entry;
+#endif
 	return jobs[job_current].saved_sp | (unsigned int) jobs[job_current].saved_fmt;
 }
 
@@ -431,6 +447,11 @@ int job_alloc_sized(const char *name, void (*entry)(void), unsigned char inc, un
 	j->stack_bytes = stack_bytes;
 	j->args = 0;
 	j->stack_hwm = 0;
+#ifdef QDOS_DYNPROC
+	j->kx_lo = 0;                      /* a template job until proc_load gives it a private user stack */
+	j->kx_hi = 0xFFFFFFFFu;
+	j->kx_entry = 0;
+#endif
 	exit_rec[i].id = id;
 	exit_rec[i].exited = 0;
 	exit_rec[i].status = 0;
@@ -514,6 +535,11 @@ void sched_init(void)
 		jobs[i].stack_hwm = 0;
 		jobs[i].preempts = 0;
 		jobs[i].dispatches = 0;
+#ifdef QDOS_DYNPROC
+		jobs[i].kx_lo = 0;
+		jobs[i].kx_hi = 0xFFFFFFFFu;
+		jobs[i].kx_entry = 0;
+#endif
 	}
 	/* SYSTEM: the boot context, job 0.  Its stack is the boot stack, which
 	 * is not on the heap, so it has no canary and is never reclaimed. */
@@ -564,7 +590,20 @@ unsigned int trap_dispatch(unsigned int sp)
 
 	reclaim_dead();
 
-#ifdef QDOS_PAGING
+#ifdef QDOS_DYNPROC
+	/* R12A: a process may load, start, wait for and kill jobs like any other job.  Still refused: services that make
+	 * the kernel call code or keep task nodes at a process address, which other directories do not map. */
+	if (pg_slot_paged(job_current) && (fn == QT_CREATE || fn == QT_POLL_ADD || fn == QT_SCHED_ADD)) {
+		f[7] = (unsigned int) PG_ERR_REFUSED;
+		return sp | 1u;
+	}
+	if (pg_slot_paged(job_current) && (fn == QT_MEM_ALLOC || fn == QT_MEM_FREE || fn == QT_MEM_VALIDATE)) {
+		/* R12A: the calling process's private heap (pheap.c), in its own directory. */
+		f[7] = (unsigned int) (fn == QT_MEM_ALLOC ? proc_mem_alloc(a) : fn == QT_MEM_FREE ? proc_mem_free(a) :
+		                       proc_mem_validate());
+		return sp | 1u;
+	}
+#elif defined(QDOS_PAGING)
 	/* R11J: services whose pointers the kernel uses later, in other contexts, or that
 	 * load images, are not available to a paged process (docs/R11J-ADDRESS-SPACE-ABI.md). */
 	if (pg_slot_paged(job_current) &&
@@ -878,6 +917,38 @@ unsigned int trap_dispatch(unsigned int sp)
 	case QT_PG_CANCEL:
 		result = pg_cancel_held(a);
 		break;
+#ifdef QDOS_DYNPROC
+	case QT_PROC_CAPS:
+		result = proc_caps();
+		break;
+
+	case QT_PROC_INFO:
+		result = proc_info(a, b);
+		break;
+
+	case QT_PROC_VA:
+		result = proc_va(a);
+		break;
+
+	case QT_PROC_SPAWN:
+		result = proc_spawn(a, b);
+		break;
+
+	case QT_PROC_KILL:
+		result = proc_kill(a);
+		break;
+
+	case QT_PROC_WAIT:
+		{
+			int blk;
+			result = proc_wait(a, (int) b, &blk);
+			if (blk) {
+				f[7] = (unsigned int) result;       /* PROC_ERR_AGAIN: libqdos repeats the call when woken */
+				return schedule(sp, 1, 0);
+			}
+		}
+		break;
+#endif
 #ifdef QDOS_TEST_PG_TASKS
 	case QT_PG_TEST:
 		result = pg_test_value(a);
@@ -892,6 +963,13 @@ unsigned int trap_dispatch(unsigned int sp)
 	f[7] = (unsigned int) result;
 	return sp | 1u;                       /* same frame, no scheduling */
 }
+
+#ifdef QDOS_DYNPROC
+int job_status_of(unsigned int id)
+{
+	return job_exit_status(id);
+}
+#endif
 
 #ifdef QDOS_PAGING
 /* R11J: end the current job from an exception frame (paging.c pg_exception).  The frame

@@ -352,7 +352,9 @@ static int run_con = -1;                    /* START /CON:n */
 static int pg_known, pg_ok;
 
 /* The jobs this shell started (so PS can still name them after they ended, and WAIT knows which ids are its own). */
+#ifndef SJ_MAX
 #define SJ_MAX 8
+#endif
 static struct sh_job {
 	int id;
 	int con;
@@ -557,7 +559,11 @@ static void cmd_run(char *arg)
 			break;
 #ifdef R11M_JOBS
 		case -60:
+#ifdef R12A_SHELL
+			outs("out of memory: no free page frames (code -60)\n");
+#else
 			outs("no free image window (limit of started programs reached)\n");
+#endif
 			break;
 		case -61:
 			outs("not linked for the standard origin: cannot be started in the background\n");

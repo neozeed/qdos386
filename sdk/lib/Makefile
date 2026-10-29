@@ -8,9 +8,13 @@ AS  = $(QDOS386_TOOLS)/bin/as
 AR  = ar
 SDK = $(abspath ..)
 
-libqdos.a: qdos.o qtrap.o qdospg.o qdosfs.o qdoscon.o qdosjob.o
+libqdos.a: qdos.o qtrap.o qdospg.o qdosfs.o qdoscon.o qdosjob.o qdosproc.o
 	rm -f $@
-	$(AR) rc $@ qdos.o qtrap.o qdospg.o qdosfs.o qdoscon.o qdosjob.o
+	$(AR) rc $@ qdos.o qtrap.o qdospg.o qdosfs.o qdoscon.o qdosjob.o qdosproc.o
+
+# R12A: process wrappers, a separate member.
+qdosproc.o: qdosproc.c ../include/qdos386.h
+	$(GCC) -c -O -I../include qdosproc.c -o $@
 
 # R11M: job control wrappers, a separate member.
 qdosjob.o: qdosjob.c ../include/qdos386.h

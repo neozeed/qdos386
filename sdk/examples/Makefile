@@ -201,3 +201,21 @@ BASIC.aout: $(SBDIR)/qdos/basic.c $(SBCORE) $(SBQD) $(SBDEPS) $(LIBS)
 
 BASTEST.aout: $(SBDIR)/qdos/bastest.c $(SBCORE) $(SBQD) $(SBDEPS) $(LIBS)
 	$(WRAP) $(SBFLAGS) -o $@ $(SBDIR)/qdos/bastest.c $(SBCORE) $(SBQD)
+
+# R12A: dynamic-process tests (docs/R12A-RUNTIME-REPORT.md).
+MAPTEST.aout: r12a/maptest/maptest.c $(LIBS)
+	$(WRAP) -o $@ r12a/maptest/maptest.c
+BIGBSS.aout: r12a/bigbss/bigbss.c $(LIBS)
+	$(WRAP) -o $@ r12a/bigbss/bigbss.c
+HEAPT.aout: r12a/heapt/heapt.c $(LIBS)
+	$(WRAP) -o $@ r12a/heapt/heapt.c
+STKT.aout: r12a/stkt/stkt.c $(LIBS)
+	$(WRAP) -o $@ r12a/stkt/stkt.c
+FAULTT.aout: r12a/faultt/faultt.c $(LIBS)
+	$(WRAP) -o $@ r12a/faultt/faultt.c
+SPAWNT.aout: r12a/spawnt/spawnt.c $(LIBS)
+	$(WRAP) -o $@ r12a/spawnt/spawnt.c
+CHILDT.aout: r12a/childt/childt.c $(LIBS)
+	$(WRAP) -o $@ r12a/childt/childt.c
+PINFO.aout: r12a/pinfo/pinfo.c $(LIBS)
+	$(WRAP) -o $@ r12a/pinfo/pinfo.c

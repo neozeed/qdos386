@@ -218,7 +218,9 @@ static void cmd_start(char *arg)
 #define JC_HDR     16u
 #define JC_ENT     40u
 #define JC_VER     1u
+#ifndef JC_MAXJOBS
 #define JC_MAXJOBS 8
+#endif
 unsigned char jbuf[JC_HDR + JC_ENT * JC_MAXJOBS];
 
 static unsigned int rd32(const unsigned char *p)

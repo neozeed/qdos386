@@ -9,6 +9,9 @@
 #ifdef QDOS_PAGING
 #include "paging.h"
 #endif
+#ifdef QDOS_DYNPROC
+#include "proc.h"
+#endif
 
 #ifdef QDOS_FS_WRITE
 #define IMG_NAME_MAX 66u           /* R11M: a path of up to 64 characters, NUL included (relative to the caller's directory) */
@@ -86,7 +89,14 @@ static int img_load_named(const char *name, int want_slot,
 	if (f.size > IMG_FILE_MAX)
 		return APP_ERR_TOOBIG;
 	src.f = &f;
+#ifdef QDOS_DYNPROC
+	/* R12A: every load is a new process; only the boot shell stays in its slot until it becomes a process. */
+	if (want_slot == 0 && !proc_shell_is_process())
+		return app_load_src(fat_rd, &src, (unsigned int) f.size, 0, packed, plen);
+	return proc_load(fat_rd, &src, (unsigned int) f.size, want_slot, packed, plen, 0);
+#else
 	return app_load_src(fat_rd, &src, (unsigned int) f.size, want_slot, packed, plen);
+#endif
 }
 
 int img_load_kernel(const char *name, unsigned int want_slot)
@@ -207,6 +217,57 @@ int img_pg_start_request(unsigned int name_addr, unsigned int args_addr, unsigne
 	if (f.size > IMG_FILE_MAX)
 		return APP_ERR_TOOBIG;
 	src.f = &f;
+#ifdef QDOS_DYNPROC
+	/* R12A veneer: the same request through the common process loader. */
+	rc = proc_load(fat_rd, &src, (unsigned int) f.size, 1, img_packed, total, held ? PROC_LOAD_HELD : 0u);
+	return rc == APP_ERR_NOTSLOT1 ? PG_ERR_ORIGIN : rc;
+#else
 	return app_load_paged(fat_rd, &src, (unsigned int) f.size, img_packed, total, held);
+#endif
+}
+#endif
+
+#ifdef QDOS_DYNPROC
+/* R12A: QT_PROC_SPAWN body after the request was checked (proc.c): the named file, any historical origin, with the
+ * packed arguments; flags PROC_LOAD_HELD.  The caller may be any job, including a process. */
+int img_spawn_request(unsigned int name_addr, unsigned int args_addr, unsigned int args_len, unsigned int flags)
+{
+	char name[IMG_NAME_MAX];
+	unsigned int n = 0, i, total;
+	struct fat16_vol *v;
+	struct fat16_file f;
+	struct fat_src src;
+	int rc;
+
+	if (!copy_user_name(name_addr, name))
+		return FAT_ERR_NAME;
+	while (name[n] != 0)
+		n++;
+	if (args_len > APP_ARG_STR_MAX || n + 1 + args_len > APP_ARG_STR_MAX)
+		return APP_ERR_ARGS;
+	if (args_len != 0) {
+		if (!chan_user_range_ok(args_addr, args_len))
+			return CHAN_ERR_RANGE;
+		if (*(unsigned char *) (args_addr + args_len - 1) != 0)
+			return APP_ERR_ARGS;
+	}
+	for (i = 0; i <= n; i++)
+		img_packed[i] = (unsigned char) name[i];
+	total = n + 1;
+	for (i = 0; i < args_len; i++)
+		img_packed[total + i] = *(unsigned char *) (args_addr + i);
+	total += args_len;
+	v = win1_volume();
+	if (v == 0)
+		return CHAN_ERR_NOVOL;
+	rc = win1_open_img(name, &f);
+	if (rc != FAT_OK)
+		return rc;
+	if (f.size == 0)
+		return APP_ERR_SIZE;
+	if (f.size > IMG_FILE_MAX)
+		return APP_ERR_TOOBIG;
+	src.f = &f;
+	return proc_load(fat_rd, &src, (unsigned int) f.size, -1, img_packed, total, flags);
 }
 #endif

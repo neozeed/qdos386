@@ -87,6 +87,12 @@ build/apps/shell-m.o: apps/shell/shell.c apps/shell/shell_r11m.inc apps/shell/sh
 	$(GCC) -c -O -DSH_LINE_MAX=160 -DR11M_SHELL -DR11M_JOBS -Iapps/common -Iapps/shell $< -o $@
 build/apps/shell-m.aout: build/apps/shell-m.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
 	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shell-m.o build/apps/qtrap.o
+# R12A: the R11M/R12 shell for the 16-entry job table of QDOS_DYNPROC kernels (same source; -DR12A_SHELL changes messages).
+build/apps/shell-a.o: apps/shell/shell.c apps/shell/shell_r11m.inc apps/shell/shell_jobs.inc apps/shell/shell_edit.inc apps/common/appcalls.h
+	mkdir -p build/apps
+	$(GCC) -c -O -DSH_LINE_MAX=160 -DR11M_SHELL -DR11M_JOBS -DR12A_SHELL -DJC_MAXJOBS=16 -DSJ_MAX=16 -Iapps/common -Iapps/shell $< -o $@
+build/apps/shell-a.aout: build/apps/shell-a.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
+	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shell-a.o build/apps/qtrap.o
 build/apps/shellt.aout: build/apps/shellt.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
 	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shellt.o build/apps/qtrap.o
 
@@ -147,10 +153,12 @@ run-i386vm: $(I386D)/$(I386IMG)
 # ---- Tiny386 PC -----------------------------------------------------------
 PC_OBJS = $(PCD)/main.o $(PCD)/region.o $(PCD)/jobs.o $(PCD)/clock.o $(PCD)/clock_boot.o $(PCD)/fpu.o $(PCD)/memory.o $(PCD)/channel.o $(PCD)/irq.o \
           $(PCD)/descriptors.o $(PCD)/test_jobs.o $(PCD)/test_memory.o $(PCD)/test_channels.o \
-          $(PCD)/aout.o $(PCD)/test_app.o $(PCD)/context.o $(PCD)/platform.o \
+          $(PCD)/aout.o $(PCD)/test_app.o $(PCCTX) $(PCD)/platform.o \
           $(PCD)/fat16.o $(PCD)/win1.o $(PCD)/test_fs.o $(PCD)/disk.o \
           $(PCD)/cin.o $(PCD)/kbd.o $(PCD)/vga.o $(PCD)/test_console.o $(PCD)/test_r8.o $(PCD)/i8042.o $(PCD)/test_dir.o $(PCD)/imgload.o $(PCD)/shellboot.o $(PCD)/test_shell.o
 
+# R12A: PCCTX is the architecture assembly object (context.o everywhere except QDOS_DYNPROC kernels: kctx.o).
+PCCTX ?= $(PCD)/context.o
 # R11J/R11K: PCEXTRA adds the paging objects (empty for every default image).
 PCEXTRA ?=
 PC_OBJS += $(PCEXTRA)
@@ -181,6 +189,9 @@ $(PCD)/context.o: kernel/context.s
 	mkdir -p $(PCD)
 	$(AS) -o $@ $<
 $(PCD)/paging_s.o: kernel/paging.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+$(PCD)/kctx.o: kernel/kctx.s
 	mkdir -p $(PCD)
 	$(AS) -o $@ $<
 $(PCD)/entry.o: platform/pc/entry.s
@@ -279,6 +290,14 @@ r12-pc-pg:
 	$(MAKE) build/pc-r9/boot2.bin
 	$(MAKE) pc PCD=build/r12/pc-pg PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12_OPTS) $(R11K_PAGING)" PCIMG=r12-pg.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r12/pc-pg/paging.o build/r12/pc-pg/paging_s.o build/r12/pc-pg/vcon.o build/r12/pc-pg/jobctl.o"
 	$(MAKE) pc PCD=build/r12/pc-pg-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12_OPTS) $(R11K_PAGING)" PCIMG=r12-pg-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r12/pc-pg-vga/paging.o build/r12/pc-pg-vga/paging_s.o build/r12/pc-pg-vga/vcon.o build/r12/pc-pg-vga/jobctl.o"
+# R12A (opt-in): dynamic process address spaces, private heaps/stacks, kernel-entry stacks (docs/R12A-*.md).
+# QEMU kernel build/r12a/pc-vga/r12a-vga.img, headless (Tiny386) kernel build/r12a/pc/r12a.img.  R12A_EXTRA adds options.
+R12A_OPTS = $(R11M_OPTS) -DQDOS_PAGING -DQDOS_DYNPROC -DQDOS_DYNPROC_SHELL $(R12A_EXTRA)
+R12A_OBJS = proc.o frames.o vas.o pheap.o vcon.o jobctl.o
+r12a-pc:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r12a/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12A_OPTS)" PCIMG=r12a.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r12a/pc/kctx.o PCEXTRA="$(addprefix build/r12a/pc/,$(R12A_OBJS))"
+	$(MAKE) pc PCD=build/r12a/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12A_OPTS)" PCIMG=r12a-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r12a/pc-vga/kctx.o PCEXTRA="$(addprefix build/r12a/pc-vga/,$(R12A_OBJS))"
 r11m-kernels: r11m-i386vm r11m-i386vm-pg r11m-pc r11m-pc-pg
 
 # Canonical R11H PC images (the shipped set).  Requires I386VM=<tree>.  The R9 boot

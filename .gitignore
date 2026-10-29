@@ -7,12 +7,15 @@ evidence/
 external/
 emulator/
 guest-programs/
+guest-programs-r12a/
+guest-programs-r12b/
 images/
 launch/
 logs/
 patches/
 run/
 tests/
+fs/
 toolchain/guest-bin
 toolchain/host-bin
 toolchain/objects

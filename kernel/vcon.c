@@ -6,7 +6,11 @@
 
 #ifdef QDOS_VCON
 
+#ifdef QDOS_DYNPROC
+#define VCON_JOBS 16                   /* R12A: JOB_MAX is 16 */
+#else
 #define VCON_JOBS 8                    /* job slots tracked (JOB_MAX is 6) */
+#endif
 
 struct vcon {
 	unsigned short cell[VCON_CELLS];

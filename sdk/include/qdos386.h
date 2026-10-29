@@ -354,4 +354,41 @@ int qd_job_list(struct qd_jobinfo *out, int max);
 int qd_job_find(unsigned long id, struct qd_jobinfo *out);   /* 1 found (out filled), 0 not in the table, or negative */
 int qd_job_kill(unsigned long id);                           /* 0, or a negative code */
 
+
+/* ---- R12A: dynamic processes (kernels built with -DQDOS_DYNPROC; docs/R12A-PROCESS-ABI.md) --------------------------
+ * Every program is a process: its own page directory, image frames at its link origin (several copies of one program
+ * run at once), a private heap (qd_alloc/malloc) and a private user stack.  NOT security isolation: everything runs at
+ * CPL 0.  On an older kernel every call returns QD_PROC_ERR_NONE. */
+#define QD_PROC_ERR_NONE     (-71)   /* the kernel has no R12A process services */
+#define QD_PROC_ERR_NOFRAMES (-60)
+#define QD_PROC_ERR_REFUSED  (-62)
+#define QD_PROC_ERR_NOTCHILD (-68)
+#define QD_PROC_ERR_LIMIT    (-69)
+#define QD_PROC_ERR_TIMEOUT  (-70)   /* qd_wait timed out; qd_poll: the child is still running */
+#define QD_PROC_CAP_DYNAMIC  0x0001
+#define QD_PROC_CAP_PHEAP    0x0002
+#define QD_PROC_CAP_PSTACK   0x0004
+#define QD_PROC_CAP_SPAWN    0x0008
+#define QD_PROC_CAP_GUARD    0x0010
+#define QD_SPAWN_HELD        0x0001u /* created inactive (qd_job_activate starts it) */
+#define QD_SPAWN_CON_OWN     (-1)    /* console: the caller's (inherited) */
+struct qd_procinfo {
+	unsigned long version, id, parent, paged, space;  /* space: directory (opaque, distinct per process) */
+	unsigned long origin, image_end, args;
+	unsigned long heap_base, heap_brk, heap_cap, heap_used;
+	unsigned long stack_lo, stack_hi;
+	unsigned long frames;                              /* frames held: directory, tables, pages */
+	unsigned long pool_frames, pool_free;
+	unsigned long kstack_bytes, kstack_hwm;
+	unsigned long dispatches, preempts, faults, children, procs_live;
+};
+int qd_proc_caps(void);                               /* (version << 24) | (job table << 16) | QD_PROC_CAP_* */
+int qd_proc_info(int id, struct qd_procinfo *out);    /* id 0 = the caller */
+unsigned long qd_proc_va(const void *p);              /* diagnostic: PTE mapping p in the caller's space (frame | flags) */
+int qd_spawn(const char *name, const char *packed, unsigned int len, unsigned int flags, int console);
+                                                      /* child job id; packed = len bytes of NUL-terminated argv[1..] */
+int qd_wait(int id, long timeout_ticks);              /* child's exit status (>= 0) or negative; -1 ticks = forever */
+int qd_poll(int id);                                  /* status if ended, QD_PROC_ERR_TIMEOUT if still running */
+int qd_kill(int id);                                  /* end a child */
+
 #endif

@@ -20,8 +20,12 @@
 #ifdef QDOS_PAGING_POC
 #error "R11K: the paging feature macro is now QDOS_PAGING (ABI 2); QDOS_PAGING_POC was the R11J name"
 #endif
+#ifdef QDOS_DYNPROC
+#define JOB_MAX 16                /* R12A: a bounded table; job memory (frames, kernel stacks) is dynamic */
+#else
 #define JOB_MAX 6                 /* R10: slot 0 SYSTEM, IDLE, shell, and room for two
                                   * floating-point application jobs beside them */
+#endif
 #define JOB_STACK_BYTES 4096      /* heap-allocated, 16-byte aligned */
 #define JOB_STACK_CANARY 0xc0dec0deu
 #define JOB_SYSTEM 0
@@ -67,6 +71,16 @@
 #define QT_JOB_SELF   0x21        /* R11E: -> tagged job id of the calling job */
 #define QT_JOB_SLOT   0x22        /* R11E: a = slot index -> tagged job id of the job in that slot, or -2 */
 #define QT_WALL_TIME  0x23        /* R11F: -> wall time (epoch seconds), or -1 (0xFFFFFFFF) if unavailable */
+#ifdef QDOS_DYNPROC
+/* R12A process services (docs/R12A-PROCESS-ABI.md). */
+#define QT_PROC_CAPS  0x2F        /* -> (ABI version << 24) | (job table size << 16) | PROC_CAP_* */
+#define QT_PROC_SPAWN 0x30        /* a = name, b = struct qd_spawn pointer -> tagged job id */
+#define QT_PROC_WAIT  0x31        /* a = child id, b = timeout ticks (-1 forever, 0 poll) -> exit status, or negative */
+#define QT_PROC_INFO  0x32        /* a = job id (0 = caller), b = PROC_INFO_WORDS-word buffer -> 0 */
+#define QT_PROC_KILL  0x33        /* a = child id -> 0 */
+#define QT_PROC_VA    0x34        /* a = virtual address -> its PTE in the caller's space (diagnostic) */
+extern unsigned int kx_lo, kx_hi, kx_entry;   /* the current job's kernel-entry stack (kctx.s reads them) */
+#endif
 #define QT_CON_WAIT   0x1C        /* b = flag byte, set when console input arrives -> 0.
                                      Returns at once if input or end is pending; otherwise
                                      the job sleeps.  The caller retries its CON read. */
@@ -105,6 +119,10 @@ struct job {
 	unsigned long preempts;
 	unsigned long dispatches;
 	unsigned int fpu[FPU_STATE_WORDS];   /* R10: x87 state (FNSAVE image) */
+#ifdef QDOS_DYNPROC
+	unsigned int kx_lo, kx_hi;    /* R12A: kernel stack range; an entry from outside it switches to kx_entry */
+	unsigned int kx_entry;        /* R12A: kernel-stack ESP for entries from the private user stack */
+#endif
 };
 
 /* Exit record per slot.  Kept after the job is reclaimed, so SYSTEM can read
