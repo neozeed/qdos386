@@ -128,6 +128,10 @@ int chan_seek(unsigned int id, unsigned int owner, unsigned int pos);
 #define CHAN_CON_CHILD  0x18u   /* arg = console for the next job this job creates; 0xFF clears -> 0 */
 #define CHAN_CON_SNAP   0x19u   /* arg = struct chan_con_snap * -> length of the row text */
 #define CHAN_CON_DIAG   0x1Au   /* arg = VDIAG_* sets, 0xFF reads -> the mode */
+#define CHAN_CON_CAPS   0x1Bu   /* R12: arg ignored -> (console API version << 16) | CON_CAP_* feature bits; see docs/R12-CONSOLE-EDITOR-ABI.md */
+#define CON_API_VERSION 2       /* 1 = R11M (implicit), 2 = R12 */
+#define CON_CAP_KEYS    0x0001u /* the input device delivers key codes 0x80..0x99 (cursor/edit/function keys) and Esc/Ctrl codes */
+#define CON_CAP_QUEUED  0x0002u /* CHAN_CON_QUERY VQ_QUEUED is available (always set with API version 2) */
 struct chan_con_snap {          /* request and reply of CHAN_CON_SNAP (88 bytes) */
 	unsigned char con;              /* in: console to read; 0xFF = this channel's console */
 	unsigned char row;              /* in: row 0..24 */

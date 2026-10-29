@@ -24,6 +24,7 @@ void kbd_reset(struct kbd_decoder *d)
 	d->skip = 0;
 #ifdef QDOS_VCON
 	d->alt = 0;
+	d->ctrl = 0;
 #endif
 }
 
@@ -44,12 +45,37 @@ int kbd_feed(struct kbd_decoder *d, unsigned char sc, unsigned char *out)
 		d->skip = 5;                /* 1D 45 E1 9D C5 follow */
 		return 0;
 	}
-	if (d->ext) {                       /* extended key: only keypad Enter */
+	if (d->ext) {                       /* extended key: keypad Enter (and, R12, the cursor/edit keys) */
 		d->ext = 0;
 #ifdef QDOS_VCON
 		if ((sc & 0x7f) == 0x38) {      /* right Alt (AltGr) */
 			d->alt = (sc & 0x80) == 0;
 			return 0;
+		}
+		if ((sc & 0x7f) == 0x1d) {      /* right Ctrl */
+			d->ctrl = (sc & 0x80) == 0;
+			return 0;
+		}
+		if ((sc & 0x80) == 0 && !d->alt) {   /* R12: Up Down Left Right Home End PgUp PgDn Insert Delete */
+			unsigned char k = 0;
+
+			switch (sc) {
+			case 0x48: k = KBD_KEY_UP; break;
+			case 0x50: k = KBD_KEY_DOWN; break;
+			case 0x4b: k = KBD_KEY_LEFT; break;
+			case 0x4d: k = KBD_KEY_RIGHT; break;
+			case 0x47: k = KBD_KEY_HOME; break;
+			case 0x4f: k = KBD_KEY_END; break;
+			case 0x49: k = KBD_KEY_PGUP; break;
+			case 0x51: k = KBD_KEY_PGDN; break;
+			case 0x52: k = KBD_KEY_INS; break;
+			case 0x53: k = KBD_KEY_DEL; break;
+			default: break;
+			}
+			if (k != 0) {
+				*out = k;
+				return 1;
+			}
 		}
 #endif
 		if ((sc & 0x7f) == 0x1c && (sc & 0x80) == 0) {
@@ -71,6 +97,10 @@ int kbd_feed(struct kbd_decoder *d, unsigned char sc, unsigned char *out)
 		d->alt = make ? 1 : 0;
 		return 0;
 	}
+	if (code == 0x1d) {                  /* left Ctrl (R12) */
+		d->ctrl = make ? 1 : 0;
+		return 0;
+	}
 	if (make && d->alt) {                /* console hotkeys: Alt+F1..F4, Alt+1..4 */
 		if (code >= 0x3b && code <= 0x3e) {
 			*out = (unsigned char) (code - 0x3b);
@@ -85,6 +115,16 @@ int kbd_feed(struct kbd_decoder *d, unsigned char sc, unsigned char *out)
 	if (!make)
 		return 0;
 
+#ifdef QDOS_VCON
+	if (code == 0x01) {                  /* R12: Esc */
+		*out = 0x1b;
+		return 1;
+	}
+	if (code >= 0x3b && code <= 0x44) {  /* R12: F1..F10 (Alt+F1..F4 were taken above) */
+		*out = (unsigned char) (KBD_KEY_F1 + (code - 0x3b));
+		return 1;
+	}
+#endif
 	if (code == 0x1c) {
 		*out = '\r';
 		return 1;
@@ -100,5 +140,23 @@ int kbd_feed(struct kbd_decoder *d, unsigned char sc, unsigned char *out)
 	if (code >= KBD_TABLE_LEN)
 		return 0;
 	*out = d->shift ? upper[code] : plain[code];
+#ifdef QDOS_VCON
+	if (d->ctrl && *out != 0) {          /* R12: Ctrl+letter is 0x01..0x1A; Ctrl+[ \ ] are 0x1B..0x1D; others are dropped */
+		unsigned char c = *out;
+
+		if (c >= 'a' && c <= 'z')
+			*out = (unsigned char) (c - 'a' + 1);
+		else if (c >= 'A' && c <= 'Z')
+			*out = (unsigned char) (c - 'A' + 1);
+		else if (c == '[' || c == '{')
+			*out = 0x1b;
+		else if (c == '\\' || c == '|')
+			*out = 0x1c;
+		else if (c == ']' || c == '}')
+			*out = 0x1d;
+		else
+			return 0;
+	}
+#endif
 	return *out != 0;
 }

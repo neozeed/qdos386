@@ -31,22 +31,72 @@ static int digit_arg(const char *a)
 	return -1;
 }
 
+static int jobs_query(void);
+static unsigned int rd32(const unsigned char *p);
+static void out_pad(const char *s, int w);
+
+/* CON with no argument: where this shell is, which console is visible, and the jobs on each console. */
+static void con_table(void)
+{
+	int c, i, k, n, vis, me, any;
+	extern unsigned char jbuf[];
+
+	me = sh_ctl(CC_QUERY, CVQ_SELF) & 0xff;
+	vis = sh_ctl(CC_QUERY, CVQ_FG);
+	outs("this shell is on console ");
+	outnum(me);
+	outs(", console ");
+	outnum(vis);
+	outs(" is visible\n");
+	n = jobs_query();
+	if (n < 0)
+		return;
+	for (c = 0; c < CON_COUNT; c++) {
+		outs(c == vis ? "* " : "  ");
+		outs("console ");
+		outnum(c);
+		outs("  Alt+F");
+		outnum(c + 1);
+		outs("  ");
+		any = 0;
+		for (i = 0; i < n; i++) {
+			const unsigned char *e = jbuf + 16u + (unsigned int) i * 40u;
+			char nm[17];
+
+			if (e[7] != (unsigned int) c || !(e[8] & 5))      /* only started jobs and this shell (not IDLE) */
+				continue;
+			for (k = 0; k < 16; k++)
+				nm[k] = (char) e[24 + k];
+			nm[16] = 0;
+			if (any)
+				outs(", ");
+			any = 1;
+			outs(nm);
+			if (e[8] & 4)
+				outs(" (this shell)");
+			else {
+				outs(" [");
+				outnum((long) rd32(e));
+				outc(']');
+			}
+		}
+		if (!any)
+			outs("(no job)");
+		outc('\n');
+	}
+}
+
 static void cmd_con(char *arg)
 {
 	int n, v;
 
 	if (*arg == 0) {
-		v = sh_ctl(CC_QUERY, CVQ_SELF);
-		outs("this shell is on console ");
-		outnum(v & 0xff);
-		outs(", console ");
-		outnum(sh_ctl(CC_QUERY, CVQ_FG));
-		outs(" is visible\n");
+		con_table();
 		return;
 	}
 	n = digit_arg(arg);
 	if (n < 0 || n >= CON_COUNT) {
-		outs("usage: CON [0-3]\n");
+		outs("usage: CON [0-3]   (no argument: show the consoles and their jobs)\n");
 		return;
 	}
 	v = sh_ctl(CC_FOCUS, (unsigned int) n);
@@ -169,7 +219,7 @@ static void cmd_start(char *arg)
 #define JC_ENT     40u
 #define JC_VER     1u
 #define JC_MAXJOBS 8
-static unsigned char jbuf[JC_HDR + JC_ENT * JC_MAXJOBS];
+unsigned char jbuf[JC_HDR + JC_ENT * JC_MAXJOBS];
 
 static unsigned int rd32(const unsigned char *p)
 {
@@ -331,13 +381,34 @@ static unsigned long parse_id(const char *a)
 	return v;
 }
 
+/* While the shell waits for a job, keys typed on the shell's console are read and dropped; Ctrl+C abandons the wait.  Returns 1 for Ctrl+C. */
+static int wait_cancelled(void)
+{
+	int r, hit = 0;
+
+	for (;;) {
+		r = qtrap(APP_QT_CH_READ, (unsigned int) con_ch, (unsigned int) rbuf, 1);
+		if (r != 1)
+			return hit;
+		if (rbuf[0] == 3)
+			hit = 1;
+	}
+}
+
+static void wait_abandoned(unsigned long id)
+{
+	outs("WAIT abandoned (Ctrl+C); job ");
+	outnum((long) id);
+	outs(" keeps running\n");
+}
+
 static void cmd_wait(char *arg)
 {
 	unsigned long id = parse_id(arg);
 	int st, n;
 
 	if (id == 0) {
-		outs("usage: WAIT <job id>   (ids are shown by START and PS)\n");
+		outs("usage: WAIT <job id>   (ids are shown by START and PS; Ctrl+C stops waiting)\n");
 		return;
 	}
 	jt_harvest();
@@ -364,6 +435,10 @@ static void cmd_wait(char *arg)
 			st = (int) qtrap(APP_QT_JOB_EXIT, (unsigned int) id, 0, 0);
 			if (st != E_RUNNING)
 				break;
+			if (wait_cancelled()) {
+				wait_abandoned(id);
+				return;
+			}
 			qtrap(APP_QT_SUSPEND, 1, 0, 0);
 		}
 	}
@@ -377,45 +452,119 @@ static void cmd_wait(char *arg)
 	say_end((int) id, st);
 }
 
-static void cmd_kill(char *arg)
+/* Kill one job; prints the outcome.  Returns 1 if it was killed. */
+static int kill_one(unsigned long id, int quiet)
 {
-	unsigned long id = parse_id(arg);
-	int r;
+	int r = (int) qtrap(APP_QT_JOB_KILL, (unsigned int) id, 0, 0);
 
-	if (id == 0) {
-		outs("usage: KILL <job id>\n");
-		return;
-	}
-	r = (int) qtrap(APP_QT_JOB_KILL, (unsigned int) id, 0, 0);
 	if (r == -1) {
 		outs("KILL: job control is not available in this kernel\n");
-		return;
+		return 0;
 	}
 	if (r == -2) {
 		outs("no such job (unknown or stale id)\n");
-		return;
+		return 0;
 	}
 	if (r == -67) {
 		outs("refused: not a started job\n");
-		return;
+		return 0;
 	}
 	if (r == -68) {
 		outs("refused: a job cannot kill itself\n");
-		return;
+		return 0;
 	}
 	if (r == -69) {
 		outs("job has already ended\n");
-		return;
+		return 0;
 	}
 	if (r < 0) {
 		outs("KILL failed, error ");
 		outnum(r);
 		outc('\n');
-		return;
+		return 0;
 	}
 	while (qtrap(APP_QT_JOB_RECLAIMED, (unsigned int) id, 0, 0) == 0)
 		qtrap(APP_QT_SUSPEND, 1, 0, 0);
-	outs("job ");
-	outnum((long) id);
-	outs(" killed\n");
+	if (!quiet) {
+		outs("job ");
+		outnum((long) id);
+		outs(" killed\n");
+	}
+	return 1;
+}
+
+/* KILL /CON:n: end every started job on console n (the shell itself is never one). */
+static void kill_console(int con)
+{
+	unsigned long ids[JC_MAXJOBS];
+	int n = jobs_query(), i, cnt = 0, done = 0;
+
+	if (n < 0) {
+		outs("KILL: job control is not available in this kernel\n");
+		return;
+	}
+	for (i = 0; i < n && cnt < JC_MAXJOBS; i++) {
+		const unsigned char *e = jbuf + JC_HDR + (unsigned int) i * JC_ENT;
+
+		if (e[7] == (unsigned int) con && (e[8] & 1) && !(e[8] & 4))
+			ids[cnt++] = rd32(e);
+	}
+	if (cnt == 0) {
+		outs("no started job on console ");
+		outnum(con);
+		outc('\n');
+		return;
+	}
+	for (i = 0; i < cnt; i++)
+		done += kill_one(ids[i], 1);
+	outnum(done);
+	outs(" job(s) killed on console ");
+	outnum(con);
+	outc('\n');
+}
+
+static void cmd_kill(char *arg)
+{
+	unsigned long id;
+
+	if (arg[0] == '/' && (arg[1] == 'C' || arg[1] == 'c') && (arg[2] == 'O' || arg[2] == 'o') && (arg[3] == 'N' || arg[3] == 'n') && arg[4] == ':' &&
+	    arg[5] >= '0' && arg[5] <= '9' && arg[6] == 0) {
+		if (arg[5] - '0' >= CON_COUNT) {
+			outs("no such console\n");
+			return;
+		}
+		kill_console(arg[5] - '0');
+		return;
+	}
+	id = parse_id(arg);
+	if (id == 0) {
+		outs("usage: KILL <job id> | KILL /CON:n   (ids are shown by START and PS)\n");
+		return;
+	}
+	kill_one(id, 0);
+}
+
+/* EXIT ends the whole session (the kernel stops when the shell does), so started jobs would be lost with their state.  The first EXIT
+ * with started jobs still running only warns; an immediate second EXIT leaves. */
+static int exit_warned;
+
+static int exit_blocked(void)
+{
+	int n = jobs_query(), i, live = 0;
+
+	if (n < 0 || exit_warned)
+		return 0;
+	for (i = 0; i < n; i++) {
+		const unsigned char *e = jbuf + JC_HDR + (unsigned int) i * JC_ENT;
+
+		if ((e[8] & 1) && !(e[8] & 4) && e[5] != 4)
+			live++;
+	}
+	if (live == 0)
+		return 0;
+	exit_warned = 1;
+	outnum(live);
+	outs(" started job(s) still running; EXIT ends the whole session and stops them (PS lists them, KILL /CON:n ends them).\n");
+	outs("Type EXIT again to leave anyway.\n");
+	return 1;
 }

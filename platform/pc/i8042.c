@@ -93,6 +93,9 @@ void input_init(void)
 	write_data(cfg);
 
 	write_command(0xae);                 /* enable keyboard port */
+#ifdef QDOS_VCON
+	cin_features |= 0x0001u;             /* R12: this driver delivers key codes (CON_CAP_KEYS) */
+#endif
 }
 
 void input_irq1(void)

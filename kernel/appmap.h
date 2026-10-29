@@ -50,7 +50,13 @@
 #define APP_PROFILE2_BASE 0x00380000u
 #define APP_PROFILE2_SIZE 0x00100000u
 #define APP_PROFILE3_BASE 0x00500000u
+#ifdef QDOS_PG_WIN3
+/* R12 (opt-in): profile 3 is 2 MiB, so the paged frame pool 0x380000..0x6FFFFF holds THREE 1 MiB windows (the default 0x380000..0x5FFFFF holds
+ * two).  Still below the boot stack (top 0x7FFFF0).  Default images do not define QDOS_PG_WIN3 and are unchanged. */
+#define APP_PROFILE3_SIZE 0x00200000u
+#else
 #define APP_PROFILE3_SIZE 0x00100000u
+#endif
 #else
 #define APP_PROFILE2_BASE 0x00380000u
 #define APP_PROFILE2_SIZE 0x00000000u   /* default map: the RAM disk is here */
@@ -125,7 +131,7 @@
  * window that contains the kernel, the heap, the application slots and the
  * transfer area.  This is a range check, not a protection check. */
 #ifdef QDOS_LAYOUT_R9
-/* R9: applications may keep buffers in profile 3, which ends at 0x600000. */
+/* R9: applications may keep buffers in profile 3, which ends at 0x600000 (0x700000 with QDOS_PG_WIN3). */
 #define USER_RANGE_END (APP_PROFILE3_BASE + APP_PROFILE3_SIZE)
 #else
 #define USER_RANGE_END (XFER_BASE + XFER_SIZE)
@@ -145,8 +151,14 @@
 #if APP_PROFILE2_BASE + APP_PROFILE2_SIZE > APP_PROFILE3_BASE
 #error "profiles 2 and 3 overlap"
 #endif
+#ifdef QDOS_PG_WIN3
+#if APP_PROFILE3_BASE + APP_PROFILE3_SIZE > 0x00700000u
+#error "profile 3 reaches the boot stack"
+#endif
+#else
 #if APP_PROFILE3_BASE + APP_PROFILE3_SIZE > 0x00600000u
 #error "profile 3 reaches the boot stack"
+#endif
 #endif
 #endif
 #if RAMDISK_SIZE != 0

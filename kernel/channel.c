@@ -144,6 +144,8 @@ static int con_drv_ctl(struct chan_object *ch, unsigned int op, unsigned long ar
 		if (arg != 0xffu)
 			vcon_set_diag((int) arg);
 		return vcon_get_diag();
+	case CHAN_CON_CAPS:
+		return (int) (((unsigned int) CON_API_VERSION << 16) | CON_CAP_QUEUED | (cin_features & CON_CAP_KEYS));
 	}
 	return CHAN_ERR_NOTSUP;
 }

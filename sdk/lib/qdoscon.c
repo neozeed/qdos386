@@ -16,6 +16,8 @@
 #define CC_CHILD  0x18u
 #define CC_SNAP   0x19u
 #define CC_DIAG   0x1Au
+#define CC_CAPS   0x1Bu
+#define VQ_QUEUED 5u
 #define VQ_SIZE   0u
 #define VQ_CURSOR 1u
 #define VQ_SELF   3u
@@ -177,4 +179,41 @@ int qd_con_getc(int ch)
 		if ((int) qtrap(0x1Cu, 0, (unsigned int) &wake, 0) < 0)
 			qd_yield(1);
 	}
+}
+
+/* ---- R12: console API version 2 ---- */
+int qd_con_version(int ch)
+{
+	int v = cc(ch, CC_CAPS, 0);
+
+	return v < 0 ? v : ((v >> 16) & 0xffff);
+}
+
+int qd_con_caps(int ch)
+{
+	int v = cc(ch, CC_CAPS, 0);
+
+	return v < 0 ? v : (v & 0xffff);
+}
+
+int qd_con_queued(int ch)
+{
+	return cc(ch, CC_QUERY, VQ_QUEUED);
+}
+
+int qd_con_getkey(int ch)
+{
+	return qd_con_getc(ch);
+}
+
+int qd_con_putat(int ch, int row, int col, const char *s, int n)
+{
+	int r;
+
+	if (!s || n < 0)
+		return QD_ERR_RANGE;
+	r = qd_con_goto(ch, row, col);
+	if (r < 0)
+		return r;
+	return n == 0 ? 0 : qd_write(ch, s, (unsigned int) n);
 }

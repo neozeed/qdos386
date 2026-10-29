@@ -198,113 +198,271 @@ static void cmd_del(char *arg)
 	cmd_name_op(FS_REMOVE, arg, "usage: DEL <file>\n");
 }
 
+/* ---- DIR [path] [/W] [/P] (R12) ----------------------------------------------------------------------------------------
+ * /W  wide: names in columns (row-major), a subdirectory as [NAME]; the LONG name is shown when the entry has one (the 8.3 alias
+ *     otherwise).  The column width is the longest displayed name + 2, so a name is never cut (a name is at most 63 + 2 for the
+ *     brackets, which is one column on an 80-column console).
+ * /P  pause after each full screen (23 lines) and wait for a key on THIS console: SPACE next page, ENTER one more line, Q / ESC /
+ *     Ctrl+C stop.  The prompt appears only if more output follows, so a listing that exactly fills a page does not pause.
+ * A token that is exactly "/" plus one letter is a switch (W or P, either case); any other such token is an unknown switch.  A path that
+ * is "/" plus a single letter must be written WIN1:/A or "./" form, or quoted ("/W" is a directory named W).  Quoted tokens are never
+ * switches.  Everything else is the path (at most one). */
+#define PG_PAGE_LINES 23
+static int pg_on;                              /* pagination active */
+static int pg_lines;                           /* lines shown since the last pause */
+static int pg_quit;                            /* the user stopped the listing */
+
+static int pg_key(void)
+{
+	int c;
+	outs("-- More -- SPACE next page, ENTER next line, Q stop");
+	c = con_getc();
+	outc('\r');
+	qtrap(APP_QT_CH_CTL, (unsigned int) con_ch, 0x11u, 1u);      /* clear to the end of the line */
+	return c;
+}
+
+/* Call before the first character of a new output line.  Returns 0 if the listing was stopped. */
+static int pg_begin_line(void)
+{
+	int c;
+	if (pg_quit)
+		return 0;
+	if (!pg_on || capturing)
+		return 1;
+	if (pg_lines >= PG_PAGE_LINES) {
+		c = pg_key();
+		if (c < 0 || c == 'q' || c == 'Q' || c == 0x1b || c == 0x03) {
+			pg_quit = 1;
+			return 0;
+		}
+		pg_lines = (c == '\r' || c == '\n') ? PG_PAGE_LINES - 1 : 0;
+	}
+	return 1;
+}
+
+static void pg_end_line(void)
+{
+	outc('\n');
+	pg_lines++;
+}
+
+/* A directory entry as the listing channel returns it: 96-byte long records, or 16-byte short records on a kernel without VFAT. */
+struct dent {
+	char name[64];                             /* long name, else the 8.3 name */
+	char alias[16];
+	unsigned long size;
+	int is_dir;
+	int has_long;
+};
+static int dl_long;                            /* the open listing uses 96-byte records */
+static int dl_pos, dl_n;
+
+static int dir_open_list(const char *path)
+{
+	int ch = (int) qtrap(APP_QT_CH_OPENX, (unsigned int) path, OPEN_READ | OPEN_DIRS, 0);
+	if (ch <= 0)
+		return ch;
+	dl_long = ((int) qtrap(APP_QT_CH_CTL, (unsigned int) ch, 5, 0) == 0);
+	dl_pos = dl_n = 0;
+	return ch;
+}
+
+/* 1 = entry in *e, 0 = end, negative = error. */
+static int dir_next_ent(int ch, struct dent *e)
+{
+	unsigned int rl = dl_long ? 96u : (unsigned int) SH_REC, c;
+	const unsigned char *r;
+
+	if (dl_pos + (int) rl > dl_n) {
+		dl_n = (int) qtrap(APP_QT_CH_READ, (unsigned int) ch, (unsigned int) recbuf, sizeof recbuf);
+		dl_pos = 0;
+		if (dl_n <= 0)
+			return dl_n;
+	}
+	r = recbuf + dl_pos;
+	dl_pos += (int) rl;
+	if (dl_long) {
+		for (c = 0; c < 63 && r[c] != 0; c++)
+			e->name[c] = (char) r[c];
+		e->name[c] = 0;
+		for (c = 0; c < 15 && r[64 + c] != 0; c++)
+			e->alias[c] = (char) r[64 + c];
+		e->alias[c] = 0;
+		e->size = (unsigned long) r[80] | ((unsigned long) r[81] << 8) | ((unsigned long) r[82] << 16) | ((unsigned long) r[83] << 24);
+		e->has_long = (r[88] == 1);
+		if (r[88] == 2)
+			e->has_long = 0;           /* a long name this kernel cannot show: the alias is the name */
+	} else {
+		for (c = 0; c < 12 && r[c] != 0; c++)
+			e->name[c] = (char) r[c];
+		e->name[c] = 0;
+		for (c = 0; c <= 12; c++)
+			e->alias[c] = e->name[c];
+		e->size = (unsigned long) r[12] | ((unsigned long) r[13] << 8) | ((unsigned long) r[14] << 16) | ((unsigned long) r[15] << 24);
+		e->has_long = 0;
+	}
+	e->is_dir = (e->size == 0xffffffffUL);
+	return 1;
+}
+
+static void dir_summary(int files, int dirs)
+{
+	if (!pg_begin_line())
+		return;
+	outnum(files);
+	outs(files == 1 ? " file, " : " files, ");
+	outnum(dirs);
+	outs(dirs == 1 ? " directory" : " directories");
+	pg_end_line();
+}
+
+static void dir_pad(unsigned int have, unsigned int width)
+{
+	while (have < width) {
+		outc(' ');
+		have++;
+	}
+}
+
 static void cmd_dir_m(char *arg)
 {
-	int ch, n, i, files = 0, dirs = 0;
-	unsigned int c;
+	char *p = arg, *t, *path = 0;
+	int wide = 0, ch, n, files = 0, dirs = 0;
+	unsigned int maxw = 0, width, cols, colno = 0, len;
+	static struct dent de;
 
-	if (*arg == 0) {
+	pg_on = 0;
+	pg_lines = 0;
+	pg_quit = 0;
+	while (*p) {
+		t = tok(&p);
+		if (*t == 0)
+			break;
+		if (t[0] == '/' && t[1] != 0 && t[2] == 0 && t[1] != '"') {
+			char sw = t[1];
+			if (sw >= 'a' && sw <= 'z')
+				sw = (char) (sw - 32);
+			if (sw == 'W')
+				wide = 1;
+			else if (sw == 'P')
+				pg_on = 1;
+			else {
+				outs("unknown switch ");
+				outs(t);
+				outs(" (DIR accepts /W and /P)\n");
+				return;
+			}
+			continue;
+		}
+		if (path != 0) {
+			outs("usage: DIR [path] [/W] [/P]   (a name with blanks goes in \"double quotes\")\n");
+			return;
+		}
+		path = t;
+	}
+	if (path == 0) {
 		get_cwd();
-		outs(" Directory of ");
-		outs(cwdbuf);
-		outc('\n');
 		npath[0] = 0;
 		native_to(npath, "");
-	} else {
+		if (!pg_begin_line())
+			return;
 		outs(" Directory of ");
-		outs(arg);
-		outc('\n');
-		if (native_to(npath, arg) != 0) {
+		outs(cwdbuf);
+		pg_end_line();
+	} else {
+		uq(path);
+		if (native_to(npath, path) != 0) {
 			say_fs_error(-90);
 			return;
 		}
+		if (!pg_begin_line())
+			return;
+		outs(" Directory of ");
+		outs(path);
+		pg_end_line();
 	}
-	ch = (int) qtrap(APP_QT_CH_OPENX, (unsigned int) npath, OPEN_READ | OPEN_DIRS, 0);
+	if (wide) {                                /* pass 1: the longest displayed name decides the column width */
+		ch = dir_open_list(npath);
+		if (ch <= 0) {
+			say_fs_error(ch);
+			return;
+		}
+		while ((n = dir_next_ent(ch, &de)) > 0) {
+			len = slen(de.name) + (de.is_dir ? 2u : 0u);
+			if (len > maxw)
+				maxw = len;
+		}
+		qtrap(APP_QT_CH_CLOSE, (unsigned int) ch, 0, 0);
+		if (n < 0) {
+			say_fs_error(n);
+			return;
+		}
+		width = maxw + 2;
+		if (width > 80)
+			width = 80;
+		cols = 80 / width;
+		if (cols < 1)
+			cols = 1;
+	} else {
+		width = cols = 0;
+	}
+	ch = dir_open_list(npath);
 	if (ch <= 0) {
 		say_fs_error(ch);
 		return;
 	}
-	/* a kernel with VFAT long names answers CTL_LISTLONG: 96-byte records with the long name and the alias */
-	if ((int) qtrap(APP_QT_CH_CTL, (unsigned int) ch, 5, 0) == 0) {
-		for (;;) {
-			n = (int) qtrap(APP_QT_CH_READ, (unsigned int) ch, (unsigned int) recbuf, sizeof recbuf);
-			if (n <= 0)
+	while ((n = dir_next_ent(ch, &de)) > 0) {
+		if (de.is_dir)
+			dirs++;
+		else
+			files++;
+		if (wide) {
+			if (colno == 0 && !pg_begin_line())
 				break;
-			for (i = 0; i + 96 <= n; i += 96) {
-				unsigned long size;
-				unsigned int col = 0;
-				const unsigned char *al = recbuf + i + 64;
-				const unsigned char *nm = recbuf + i;
-				for (c = 0; c < 12 && al[c] != 0; c++) {
-					outc((char) al[c]);
-					col++;
-				}
-				while (col < 14) {
-					outc(' ');
-					col++;
-				}
-				size = (unsigned long) recbuf[i + 80] | ((unsigned long) recbuf[i + 81] << 8) |
-				       ((unsigned long) recbuf[i + 82] << 16) | ((unsigned long) recbuf[i + 83] << 24);
-				if (size == 0xffffffffUL) {
-					outs("<DIR>");
-					dirs++;
-				} else {
-					outnum((long) size);
-					files++;
-				}
-				if (recbuf[i + 88] == 1) {            /* a long name: shown after the alias and size */
-					outs("  ");
-					for (c = 0; c < 63 && nm[c] != 0; c++)
-						outc((char) nm[c]);
-				} else if (recbuf[i + 88] == 2) {
-					outs("  (long name not supported here)");
-				}
-				outc('\n');
-			}
-		}
-		qtrap(APP_QT_CH_CLOSE, (unsigned int) ch, 0, 0);
-		if (n < 0)
-			say_fs_error(n);
-		outnum(files);
-		outs(files == 1 ? " file, " : " files, ");
-		outnum(dirs);
-		outs(dirs == 1 ? " directory\n" : " directories\n");
-		return;
-	}
-	for (;;) {
-		n = (int) qtrap(APP_QT_CH_READ, (unsigned int) ch, (unsigned int) recbuf, sizeof recbuf);
-		if (n <= 0)
-			break;
-		for (i = 0; i + SH_REC <= n; i += SH_REC) {
-			unsigned long size;
-			unsigned int col = 0;
-			for (c = 0; c < 12 && recbuf[i + c] != 0; c++) {
-				outc((char) recbuf[i + c]);
-				col++;
-			}
-			while (col < 14) {
-				outc(' ');
-				col++;
-			}
-			size = (unsigned long) recbuf[i + 12] | ((unsigned long) recbuf[i + 13] << 8) |
-			       ((unsigned long) recbuf[i + 14] << 16) | ((unsigned long) recbuf[i + 15] << 24);
-			if (size == 0xffffffffUL) {
-				outs("<DIR>");
-				dirs++;
+			if (de.is_dir) {
+				outc('[');
+				outs(de.name);
+				outc(']');
+				len = slen(de.name) + 2;
 			} else {
-				outnum((long) size);
-				files++;
+				outs(de.name);
+				len = slen(de.name);
 			}
-			outc('\n');
+			colno++;
+			if (colno == cols) {
+				pg_end_line();
+				colno = 0;
+			} else {
+				dir_pad(len, width);
+			}
+			continue;
 		}
+		if (!pg_begin_line())
+			break;
+		outs(de.alias);
+		dir_pad(slen(de.alias), 14);
+		if (de.is_dir)
+			outs("<DIR>");
+		else
+			outnum((long) de.size);
+		if (de.has_long) {                     /* a long name: shown after the alias and size */
+			outs("  ");
+			outs(de.name);
+		}
+		pg_end_line();
 	}
 	qtrap(APP_QT_CH_CLOSE, (unsigned int) ch, 0, 0);
+	if (pg_quit) {
+		pg_on = 0;
+		return;
+	}
+	if (wide && colno != 0)
+		pg_end_line();
 	if (n < 0)
 		say_fs_error(n);
-	outnum(files);
-	outs(files == 1 ? " file, " : " files, ");
-	outnum(dirs);
-	outs(dirs == 1 ? " directory\n" : " directories\n");
+	dir_summary(files, dirs);
+	pg_on = 0;
 }
 
 static void cmd_type_m(char *arg)

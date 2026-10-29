@@ -82,7 +82,7 @@ build/apps/shell-l.o: apps/shell/shell.c apps/common/appcalls.h
 build/apps/shell-l.aout: build/apps/shell-l.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
 	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shell-l.o build/apps/qtrap.o
 # R11M: the directory-aware shell (160 character line; -DR11M_SHELL adds PWD CD MD RD COPY DEL REN, and START PS WAIT KILL CON with -DR11M_JOBS).
-build/apps/shell-m.o: apps/shell/shell.c apps/shell/shell_r11m.inc apps/shell/shell_jobs.inc apps/common/appcalls.h
+build/apps/shell-m.o: apps/shell/shell.c apps/shell/shell_r11m.inc apps/shell/shell_jobs.inc apps/shell/shell_edit.inc apps/common/appcalls.h
 	mkdir -p build/apps
 	$(GCC) -c -O -DSH_LINE_MAX=160 -DR11M_SHELL -DR11M_JOBS -Iapps/common -Iapps/shell $< -o $@
 build/apps/shell-m.aout: build/apps/shell-m.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
@@ -273,6 +273,12 @@ r11m-pc-pg:
 	$(MAKE) build/pc-r9/boot2.bin
 	$(MAKE) pc PCD=build/r11m/pc-pg PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11M_OPTS) $(R11K_PAGING)" PCIMG=r11m-pg.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r11m/pc-pg/paging.o build/r11m/pc-pg/paging_s.o build/r11m/pc-pg/vcon.o build/r11m/pc-pg/jobctl.o"
 	$(MAKE) pc PCD=build/r11m/pc-pg-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11M_OPTS) $(R11K_PAGING)" PCIMG=r11m-pg-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r11m/pc-pg-vga/paging.o build/r11m/pc-pg-vga/paging_s.o build/r11m/pc-pg-vga/vcon.o build/r11m/pc-pg-vga/jobctl.o"
+# R12: the PC kernels of the interactive stretch (QEMU VGA and Tiny386): the R11M options plus QDOS_PG_WIN3 (three paged windows).
+R12_OPTS = $(R11M_OPTS) -DQDOS_PG_WIN3
+r12-pc-pg:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r12/pc-pg PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12_OPTS) $(R11K_PAGING)" PCIMG=r12-pg.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r12/pc-pg/paging.o build/r12/pc-pg/paging_s.o build/r12/pc-pg/vcon.o build/r12/pc-pg/jobctl.o"
+	$(MAKE) pc PCD=build/r12/pc-pg-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12_OPTS) $(R11K_PAGING)" PCIMG=r12-pg-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r12/pc-pg-vga/paging.o build/r12/pc-pg-vga/paging_s.o build/r12/pc-pg-vga/vcon.o build/r12/pc-pg-vga/jobctl.o"
 r11m-kernels: r11m-i386vm r11m-i386vm-pg r11m-pc r11m-pc-pg
 
 # Canonical R11H PC images (the shipped set).  Requires I386VM=<tree>.  The R9 boot

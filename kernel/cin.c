@@ -52,6 +52,7 @@ int cin_at_eof(void)
 
 volatile unsigned long cin_overflows = 0;
 volatile unsigned long cin_stored = 0;
+volatile unsigned int cin_features = 0;
 static volatile int polling = 0;
 static int esc_pending = 0;
 

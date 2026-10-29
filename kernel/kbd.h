@@ -15,8 +15,24 @@ struct kbd_decoder {
 	unsigned char skip;     /* bytes of an E1 (Pause) sequence still to skip */
 #ifdef QDOS_VCON
 	unsigned char alt;      /* R11M: an Alt key is down */
+	unsigned char ctrl;     /* R12: a Ctrl key is down */
 #endif
 };
+
+#ifdef QDOS_VCON
+/* R12: key codes delivered to programs as single bytes (raw console mode).  Bytes 0x80.. never occur in typed text. */
+#define KBD_KEY_UP    0x80
+#define KBD_KEY_DOWN  0x81
+#define KBD_KEY_LEFT  0x82
+#define KBD_KEY_RIGHT 0x83
+#define KBD_KEY_HOME  0x84
+#define KBD_KEY_END   0x85
+#define KBD_KEY_PGUP  0x86
+#define KBD_KEY_PGDN  0x87
+#define KBD_KEY_DEL   0x88
+#define KBD_KEY_INS   0x89
+#define KBD_KEY_F1    0x90          /* F1..F10 = 0x90..0x99 */
+#endif
 
 void kbd_reset(struct kbd_decoder *d);
 

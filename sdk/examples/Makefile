@@ -171,3 +171,33 @@ EXITX.aout: r11e/exits/exitx.c $(LIBS)
 	$(WRAP) -o $@ r11e/exits/exitx.c
 EXITR.aout: r11e/exits/exitr.c $(LIBS)
 	$(WRAP) -o $@ r11e/exits/exitr.c
+
+# R12: console API version 2 self-check and interactive demo.
+CONAPI.aout: r12/conapi/conapi.c $(LIBS)
+	$(WRAP) -o $@ r12/conapi/conapi.c
+
+CONDEMO.aout: r12/condemo/condemo.c $(LIBS)
+	$(WRAP) -o $@ r12/condemo/condemo.c
+
+# R12: the full-screen text editor.
+EDIT.aout: r12/edit/edit.c $(LIBS)
+	$(WRAP) -o $@ r12/edit/edit.c
+
+# R12: resource probe (heap, channel slots, address spaces).
+LEAK.aout: r12/leak/leak.c $(LIBS)
+	$(WRAP) -o $@ r12/leak/leak.c
+
+# R12 Stage 4: SuperBASIC/C89 (SB4 core, unchanged but for one #ifndef guard) with the QDOS channel adapter.
+# BASIC.aout is the interactive interpreter, BASTEST.aout the in-guest corpus runner (derived from tests/sbtest.c).
+SBDIR = ../../apps/superbasic
+SBCORE = $(SBDIR)/src/sb_mem.c $(SBDIR)/src/sb_chan.c $(SBDIR)/src/sb_error.c $(SBDIR)/src/sb_format.c $(SBDIR)/src/sb_value.c \
+         $(SBDIR)/src/sb_lex.c $(SBDIR)/src/sb_store.c $(SBDIR)/src/sb_expr.c $(SBDIR)/src/sb_check.c $(SBDIR)/src/sb_interp.c
+SBQD = $(SBDIR)/qdos/qb_io.c $(SBDIR)/qdos/qb_stack.c
+SBDEPS = $(wildcard $(SBDIR)/src/*.h $(SBDIR)/src/*.c $(SBDIR)/qdos/*.h $(SBDIR)/qdos/*.c)
+SBFLAGS = -O -I $(SBDIR)/src -I $(SBDIR)/qdos -D SB_CALL_DEPTH_VAR=qb_depth_limit
+
+BASIC.aout: $(SBDIR)/qdos/basic.c $(SBCORE) $(SBQD) $(SBDEPS) $(LIBS)
+	$(WRAP) $(SBFLAGS) -o $@ $(SBDIR)/qdos/basic.c $(SBCORE) $(SBQD)
+
+BASTEST.aout: $(SBDIR)/qdos/bastest.c $(SBCORE) $(SBQD) $(SBDEPS) $(LIBS)
+	$(WRAP) $(SBFLAGS) -o $@ $(SBDIR)/qdos/bastest.c $(SBCORE) $(SBQD)

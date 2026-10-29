@@ -1,9 +1,12 @@
 aout/
+artifacts/
 build/
 control/
 disk/
 evidence/
 external/
+emulator/
+guest-programs/
 images/
 launch/
 logs/
@@ -22,3 +25,4 @@ __pycache__/
 sdk/examples/*.aout
 sdk/lib/*.o
 sdk/lib/*.a
+sdk/compiler/*.o

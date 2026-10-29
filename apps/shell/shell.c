@@ -217,7 +217,8 @@ static void cmd_help(void)
 {
 #ifdef R11M_SHELL
 	outs("HELP                 this list\n");
-	outs("DIR [path]           list a directory (<DIR> marks subdirectories)\n");
+	outs("DIR [path] [/W] [/P] list a directory; /W columns, /P pause (<DIR> marks subdirectories)\n");
+	outs("HISTORY              list the last commands (Up/Down recall, Left/Right/Home/End/Del edit)\n");
 	outs("PWD / CD [path]      show / change the current directory\n");
 	outs("MD path / RD path    make / remove (empty) directory\n");
 	outs("TYPE path            print a file\n");
@@ -225,10 +226,12 @@ static void cmd_help(void)
 	outs("DEL path / REN a b   delete / rename (or move) a file\n");
 	outs("RUN path [args]      run an a.out (cwd, then /BIN)\n");
 #ifdef R11M_JOBS
-	outs("START path [args] [/CON:n]   run in the background on console n; prints the job id\n");
-	outs("PS                   list jobs\n");
-	outs("WAIT id / KILL id    wait for / terminate a started job\n");
-	outs("CON [n]              show / switch the visible console (Alt+F1..F4 also works)\n");
+	outs("START path [args] [/CON:n]   run in the background on console n (default: this one); prints the job id\n");
+	outs("PS                   list jobs (ENDED rows: started jobs that finished, with their status)\n");
+	outs("WAIT id              wait for a started job; Ctrl+C stops waiting\n");
+	outs("KILL id | /CON:n     terminate one started job / every started job on console n\n");
+	outs("CON                  show the consoles, the visible one (*) and the jobs on each\n");
+	outs("CON n                make console n visible (Alt+F1..F4 does the same from the keyboard)\n");
 	outs("CONDUMP n            print the text of console n\n");
 	outs("DIAG 0|1|2           diagnostic mirror: console 0 / none / all consoles\n");
 	outs("SLEEP ticks          pause the shell\n");
@@ -571,11 +574,23 @@ static void cmd_run(char *arg)
 #ifdef R11M_JOBS
 	if (run_bg) {
 		jt_add(id, name);
-		outs("job ");
-		outnum(id);
-		outs(" started on console ");
-		outnum(run_con >= 0 ? run_con : (int) qtrap(APP_QT_CH_CTL, (unsigned int) con_ch, 0x13u, 3u) & 0xff);
-		outc('\n');
+		{
+			int sc = (int) qtrap(APP_QT_CH_CTL, (unsigned int) con_ch, 0x13u, 3u) & 0xff;
+			int jc = run_con >= 0 ? run_con : sc;
+
+			outs("job ");
+			outnum(id);
+			outs(" started on console ");
+			outnum(jc);
+			if (jc != sc) {
+				outs(" (Alt+F");
+				outnum(jc + 1);
+				outs(" shows it)");
+			} else {
+				outs(" (this console; /CON:n gives it its own)");
+			}
+			outc('\n');
+		}
 		return;
 	}
 #endif
@@ -595,6 +610,7 @@ static void cmd_run(char *arg)
 
 #ifdef R11M_SHELL
 #include "shell_r11m.inc"
+#include "shell_edit.inc"
 #endif
 #ifdef R11M_JOBS
 #include "shell_jobs.inc"
@@ -621,6 +637,8 @@ static int exec_line(char *s)
 	fold(w);                  /* only the command word; arguments keep case */
 #ifdef R11M_JOBS
 	jt_harvest();
+	if (!same(w, "EXIT"))
+		exit_warned = 0;
 #endif
 	e = slen(arg);
 	while (e > 0 && arg[e - 1] == ' ')
@@ -630,13 +648,15 @@ static int exec_line(char *s)
 		cmd_help();
 #ifdef R11M_SHELL
 	else if (same(w, "DIR"))
-		cmd_dir_m(uq(arg));
+		cmd_dir_m(arg);
 	else if (same(w, "TYPE"))
 		cmd_type_m(uq(arg));
 	else if (same(w, "PWD"))
 		cmd_pwd();
 	else if (same(w, "CD") || same(w, "CHDIR"))
 		cmd_cd(uq(arg));
+	else if (same(w, "HISTORY"))
+		cmd_history();
 	else if (same(w, "MD") || same(w, "MKDIR"))
 		cmd_name_op(FS_MKDIR, uq(arg), "usage: MD <directory>\n");
 	else if (same(w, "RD") || same(w, "RMDIR"))
@@ -673,8 +693,13 @@ static int exec_line(char *s)
 #endif
 	else if (same(w, "RUN"))
 		cmd_run(arg);
-	else if (same(w, "EXIT"))
+	else if (same(w, "EXIT")) {
+#ifdef R11M_JOBS
+		if (exit_blocked())
+			return 0;
+#endif
 		return 1;
+	}
 	else {
 		outs("unknown command: ");
 		outs(w);
@@ -701,7 +726,13 @@ int main(void)
 		outs(cwdbuf);
 #endif
 		outs("> ");
+#ifdef R11M_SHELL
+		if (ed_mode < 0)
+			ed_probe();
+		if (!(ed_mode ? read_line_ed() : read_line())) {
+#else
 		if (!read_line()) {
+#endif
 			outs("end of input\n");
 			return SH_EOF_STATUS;
 		}

@@ -38,6 +38,12 @@ void cin_poll_tick(void);
 void con_input_arrived(void);
 
 extern volatile unsigned long cin_overflows;
+
+#ifdef QDOS_VCON
+/* R12: what the input device delivers (CON_CAP_* bits of kernel/channel.h).  The PC keyboard driver sets CON_CAP_KEYS; polled
+ * byte backends leave it 0, so a program can tell whether cursor keys can ever arrive. */
+extern volatile unsigned int cin_features;
+#endif
 extern volatile unsigned long cin_stored;
 
 #endif

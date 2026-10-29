@@ -289,6 +289,34 @@ int qd_con_snap(int ch, int con, int row, char *buf, int size);  /* text of one 
 int qd_con_getc(int ch);                              /* blocking read of one byte (sleeps in the kernel console wait); QD_EOF at end */
 int qd_con_diag(int ch, int mode);                    /* diagnostic mirror: 0 console 0 only, 1 none, 2 all (tagged); -1 reads */
 
+/* ---- R12: console API version 2 (docs/R12-CONSOLE-EDITOR-ABI.md) -------------------------------------------------
+ * Key codes.  On a PC keyboard (qd_con_caps() has QD_CONCAP_KEYS) the cursor, edit and function keys arrive in RAW mode as
+ * single bytes in 0x80..0x99, Esc as 0x1B and Ctrl+letter as 0x01..0x1A (Ctrl+H = Backspace 0x08, Ctrl+I = Tab 0x09, Ctrl+M = Enter
+ * 0x0D, Ctrl+J = 0x0A coincide with those keys, as on every terminal).  Enter is 0x0D, Backspace 0x08, Tab 0x09, Delete key 0x88.
+ * Cooked mode ignores them.  Alt+F1..F4 / Alt+1..4 switch consoles and never reach a program.  Read keys with qd_con_getc /
+ * qd_con_getkey (blocks in the kernel console wait) and test qd_con_queued() for "is a key waiting". */
+#define QD_CON_API_VERSION 2
+#define QD_CONCAP_KEYS     0x0001   /* the input device delivers the key codes below */
+#define QD_CONCAP_QUEUED   0x0002   /* qd_con_queued() works (always set with version 2) */
+#define QD_KEY_ESC    0x1B
+#define QD_KEY_UP     0x80
+#define QD_KEY_DOWN   0x81
+#define QD_KEY_LEFT   0x82
+#define QD_KEY_RIGHT  0x83
+#define QD_KEY_HOME   0x84
+#define QD_KEY_END    0x85
+#define QD_KEY_PGUP   0x86
+#define QD_KEY_PGDN   0x87
+#define QD_KEY_DEL    0x88
+#define QD_KEY_INS    0x89
+#define QD_KEY_F1     0x90      /* F1..F10 = 0x90..0x99 */
+#define QD_KEY_CTRL(c) ((c) & 0x1F)    /* QD_KEY_CTRL('S') = 0x13 */
+int qd_con_version(int ch);                           /* console API version (2), or QD_ERR_NOTSUP on an R11M (version 1) kernel */
+int qd_con_caps(int ch);                              /* QD_CONCAP_* bits, or a negative error */
+int qd_con_queued(int ch);                            /* bytes waiting in this console's input queue (0..127) */
+int qd_con_getkey(int ch);                            /* blocking read of one key code; QD_EOF at the end of input (same as qd_con_getc) */
+int qd_con_putat(int ch, int row, int col, const char *s, int n);   /* move the cursor to (row, col) and write n bytes; bytes written, or negative */
+
 /* ---- R11M: job control (kernels built with -DQDOS_JOBCTL; docs/R11M-JOB-CONTROL-ABI.md) -------------------------
  * qd_job_list copies one record per job into out[0..max-1] (at most 8 records) and returns the count.  A job is
  * LAUNCHED when it was created by qd_run / qd_start / qd_pg_start or by the shell's RUN / START; only launched jobs can be killed.
