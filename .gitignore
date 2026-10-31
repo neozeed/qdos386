@@ -1,3 +1,7 @@
+apps/gwbasic32/bin/
+apps/gwbasic32/evidence/
+apps/gwbasic32/logs/
+apps/gwbasic32/tests/
 aout/
 artifacts/
 build/
