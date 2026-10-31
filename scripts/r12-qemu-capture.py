@@ -17,6 +17,13 @@
 #                        0x0A: start bit 5 set = cursor hidden), read with the guest stopped; the CRTC index is restored
 #   %kill                SIGKILL the emulator at once (no monitor quit, no guest shutdown) and end the run: the volume
 #                        holds exactly what QEMU had written to the image file at that moment
+# R13A additions:
+#   %hold KEY MS         sendkey KEY with a hold time (QEMU queues key events: later keys wait for the release)
+#   %keydown KEY / %keyup KEY   press / release a key independently through QMP input-send-event (QEMU_QMP_PORT
+#                        must be set and QEMU_EXTRA must contain "-qmp tcp:127.0.0.1:PORT,server,nowait"): a key can
+#                        stay down while other keys (a focus switch) are sent
+#   rendered text consoles (mode 12h): the text is read from the kernel's presenter shadow (address printed at boot);
+#                        QEMU_NO_SHADOW=1 (environment) turns that off
 # R12_HDB_PREFIX (environment) is put in front of the hdb file name, e.g. "blkdebug:CONF:" for error injection.
 # The original R11L notes follow.
 # Generalises scripts/r11h-qemu-capture.py: the commands are arguments, uppercase letters are
@@ -69,7 +76,30 @@ def key(ch):
         return "shift-" + ch.lower()
     return KEY.get(ch, ch)
 
+SHADOW = [None]      # R13A: the presenter's shadow (address from the boot line "PRESENTER shadow 0x..."), used while
+                     # the display is in rendered-text mode (mode 12h), where 0xB8000 holds no text
+
+
+def shadow_mode():
+    if SHADOW[0] is None:
+        return -1
+    out = cmd("xp /3xw 0x%x" % SHADOW[0])
+    m = re.findall(r"0x([0-9a-f]{8})", out.split(":", 1)[-1]) if ":" in out else []
+    if len(m) >= 3 and int(m[0], 16) == 0x44485351:
+        return int(m[2], 16)
+    return -1
+
+
 def screen():
+    if SHADOW[0] is not None and shadow_mode() == 3:
+        out = cmd("xp /4000xb 0x%x" % (SHADOW[0] + 48))
+        vals = []
+        for line in out.splitlines():
+            m = re.match(r"^\s*0*[0-9a-f]+:\s*(.*)$", line)
+            if m:
+                vals += [int(x, 16) for x in re.findall(r"0x([0-9a-f]{2})", m.group(1))]
+        chars = vals[0::2]
+        return [bytes(chars[r * 80:(r + 1) * 80]).decode("cp437", errors="replace").rstrip() for r in range(25)]
     out = cmd("xp /4000xb 0xb8000")
     vals = []
     for line in out.splitlines():
@@ -116,6 +146,10 @@ if _E.get("QEMU_BOOT_KEY"):
     seen.append("=== BOOT-KEY " + _E["QEMU_BOOT_KEY"])
     cmd("sendkey " + _E["QEMU_BOOT_KEY"])
 run_until(lambda rows: any(_E.get("QEMU_BOOT_WAIT", "Type HELP") in r for r in rows), 90)
+for _r in seen:                          # R13A: the presenter's shadow address, if the kernel printed it
+    _m = re.search(r"PRESENTER shadow 0x([0-9a-f]{8})", _r)
+    if _m and not _E.get("QEMU_NO_SHADOW"):  # QEMU_NO_SHADOW=1: always read 0xB8000 (the R13 behaviour)
+        SHADOW[0] = int(_m.group(1), 16)
 for c in CMDS:
     open(O + "/lines.txt", "w").write("\n".join(seen) + "\n")      # partial transcript survives a killed run
     seen.append("=== CMD " + c)          # marker: lets the judge cut the capture into one segment per typed command
@@ -186,11 +220,35 @@ for c in CMDS:
             cmd("cont", 0.1)
             pos = (regs[0x0e] << 8 | regs[0x0f]) if regs[0x0e] >= 0 and regs[0x0f] >= 0 else -1
             seen.append("=== CURSOR %s %d %d %d" % (rest.strip(), pos // 80 if pos >= 0 else -1, pos % 80 if pos >= 0 else -1, regs[0x0a]))
+        elif op in ("keydown", "keyup"):     # R13A: QMP input-send-event
+            import json
+            if not hasattr(sys.modules[__name__], "_qmp"):
+                q_ = socket.create_connection(("127.0.0.1", int(_E["QEMU_QMP_PORT"])))
+                q_.settimeout(5)
+                q_.recv(65536)
+                q_.sendall(b'{"execute":"qmp_capabilities"}\n')
+                q_.recv(65536)
+                setattr(sys.modules[__name__], "_qmp", q_)
+            q_ = getattr(sys.modules[__name__], "_qmp")
+            ev = {"execute": "input-send-event", "arguments": {"events": [{"type": "key", "data": {
+                "down": op == "keydown", "key": {"type": "qcode", "data": rest.strip()}}}]}}
+            q_.sendall((json.dumps(ev) + "\n").encode())
+            try:
+                r_ = q_.recv(65536).decode(errors="replace").strip()
+            except Exception:
+                r_ = "no answer"
+            seen.append("=== %s %s %s" % (op.upper(), rest.strip(), "ok" if '"return"' in r_ else r_[:80]))
+            run_until(lambda rows: False, 0.3)
+        elif op == "hold":                  # R13A: %hold KEY MS - press KEY and keep it down MS milliseconds (QEMU sendkey)
+            k_, _, ms_ = rest.partition(" ")
+            cmd("sendkey %s %s" % (k_.strip(), ms_.strip() or "1000"), 0.1)
+            seen.append("=== HOLD %s %s" % (k_.strip(), ms_.strip()))
         elif op == "cells":                 # R13: the whole text buffer, characters AND attributes (25 rows of 80 hex pairs)
-            out = cmd("xp /4000xb 0xb8000")
+            out = cmd("xp /4000xb 0x%x" % (SHADOW[0] + 48)) if (SHADOW[0] is not None and shadow_mode() == 3) \
+                else cmd("xp /4000xb 0xb8000")
             vals = []
             for line in out.splitlines():
-                m = re.match(r"^\s*0*b8[0-9a-f]{3}:\s*(.*)$", line)
+                m = re.match(r"^\s*0*[0-9a-f]+:\s*(.*)$", line)
                 if m:
                     vals += [int(x, 16) for x in re.findall(r"0x([0-9a-f]{2})", m.group(1))]
             seen.append("=== CELLS %s %d" % (rest.strip(), len(vals)))

@@ -25,7 +25,11 @@
 #ifdef QDOS_SURFACES
 #include "present.h"
 #include "surface.h"
+#ifdef QDOS_R13A
+#include "fontreg.h"
+#else
 #include "font.h"
+#endif
 #endif
 #ifdef QDOS_TEST_BIGK
 extern int bigk_check(void);   /* R11K TEST ONLY: platform/pc/bigk_check.c */
@@ -111,7 +115,24 @@ int shell_boot(void)
 		boot_fail("no job for SYSTASK");
 	con_puts("SYSTASK: task selector on Ctrl+Esc\n");
 #endif
-#ifdef QDOS_SURFACES
+#ifdef QDOS_R13A
+	{
+		char hx[11];
+		unsigned int a = (unsigned int) pres_shadow_ptr(), k;
+
+		kfont_init();
+		con_puts((pres_caps() & PRES_CAP_MODE12) ? "SURFACES R13A: 320x200x256, 640x480x16 text, fonts built in\n"
+		                                         : "SURFACES R13A: no display presenter, fonts built in\n");
+		hx[0] = '0';
+		hx[1] = 'x';
+		for (k = 0; k < 8; k++)
+			hx[2 + k] = "0123456789abcdef"[(a >> (28 - 4 * k)) & 15u];
+		hx[10] = 0;
+		con_puts("PRESENTER shadow ");
+		con_puts(hx);
+		con_puts("\n");
+	}
+#elif defined(QDOS_SURFACES)
 	con_puts((pres_caps() & PRES_CAP_MODE13) ? "SURFACES: sessions, INDEX8, VGA text + 320x200x256, font "
 	                                         : "SURFACES: sessions, INDEX8, no display presenter, font ");
 	con_puts(font_name);

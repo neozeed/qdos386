@@ -7,8 +7,14 @@
 #ifndef QDOS386_GSURF_H
 #define QDOS386_GSURF_H
 
+#ifdef QDOS_R13A
+#define GS_MAX_W      512u                 /* R13A: logical surfaces up to 512 x 256 (presented scaled or cropped) */
+#define GS_MAX_H      256u
+struct kfont;
+#else
 #define GS_MAX_W      320u
 #define GS_MAX_H      200u
+#endif
 #define GS_MAGIC      0x46525347u          /* "GSRF" */
 
 #define GS_OK         0
@@ -35,7 +41,19 @@ struct gsurf {
 	int cursor_on;                         /* non-destructive cursor: drawn by the presenter, never into pix */
 	unsigned int owner;                    /* tagged job id that opened it */
 	unsigned int frames;                   /* gs_frame_mark count (programs may report frames) */
+#ifdef QDOS_R13A
+	struct kfont *font;                    /* R13A: the text font (a reference is held) */
+	unsigned int view, vx, vy;             /* R13A: presentation: GS_VIEW_FIT / GS_VIEW_CROP at (vx, vy) */
+#endif
 };
+#ifdef QDOS_R13A
+#define GS_VIEW_FIT   0u                   /* scaled to the screen keeping the aspect ratio (nearest neighbour), centred */
+#define GS_VIEW_CROP  1u                   /* a screen-sized window at (vx, vy), 1:1 */
+void gs_set_font(struct gsurf *g, struct kfont *f);
+long gs_blit_key(struct gsurf *g, long x, long y, long w, long h, const unsigned char *src, unsigned long sstride,
+                 unsigned int key);
+long gs_copy(struct gsurf *g, long sx, long sy, long w, long h, long dx, long dy);
+#endif
 
 /* Size of the single block that holds the header, the pixels and nothing else (pix points inside it). */
 unsigned long gs_block_bytes(unsigned int w, unsigned int h);

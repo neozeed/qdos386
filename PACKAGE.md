@@ -1,35 +1,37 @@
-# qdos386-R13-VIRTUAL-DISPLAYS
+# qdos386-R13A-GRAPHICS-USABILITY
 
-Base: frozen R12C `7abb678b24764541845ef936adc45e9110f1a52b` (archive `96e7f6fc...`). Branch `r13-virtual-displays`.
-Final source commit: `c3683d58e02817570f66919aead2451dd13e51a6`. The SHA-256 of this archive is printed by the packaging script and reported with
-the delivery (it cannot be inside the archive); `SHA256SUMS` lists every other file.
+Base: frozen R13 `c3683d58e02817570f66919aead2451dd13e51a6` (archive `bac427c6...`). Branch
+`r13a-graphics-usability`. Final source commit: `951352c73d20f4be2f593c974fbb47e6061154aa`. The SHA-256 of this archive is reported with the delivery
+(it cannot be inside the archive); `SHA256SUMS` lists every other file.
 
-Read `docs/R13-RUNTIME-REPORT.md` first, then `docs/R13-KNOWN-LIMITATIONS.md`, `docs/R13-DISPLAY-ABI.md`,
-`docs/R13-FONT-PROVENANCE.md`, `docs/R13-MEMORY-BUDGET.md`, `docs/R13-AUDIT.md`.
+Read `docs/R13A-RUNTIME-REPORT.md` first, then `docs/R13A-KNOWN-LIMITATIONS.md`, `docs/R13A-GRAPHICS-ABI.md`,
+`docs/R13A-FONT-FORMAT.md`, `docs/R13A-FONT-PROVENANCE.md`, `docs/R13A-AUDIT.md`.
 
 **Everything still runs at CPL 0: nothing here is security isolation.**
 
 Contents
-- source tree (git archive of `c3683d58e02817570f66919aead2451dd13e51a6`): kernel (`kernel/surface.c`, `kernel/gsurf.c`, `kernel/font.c`,
-  `kernel/font_minerva.c` (generated), `platform/pc/vgapres.c` are new; sessions in `kernel/vcon.c`), shell
-  (`apps/shell`, -DR13_SHELL), SDK (`sdk/lib/qdossurf.c`, `sdk/examples/r13`), font extractor
-  (`tools/r13-font`), `third_party/minerva` (the two Minerva 1.98 font modules, GPL-2.0, and COPYING), tests
-  (`tests/r13`), docs, `fs/r13-system/ETC/STARTUP.CMD`
-- `build/r13/pc-vga/r13-vga.img` (QEMU kernel, Minerva font), `build/r13/pc/r13.img` (headless/Tiny386 kernel),
-  `build/r13/pc-vga-q5/r13-vga-q5.img` (QEMU kernel with the QDOS5x9 fallback font, no GPL material),
-  `build/apps/shell-d.aout`; the unchanged R12C, R12B, R12A and R12 kernels and shells; firmware
-- `guest-programs/`: the R13 builds (SURFT, COLOUR, BOUNCE, TITLET, BASIC, EDIT, ...); `guest-programs-r12b/` and
-  `guest-programs-r12a/`: the frozen binaries used by the regression runs
-- `volumes/r13-system.img`: the example system volume (R12B layout, R13 shell, SURFT/COLOUR/BOUNCE in /BIN)
-- `emulator/`: Tiny386 with the R11M-FIX1 and R12C patches (unchanged from R12C)
-- `logs/r13/`: per-stage transcripts, judge output, QEMU screendumps (PNG), Tiny386 evidence, image checks
+- source tree (git archive of `951352c73d20f4be2f593c974fbb47e6061154aa`): font registry `kernel/fontreg.c`, generated built-in fonts
+  `kernel/font_recovery.c` / `kernel/font_console.c` (public-domain / unrestricted X11 fonts, sources and notice in
+  `fonts/src`), key events `kernel/kev.c`, R13A presenter `platform/pc/vgapres13a.c`, surface/session changes
+  under `-DQDOS_R13A`; shell `apps/shell/shell_r13a.inc` (-DR13A_SHELL); SDK `sdk/lib/qdosgfx.c`,
+  `sdk/include/qdos386.h`, `sdk/examples/r13a/gfxa`; font tools `tools/r13a-font` (QFNT writer/parser, PCF and
+  Minerva converters, broken-file generator, Minerva scanner); `fonts/` (RECOVERY.FNT, CON8X16.FNT);
+  `third_party/minerva/` (the GPL-2.0 font modules, COPYING and the optional **MINERVA.FNT**); tests `tests/r13a`;
+  `logs/r13a` (transcripts, judge output, screendumps as PNG, Tiny386 evidence, image checks)
+- `build/r13a/pc-vga/r13a-vga.img` (QEMU kernel), `build/r13a/pc/r13a.img` (headless/Tiny386 kernel) - both the
+  fallback-only build: no Minerva bytes; `build/apps/shell-e.aout` (R13A shell); the frozen R13 kernels and
+  shell-d and the R12C kernels and shell-c, unchanged; firmware
+- `guest-programs/`: GFXA and the programs the tests use (R13A tree builds)
+- `volumes/r13a-system.img` (R13A shell, /SYSTEM/FONTS with RECOVERY, CON8X16 and the optional MINERVA.FNT + notice)
+  and `volumes/r13a-system-nominerva.img` (the same without Minerva)
+- `emulator/`: Tiny386 (unchanged from R12C)
 
-Launch: `sh scripts/r12b-launch-qemu.sh volumes/r13-system.img build/r13/pc-vga/r13-vga.img`, then e.g.
-`START COLOUR /NEW`, `START BOUNCE /NEW` and Ctrl+Esc. Gates: `sh tests/r13/run-host.sh`, `run-s1.sh OUT` ...
-`run-s5.sh`, `run-tiny.sh`, `run-regressions.sh`.
+Launch: `sh scripts/r12b-launch-qemu.sh volumes/r13a-system.img build/r13a/pc-vga/r13a-vga.img`, then e.g.
+`CONSOLE GFX /ALL`, `FONT /SYSTEM/FONTS/MINERVA.FNT /CON`, `START GFXA pattern 0 /NEW`, `START COLOUR /NEW`,
+Ctrl+Esc. Gates: `sh tests/r13a/run-host.sh`, `sh tests/r13a/run-gate.sh 1..4 OUT`, `run-demo.sh`, `run-tiny.sh`,
+`run-regressions.sh`.
 
-The default R13 kernels contain the Minerva 1.98 font data (GPL-2.0): see docs/R13-FONT-PROVENANCE.md before
-distributing them; `r13-vga-q5.img` carries none. SuperBASIC (`apps/superbasic`, `BASIC.AOU`, `BASTEST.AOU`) is
-private research code and not freely redistributable; `apps/superbasic/docs/PROVENANCE-LICENSING.md` and
-`SHA256SUMS.sb4` apply. The example system volume contains `/BIN/BASIC.AOU`: do not publish it as a public image
-without removing it.
+MINERVA.FNT is Minerva 1.98's font data (GPL-2.0, see third_party/minerva/COPYING and docs/R13A-FONT-PROVENANCE.md);
+it is optional and the R13A kernels do not contain it. SuperBASIC (`apps/superbasic`, `BASIC.AOU`) is private
+research code and not freely redistributable; `apps/superbasic/docs/PROVENANCE-LICENSING.md` applies. Both example
+volumes contain `/BIN/BASIC.AOU`: do not publish them as public images without removing it.

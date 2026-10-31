@@ -76,8 +76,11 @@ static void matrix(void)
 	rc = qd_surface_info(in.id, &in);
 	check("the old session still exists (the shell's)", rc == 0, rc);
 	check("INDEX8 call on a text session refused -7", qd_gfx_fill(0, 0, 1, 1, 1) == QD_SURF_ERR_NOGFX, qd_gfx_fill(0, 0, 1, 1, 1));
-	check("bad gfx sizes refused -4", qd_gfx_open(321, 10, 0) == QD_SURF_ERR_ARG && qd_gfx_open(10, 201, 0) == QD_SURF_ERR_ARG &&
+	{                                            /* R13A kernels take logical surfaces up to 512 x 256 */
+		long mw = (caps & 0x10) ? 513 : 321, mh = (caps & 0x10) ? 257 : 201;
+	check("bad gfx sizes refused -4", qd_gfx_open(mw, 10, 0) == QD_SURF_ERR_ARG && qd_gfx_open(10, mh, 0) == QD_SURF_ERR_ARG &&
 	      qd_gfx_open(0, 5, 0) == QD_SURF_ERR_ARG && qd_gfx_open(5, 5, 0x80) == QD_SURF_ERR_ARG, 0);
+	}
 	id2 = qd_gfx_open(64, 40, 0);
 	rc = qd_surface_info(0, &in);
 	check("gfx 64x40 on the private session (no second move)", id2 > 0 && rc == 0 && in.kind == QD_SURF_INDEX8 && in.w == 64 &&

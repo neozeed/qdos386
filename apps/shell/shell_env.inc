@@ -115,6 +115,10 @@ static void cmd_set(char *arg)
 	else
 		sync_interval_hook(n, v);
 #endif
+#ifdef R13A_SHELL
+	if (rc == 0)
+		font_env_hook(n, v);
+#endif
 }
 
 static void cmd_unset(char *arg)

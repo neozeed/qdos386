@@ -17,5 +17,17 @@ void pres_poll(void);             /* the SYSTEM job, every tick: mode switches a
 /* Counters for tests (all since boot): mode switches to text, to mode 13h, full frames, dirty-row copies, palette
  * loads. */
 void pres_stats(unsigned int *out5);
+#ifdef QDOS_R13A
+#define PRES_CAP_MODE12  0x04u    /* R13A: 640x480x16 (mode 12h) for rendered text consoles */
+/* R13A: the presenter's copy of what it shows, for test harnesses that cannot read pixels as text (a fixed kernel
+ * object; its address is printed at boot).  mode: 0 VGA text, 2 mode 13h, 3 mode 12h rendered text, 1 switching. */
+struct pres_shadow {
+	unsigned int magic;           /* 0x44485351 "QSHD" */
+	unsigned int version;         /* 1 */
+	unsigned int mode, session, cursor, font_id, cell_w, cell_h, ox, oy, frames, pad;
+	unsigned short cell[2000];    /* the cells last rendered (mode 3 only) */
+};
+const struct pres_shadow *pres_shadow_ptr(void);
+#endif
 
 #endif

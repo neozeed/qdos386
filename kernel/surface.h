@@ -34,6 +34,28 @@
 #define SURF_OP_FRAME     20u     /* count one frame (programs that animate) -> the new count */
 #define SURF_OP_STATS     21u     /* b = 8-word buffer: surfaces open, opened, refused, freed, presenter counters */
 
+#ifdef QDOS_R13A
+/* R13A (docs/R13A-GRAPHICS-ABI.md); SURF_VERSION stays 1 for these: CAPS has SURF_CAP_R13A. */
+#define SURF_OP_FONT_LOAD    22u  /* b = QFNT image, c = bytes -> font id (the caller holds one reference) */
+#define SURF_OP_FONT_RELEASE 23u  /* b = font id: drop the loader's reference */
+#define SURF_OP_FONT_SELECT  24u  /* b = font id, 0: the system default - the caller's session font */
+#define SURF_OP_FONT_INFO    25u  /* b = font id (0: the caller's), c = 16-word buffer */
+#define SURF_OP_FONT_DEFAULT 26u  /* b = 0 surface text / 1 consoles, c = font id: the system default */
+#define SURF_OP_FONT_LIST    27u  /* b = buffer, c = max ids -> count */
+#define SURF_OP_CONSOLE      28u  /* b = VSESS_CM_VGA / _GFX (0xFFFFFFFF query), c = 0 own session, 1 all + new */
+#define SURF_OP_TEXT_SUM     29u  /* b = surface id (0: own): checksum of the text as rendered (no cursor) */
+#define SURF_OP_VIEW         30u  /* b = GS_VIEW_FIT / GS_VIEW_CROP, c = vx | vy << 16 */
+#define SURF_OP_KEV_ENABLE   31u  /* b = 1 on / 0 off: native key events for the caller's session */
+#define SURF_OP_KEV_READ     32u  /* b = buffer, c = max events (<= 64) -> events copied (never blocks) */
+#define SURF_OP_BLIT_KEY     33u  /* b = struct surf_rect {x, y, w, h, src, stride}, c = transparent colour */
+#define SURF_OP_COPY         34u  /* b = struct surf_copy: within the surface, overlap-safe */
+#define SURF_OP_MEMSTATS     35u  /* b = 8 words: pixel bytes, budget, budget refusals, fonts, font bytes, key events
+                                   * delivered, dropped, synthetic */
+#define SURF_OP_FONT_OPEN    36u  /* b = path (NUL-terminated, < 128): read and register a QFNT file -> font id */
+#define SURF_CAP_R13A     0x10u   /* the R13A calls above */
+#define SURF_CAP_SHOW_TEXT_GFX 0x20u  /* rendered text consoles (mode 12h) can be shown */
+struct surf_copy { long sx, sy, w, h, dx, dy; };
+#endif
 #define SURF_CAP_TEXT     0x01u   /* TEXT80x25 sessions */
 #define SURF_CAP_INDEX8   0x02u   /* INDEX8 surfaces */
 #define SURF_CAP_SHOW_TEXT 0x04u  /* the display presents text sessions (VGA builds) */

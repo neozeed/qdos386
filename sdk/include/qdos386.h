@@ -499,4 +499,50 @@ long qd_gfx_frame(void);                                         /* count a fram
 int qd_surface_list(void *buf, unsigned int bytes);              /* 16-byte header + 32-byte records -> count */
 int qd_text_cells(unsigned int row, unsigned int col, const unsigned short *cells, unsigned int n);
 int qd_surface_stats(unsigned long *w8);
+
+/* ---- R13A: fonts, rendered text consoles, logical surfaces, key events, blits (docs/R13A-GRAPHICS-ABI.md) -------
+ * Fonts are QFNT v1 files (docs/R13A-FONT-FORMAT.md), loaded by path (qd_font_open: the kernel reads it through the
+ * FAT layer) or from a buffer; a loaded font belongs to the loader (one reference) until qd_font_release or the
+ * loader ends; sessions and surfaces that selected it keep it alive.  Built-in: QD_FONT_RECOVERY (6x9 in 6x10, the
+ * default for surface text) and QD_FONT_CONSOLE (8x16, the default of rendered consoles).  INDEX8 surfaces may be
+ * up to QD_GFX13A_MAX_W x QD_GFX13A_MAX_H (logical); the display shows them scaled to fit (QD_VIEW_FIT) or a 1:1
+ * window (QD_VIEW_CROP).  Key events: see QD_KEV_*. */
+#define QD_SURF_CAP_R13A     0x10u
+#define QD_SURF_CAP_TEXT_GFX 0x20u   /* rendered text consoles can be shown */
+#define QD_FONT_RECOVERY     1L
+#define QD_FONT_CONSOLE      2L
+#define QD_CONSOLE_VGA       0u      /* the VGA's own text mode */
+#define QD_CONSOLE_GFX       1u      /* the cells drawn with a bitmap font (640x480x16) */
+#define QD_VIEW_FIT          0u
+#define QD_VIEW_CROP         1u
+#define QD_GFX13A_MAX_W      512
+#define QD_GFX13A_MAX_H      256
+#define QD_KEV_EXT           0x100ul /* key event word: scancode | flags | modifiers | char << 16 */
+#define QD_KEV_DOWN          0x200ul
+#define QD_KEV_SYNTH         0x400ul
+#define QD_KEV_SHIFT         0x1000ul
+#define QD_KEV_CTRL          0x2000ul
+#define QD_KEV_ALT           0x4000ul
+#define QD_KEV_CODE(e)       ((unsigned int) ((e) & 0xffu))
+#define QD_KEV_CHAR(e)       ((unsigned int) (((e) >> 16) & 0xffu))
+struct qd_font_info {
+	unsigned long version, id, glyph_w, glyph_h, cell_w, cell_h, glyphs, encoding, refs, flags, crc;
+	char name[20];
+};
+long qd_font_open(const char *path);                      /* -> font id, or negative (missing file, bad format -4) */
+long qd_font_load(const void *image, unsigned int bytes);
+int qd_font_release(long id);
+int qd_font_select(long id);                              /* the caller's session (and its surface text); 0: default */
+int qd_font_info(long id, struct qd_font_info *out);     /* id 0: the caller's surface font */
+int qd_font_default(int console, long id);
+int qd_font_list(long *ids, unsigned int max);
+int qd_console_mode(unsigned int mode, int all);          /* all: every session and the default for new ones */
+int qd_console_mode_get(void);
+long qd_text_checksum(long id);                           /* the text as rendered with its console font */
+int qd_gfx_view(unsigned int mode, unsigned int vx, unsigned int vy);
+int qd_key_events(int on);
+int qd_key_read(unsigned long *ev, unsigned int max);     /* never blocks -> events copied (<= 64) */
+long qd_gfx_blit_key(long x, long y, long w, long h, const void *src, unsigned long stride, unsigned int key);
+long qd_gfx_copy(long sx, long sy, long w, long h, long dx, long dy);
+int qd_gfx_memstats(unsigned long *w8);
 #endif

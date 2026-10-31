@@ -8,9 +8,9 @@ AS  = $(QDOS386_TOOLS)/bin/as
 AR  = ar
 SDK = $(abspath ..)
 
-libqdos.a: qdos.o qtrap.o qdospg.o qdosfs.o qdoscon.o qdosjob.o qdosproc.o qdosenv.o qdostitle.o progname.o qdossurf.o
+libqdos.a: qdos.o qtrap.o qdospg.o qdosfs.o qdoscon.o qdosjob.o qdosproc.o qdosenv.o qdostitle.o progname.o qdossurf.o qdosgfx.o
 	rm -f $@
-	$(AR) rc $@ qdos.o qtrap.o qdospg.o qdosfs.o qdoscon.o qdosjob.o qdosproc.o qdosenv.o qdostitle.o progname.o qdossurf.o
+	$(AR) rc $@ qdos.o qtrap.o qdospg.o qdosfs.o qdoscon.o qdosjob.o qdosproc.o qdosenv.o qdostitle.o progname.o qdossurf.o qdosgfx.o
 
 # R12C: titles, task list, task selector, SYNC; and the default _prog_name, alone in its member (taken only when the
 # program defines none).
@@ -18,6 +18,8 @@ qdostitle.o: qdostitle.c ../include/qdos386.h
 	$(GCC) -c -O -I../include qdostitle.c -o $@
 qdossurf.o: qdossurf.c ../include/qdos386.h
 	$(GCC) -c -O -I../include qdossurf.c -o $@
+qdosgfx.o: qdosgfx.c ../include/qdos386.h
+	$(GCC) -c -O -I../include qdosgfx.c -o $@
 progname.o: progname.c
 	$(GCC) -c -O progname.c -o $@
 

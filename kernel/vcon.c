@@ -10,6 +10,10 @@
 #include "memory.h"
 #include "jobs.h"
 #include "channel.h"
+#ifdef QDOS_R13A
+#include "fontreg.h"
+#include "kev.h"
+#endif
 #endif
 
 #ifdef QDOS_DYNPROC
@@ -38,6 +42,10 @@ struct vcon {
 	unsigned int tag;                  /* R13: changes each time the index is reused */
 	unsigned int owner;                /* R13: tagged id of the creator of a private session */
 #endif
+#ifdef QDOS_R13A
+	struct kfont *font;                /* R13A: the session's font (a reference), 0: the system default */
+	unsigned int cmode;                /* R13A: VSESS_CM_VGA (VGA text mode) or VSESS_CM_GFX (rendered text) */
+#endif
 };
 
 static struct vcon cons[VCON_MAX];
@@ -57,6 +65,9 @@ static int overlay = 0;
 #define SHOWN(v) (!overlay && (v) == &CON(fg))
 #else
 #define SHOWN(v) ((v) == &CON(fg))
+#endif
+#ifdef QDOS_R13A
+static unsigned int cmode_default = VSESS_CM_VGA;
 #endif
 static int inited = 0;
 static int diag_mode = VDIAG_CON0;
@@ -122,6 +133,10 @@ static void sess_reset(struct vcon *v)
 	v->dropped = 0;
 	v->g = 0;
 	v->owner = 0;
+#ifdef QDOS_R13A
+	v->font = 0;
+	v->cmode = cmode_default;
+#endif
 	v->tag = stag_next++;
 	if (stag_next > 0xffffffu)
 		stag_next = 1;
@@ -843,6 +858,11 @@ static void sess_free(int idx)
 		if (job_child[s] == idx)
 			job_child[s] = -1;
 	ctab[idx] = 0;
+#ifdef QDOS_R13A
+	if (v->font != 0)
+		kfont_unref(v->font);
+	kev_session_gone(idx);
+#endif
 	(void) mem_free(v, VSESS_OWNER);
 	if (fg == idx)
 		(void) vcon_switch(0);                     /* the shown session ended: back to console 0 */
@@ -902,6 +922,56 @@ int vsess_users(int idx)
 {
 	return valid(idx) ? CON(idx).users : 0;
 }
+#ifdef QDOS_R13A
+
+/* ---- R13A: per-session font and console mode (docs/R13A-GRAPHICS-ABI.md) ---- */
+struct kfont *vsess_font(int idx)
+{
+	return valid(idx) ? CON(idx).font : 0;
+}
+
+void vsess_set_font(int idx, struct kfont *f)
+{
+	if (!valid(idx))
+		return;
+	kfont_ref(f);
+	if (CON(idx).font != 0)
+		kfont_unref(CON(idx).font);
+	CON(idx).font = f;
+	if (idx == fg)
+		pres_focus_changed();
+}
+
+unsigned int vsess_cmode(int idx)
+{
+	return valid(idx) ? CON(idx).cmode : VSESS_CM_VGA;
+}
+
+void vsess_set_cmode(int idx, unsigned int m)
+{
+	if (!valid(idx))
+		return;
+	CON(idx).cmode = m;
+	if (idx == fg)
+		pres_focus_changed();
+}
+
+void vsess_set_cmode_default(unsigned int m)
+{
+	cmode_default = m;
+}
+
+const unsigned short *vsess_cells(int idx, unsigned int *cursor)
+{
+	struct vcon *v;
+
+	if (!valid(idx))
+		return 0;
+	v = &CON(idx);
+	*cursor = (v->x >= VCON_COLS ? VCON_COLS - 1u : v->x) | (v->y << 8) | ((unsigned int) (v->cursor_on ? 1 : 0) << 16);
+	return v->cell;
+}
+#endif
 
 int vsess_dynamic(int idx)
 {

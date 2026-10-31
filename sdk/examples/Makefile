@@ -239,3 +239,7 @@ COLOUR.aout: r13/colour/colour.c r13/gfxmodel.h $(LIBS)
 	$(WRAP) -o $@ r13/colour/colour.c
 BOUNCE.aout: r13/bounce/bounce.c r13/gfxmodel.h $(LIBS)
 	$(WRAP) -o $@ r13/bounce/bounce.c
+
+# R13A: fonts, rendered consoles, logical surfaces, key events (docs/R13A-GRAPHICS-ABI.md).
+GFXA.aout: r13a/gfxa/gfxa.c $(LIBS)
+	$(WRAP) -o $@ r13a/gfxa/gfxa.c

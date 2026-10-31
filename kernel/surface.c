@@ -9,6 +9,13 @@
 #include "channel.h"
 #include "memory.h"
 #include "present.h"
+#ifdef QDOS_R13A
+#include "fontreg.h"
+#include "kev.h"
+#include "win1.h"
+#define SURF_PIX_BUDGET (400u * 1024u)        /* R13A: all INDEX8 blocks together (kernel heap), see R13A-GRAPHICS-ABI */
+static unsigned int n_pix_bytes, n_budget_refused;
+#endif
 
 extern unsigned int irq_save(void);
 extern void irq_restore(unsigned int flags);
@@ -55,6 +62,11 @@ void surf_release(struct gsurf *g)
 	g->magic = 0;
 	if (n_open > 0)
 		n_open--;
+#ifdef QDOS_R13A
+	n_pix_bytes -= (unsigned int) gs_block_bytes(g->w, g->h);
+	kfont_unref(g->font);
+	g->font = 0;
+#endif
 	for (i = 0; i < ZOMBIE_MAX; i++)
 		if (zombies[i] == 0) {
 			zombies[i] = g;
@@ -72,6 +84,9 @@ void surf_job_ended(unsigned int job_id, int idx)
 		vsess_set_gfx(idx, 0);
 		surf_release(g);
 	}
+#ifdef QDOS_R13A
+	kfont_job_ended(job_id);
+#endif
 }
 
 /* The SYSTEM job: free released surfaces.  The presenter runs in the same job, so it never copies from one of
@@ -91,6 +106,9 @@ void surface_poll(void)
 		}
 		irq_restore(irq);
 	}
+#ifdef QDOS_R13A
+	kfont_poll();
+#endif
 }
 
 static int copy_in(void *dst, unsigned int src, unsigned int n)
@@ -230,10 +248,18 @@ static int gfx_open(unsigned int b, unsigned int c)
 	int sess = my_sess(), n;
 	void *blk;
 	struct gsurf *g;
+#ifdef QDOS_R13A
+	struct kfont *sfont = vsess_font(sess);        /* the caller's session font goes with it to a new session */
+#endif
 
 	if (w == 0 && h == 0) {
+#ifdef QDOS_R13A
+		w = 320u;                                  /* 0 x 0 stays the R13 default: the screen size */
+		h = 200u;
+#else
 		w = GS_MAX_W;
 		h = GS_MAX_H;
+#endif
 	}
 	if (w == 0 || h == 0 || w > GS_MAX_W || h > GS_MAX_H || (c & ~(SURF_GF_FOREGROUND | SURF_GF_SHARE)) != 0)
 		return SURF_ERR_ARG;
@@ -243,6 +269,13 @@ static int gfx_open(unsigned int b, unsigned int c)
 		n_refused++;
 		return SURF_ERR_FULL;
 	}
+#ifdef QDOS_R13A
+	if (n_pix_bytes + (unsigned int) gs_block_bytes(w, h) > SURF_PIX_BUDGET) {
+		n_refused++;
+		n_budget_refused++;
+		return SURF_ERR_FULL;                      /* the pixel budget: memory pressure is refused, not risked */
+	}
+#endif
 	blk = mem_alloc((unsigned int) gs_block_bytes(w, h), VSESS_OWNER);
 	if (mem_is_error((unsigned int) blk)) {
 		n_refused++;
@@ -260,6 +293,14 @@ static int gfx_open(unsigned int b, unsigned int c)
 	}
 	g = (struct gsurf *) blk;
 	(void) gs_init(g, blk, w, h, my_id());
+#ifdef QDOS_R13A
+	n_pix_bytes += (unsigned int) gs_block_bytes(w, h);
+	if (sfont != 0) {
+		if (vsess_font(sess) == 0)
+			vsess_set_font(sess, sfont);
+		gs_set_font(g, sfont);                     /* the session's own font, else the system default (gs_init) */
+	}
+#endif
 	vsess_set_gfx(sess, g);
 	n_open++;
 	n_opened++;
@@ -267,6 +308,114 @@ static int gfx_open(unsigned int b, unsigned int c)
 		(void) vcon_switch(sess);
 	return (int) sid(sess);
 }
+
+#ifdef QDOS_R13A
+/* FONT_OPEN: read a QFNT file by path (relative to the caller's directory, as RUN finds programs) through the
+ * kernel's FAT16/VFAT layer into a temporary heap block, register it, free the block. */
+static int font_open(unsigned int path)
+{
+	char name[129];
+	struct fat16_file f;
+	unsigned char *blk;
+	unsigned int i, got;
+	int rc;
+
+	for (i = 0; i < 128u; i++) {
+		if (!chan_user_range_ok(path + i, 1u))
+			return SURF_ERR_RANGE;
+		name[i] = ((const char *) path)[i];
+		if (name[i] == 0)
+			break;
+	}
+	if (i == 0 || i >= 128u)
+		return SURF_ERR_ARG;
+	rc = win1_open_img(name, &f);
+	if (rc != 0)
+		return rc;                                 /* FAT_ERR_* / CHAN_ERR_*: missing file, no volume ... */
+	if (f.size == 0 || f.size > QFNT_MAX_FILE)
+		return SURF_ERR_ARG;                       /* empty or oversized: never allocated */
+	blk = (unsigned char *) mem_alloc((unsigned int) f.size, VSESS_OWNER);
+	if (mem_is_error((unsigned int) blk))
+		return SURF_ERR_MEM;
+	rc = fat16_read(&f, blk, (unsigned int) f.size, &got);
+	if (rc == 0 && got != (unsigned int) f.size)
+		rc = SURF_ERR_ARG;                         /* truncated read */
+	if (rc == 0)
+		rc = kfont_load(blk, (unsigned int) f.size, my_id(), 0);
+	(void) mem_free(blk, VSESS_OWNER);
+	return rc;
+}
+
+static int font_info(unsigned int id, unsigned int buf)
+{
+	struct kfont *f;
+	unsigned int w[16], i;
+
+	if (id == 0) {
+		f = vsess_font(my_sess());
+		if (f == 0)
+			f = kfont_default(0);
+	} else
+		f = kfont_get(id);
+	if (f == 0)
+		return SURF_ERR_STALE;
+	if (!chan_user_range_ok(buf, 64u))
+		return SURF_ERR_RANGE;
+	w[0] = 1u;
+	w[1] = f->id;
+	w[2] = f->gw;
+	w[3] = f->gh;
+	w[4] = f->cw;
+	w[5] = f->ch;
+	w[6] = f->count;
+	w[7] = f->enc;
+	w[8] = (unsigned int) f->refs;
+	w[9] = (f->builtin ? 1u : 0u) | (f->owner == my_id() ? 2u : 0u) | (kfont_default(0) == f ? 4u : 0u) |
+	       (kfont_default(1) == f ? 8u : 0u);
+	w[10] = f->crc;
+	for (i = 0; i < 5; i++)
+		w[11 + i] = (unsigned int) (unsigned char) f->name[4 * i] | ((unsigned int) (unsigned char) f->name[4 * i + 1] << 8) |
+		            ((unsigned int) (unsigned char) f->name[4 * i + 2] << 16) | ((unsigned int) (unsigned char) f->name[4 * i + 3] << 24);
+	for (i = 0; i < 16; i++)
+		((unsigned int *) buf)[i] = w[i];
+	return 0;
+}
+
+/* The font a rendered text console of session idx uses (the presenter's rule). */
+static const struct kfont *console_font_of(int idx)
+{
+	const struct kfont *f = vsess_font(idx);
+
+	if (f == 0 || f->cw * 80u > 640u || f->ch * 25u > 480u)
+		f = kfont_default(1);
+	if (f == 0 || f->cw * 80u > 640u || f->ch * 25u > 480u)
+		f = kfont_get(KFONT_RECOVERY);
+	return f;
+}
+
+/* FNV-1a of the session's text rendered with its console font: 25 x ch rows of 80 x cw pixels, one byte per pixel
+ * (the colour 0..15: foreground bits 8..11, background bits 12..14 of the cell), without the cursor. */
+static int text_sum(int idx)
+{
+	const struct kfont *f = console_font_of(idx);
+	unsigned int cur, h = 2166136261u, r, y, c, k;
+	const unsigned short *cells = vsess_cells(idx, &cur);
+
+	if (cells == 0 || f == 0)
+		return SURF_ERR_STALE;
+	for (r = 0; r < 25u; r++)
+		for (y = 0; y < f->ch; y++)
+			for (c = 0; c < 80u; c++) {
+				unsigned short cell = cells[r * 80u + c];
+				unsigned int bits = kfont_cell_row(f, cell & 0xffu, y, 0), fgc = (cell >> 8) & 15u, bgc = (cell >> 12) & 7u;
+				for (k = 0; k < f->cw; k++) {
+					h ^= (bits >> (f->cw - 1u - k)) & 1u ? fgc : bgc;
+					h *= 16777619u;
+				}
+			}
+	return (int) (h & 0x7fffffffu);
+}
+#endif
 
 int surface_trap(unsigned int op, unsigned int b, unsigned int c)
 {
@@ -284,6 +433,11 @@ int surface_trap(unsigned int op, unsigned int b, unsigned int c)
 			caps |= SURF_CAP_SHOW_TEXT;
 		if (pc & PRES_CAP_MODE13)
 			caps |= SURF_CAP_SHOW_GFX;
+#ifdef QDOS_R13A
+		caps |= SURF_CAP_R13A;
+		if (pc & PRES_CAP_MODE12)
+			caps |= SURF_CAP_SHOW_TEXT_GFX;
+#endif
 		return (int) ((SURF_VERSION << 16) | caps);
 	}
 	case SURF_OP_INFO:
@@ -423,6 +577,129 @@ int surface_trap(unsigned int op, unsigned int b, unsigned int c)
 			((unsigned int *) b)[4 + i] = ps[i];
 		return 0;
 	}
+#ifdef QDOS_R13A
+	case SURF_OP_FONT_LOAD: {
+		int id;
+
+		if (c == 0 || c > QFNT_MAX_FILE)
+			return SURF_ERR_ARG;
+		if (!chan_user_range_ok(b, c))
+			return SURF_ERR_RANGE;
+		id = kfont_load((const unsigned char *) b, c, my_id(), 0);
+		return id;
+	}
+	case SURF_OP_FONT_OPEN:
+		return font_open(b);
+	case SURF_OP_FONT_RELEASE:
+		return kfont_release(b, my_id());
+	case SURF_OP_FONT_SELECT: {
+		struct kfont *f = 0;
+
+		sess = my_sess();
+		if (b != 0 && (f = kfont_get(b)) == 0)
+			return SURF_ERR_STALE;
+		vsess_set_font(sess, f);
+		if ((g = vsess_gfx(sess)) != 0)
+			gs_set_font(g, f != 0 ? f : kfont_default(0));
+		return 0;
+	}
+	case SURF_OP_FONT_INFO:
+		return font_info(b, c);
+	case SURF_OP_FONT_DEFAULT:
+		return kfont_set_default(b != 0, c);
+	case SURF_OP_FONT_LIST: {
+		unsigned int ids[KFONT_SLOTS];
+		int n, i;
+
+		if (c > KFONT_SLOTS)
+			c = KFONT_SLOTS;
+		if (!chan_user_range_ok(b, c * 4u))
+			return SURF_ERR_RANGE;
+		n = kfont_list(ids, (int) c);
+		for (i = 0; i < n; i++)
+			((unsigned int *) b)[i] = ids[i];
+		return n;
+	}
+	case SURF_OP_CONSOLE: {
+		int i;
+
+		sess = my_sess();
+		if (b == 0xFFFFFFFFu)
+			return (int) vsess_cmode(sess);
+		if (b > VSESS_CM_GFX || c > 1u)
+			return SURF_ERR_ARG;
+		if (b == VSESS_CM_GFX && !(pres_caps() & PRES_CAP_MODE12))
+			return SURF_ERR_NOGFX;                 /* no rendered text on this display: VGA text stays */
+		if (c == 0)
+			vsess_set_cmode(sess, b);
+		else {
+			vsess_set_cmode_default(b);
+			for (i = 0; i < VSESS_MAX; i++)
+				if (vsess_valid(i))
+					vsess_set_cmode(i, b);
+		}
+		return 0;
+	}
+	case SURF_OP_TEXT_SUM:
+		sess = resolve(b);
+		if (sess < 0)
+			return sess;
+		return text_sum(sess);
+	case SURF_OP_VIEW:
+		if ((g = my_gfx(&rc)) == 0)
+			return rc;
+		if (b > GS_VIEW_CROP || (c & 0xffffu) >= g->w || (c >> 16) >= g->h)
+			return SURF_ERR_ARG;
+		g->view = b;
+		g->vx = c & 0xffffu;
+		g->vy = c >> 16;
+		pres_focus_changed();
+		return 0;
+	case SURF_OP_KEV_ENABLE:
+		return kev_enable(my_sess(), b != 0);
+	case SURF_OP_KEV_READ:
+		if (c > 64u)
+			c = 64u;
+		if (!chan_user_range_ok(b, c * 4u))
+			return SURF_ERR_RANGE;
+		return kev_read(my_sess(), (unsigned int *) b, (int) c);
+	case SURF_OP_BLIT_KEY:
+		if ((g = my_gfx(&rc)) == 0)
+			return rc;
+		if ((rc = copy_in(&r, b, (unsigned int) sizeof r)) != 0)
+			return rc;
+		rc = user_rect_ok(g, &r);
+		if (rc <= 0)
+			return rc;
+		return (int) gs_blit_key(g, r.x, r.y, r.w, r.h, (const unsigned char *) r.p, r.q, c & 0xffu);
+	case SURF_OP_COPY: {
+		struct surf_copy cp;
+		long n;
+
+		if ((g = my_gfx(&rc)) == 0)
+			return rc;
+		if ((rc = copy_in(&cp, b, (unsigned int) sizeof cp)) != 0)
+			return rc;
+		n = gs_copy(g, cp.sx, cp.sy, cp.w, cp.h, cp.dx, cp.dy);
+		return n == GS_ERR_ARG ? SURF_ERR_ARG : (int) n;
+	}
+	case SURF_OP_MEMSTATS: {
+		unsigned int ks[4];
+
+		if (!chan_user_range_ok(b, 32u))
+			return SURF_ERR_RANGE;
+		kev_stats(ks);
+		((unsigned int *) b)[0] = n_pix_bytes;
+		((unsigned int *) b)[1] = SURF_PIX_BUDGET;
+		((unsigned int *) b)[2] = n_budget_refused;
+		((unsigned int *) b)[3] = kfont_live();
+		((unsigned int *) b)[4] = kfont_bytes();
+		((unsigned int *) b)[5] = ks[0];
+		((unsigned int *) b)[6] = ks[1];
+		((unsigned int *) b)[7] = ks[2];
+		return 0;
+	}
+#endif
 	default:
 		return SURF_ERR_ARG;
 	}

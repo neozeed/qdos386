@@ -244,6 +244,10 @@ static void cmd_help(void)
 	outs("SET [NAME[=value]]   list / show / set environment variables (SET NAME= sets an empty value)\n");
 	outs("UNSET NAME           remove a variable;  ECHO text   print text;  %NAME% in a line is replaced by its value\n");
 	outs("CALL script          run the commands in a file (also SOURCE); REM starts a comment line\n");
+#ifdef R13A_SHELL
+	outs("FONT [path|n] [/CON|/SURF]  list fonts / load a QFNT font and use it (SET FONT=path too)\n");
+	outs("CONSOLE [GFX|VGA] [/ALL]    rendered text console (640x480, the font) or VGA text mode\n");
+#endif
 #ifdef R13_SHELL
 	outs("START ... /NEW       start in a new private session (any number: Ctrl+Esc selects them)\n");
 	outs("CON / CON n          list the sessions (TEXT or GFX) / show session n (0..19; 0..3 also Alt+F1..F4)\n");
@@ -675,10 +679,16 @@ static int exec_line(char *s);
 #ifdef R12C_SHELL
 static void sync_interval_hook(const char *name, const char *value);
 #endif
+#ifdef R13A_SHELL
+static void font_env_hook(const char *name, const char *value);
+#endif
 #include "shell_env.inc"
 #endif
 #ifdef R12C_SHELL
 #include "shell_r12c.inc"
+#endif
+#ifdef R13A_SHELL
+#include "shell_r13a.inc"
 #endif
 
 /* Run one line.  Returns 1 for EXIT, 0 otherwise.  The line is changed in place. */
@@ -787,6 +797,12 @@ static int exec_line(char *s)
 	else if (same(w, "SYNC"))
 		cmd_sync(arg);
 #endif
+#ifdef R13A_SHELL
+	else if (same(w, "FONT"))
+		cmd_font(arg);
+	else if (same(w, "CONSOLE"))
+		cmd_console(arg);
+#endif
 	else if (same(w, "EXIT")) {
 #ifdef R12B_SHELL
 		if (sc_depth > 0) {
@@ -818,7 +834,10 @@ int main(void)
 	con_ch = (int) qtrap(APP_QT_CH_OPEN, (unsigned int) "CON", 0, 0);
 	if (con_ch <= 0)
 		return 1;
-#if defined(R13_SHELL)
+#if defined(R13A_SHELL)
+	startup();
+	outs("QDOS/386 R13A shell. Type HELP.\n");
+#elif defined(R13_SHELL)
 	startup();
 	outs("QDOS/386 R13 shell. Type HELP.\n");
 #elif defined(R12C_SHELL)

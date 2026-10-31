@@ -15,6 +15,9 @@
 #include "cin.h"
 #ifdef QDOS_VCON
 #include "vcon.h"
+#ifdef QDOS_R13A
+#include "kev.h"
+#endif
 #endif
 
 extern void outb(unsigned int port, unsigned int val);
@@ -110,6 +113,18 @@ void input_irq1(void)
 #ifdef QDOS_VCON
 		{
 			int r = kbd_feed(&dec, sc, &c);
+#ifdef QDOS_R13A
+			{
+				static int e0;              /* R13A: native key events (kernel/kev.h) */
+				if (sc == 0xe0)
+					e0 = 1;
+				else if (sc != 0xe1) {
+					kev_scancode(sc, e0, r == 2 || r == 3, r == 1 ? c : 0u,
+					             (dec.shift ? KEV_SHIFT : 0u) | (dec.ctrl ? KEV_CTRL : 0u) | (dec.alt ? KEV_ALT : 0u));
+					e0 = 0;
+				}
+			}
+#endif
 			if (r == 1)
 				cin_put(c);
 #ifdef QDOS_TASKMGR

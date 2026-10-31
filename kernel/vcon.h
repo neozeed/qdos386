@@ -120,6 +120,17 @@ int vsess_new_failures(void);                   /* VCON_CHILD_NEW requests that 
 int vcon_overlay_on(void);
 void vcon_present_text(void);                   /* the presenter is in text mode again: draw what the display shows */
 int vcon_write_cells(int con, unsigned int row, unsigned int col, const unsigned short *cells, unsigned int n);
+#ifdef QDOS_R13A
+#define VSESS_CM_VGA   0u              /* R13A console modes: the VGA's own text mode (the R13 behaviour) */
+#define VSESS_CM_GFX   1u              /*   the cells rendered with a bitmap font by the presenter */
+struct kfont;
+struct kfont *vsess_font(int idx);
+void vsess_set_font(int idx, struct kfont *f);
+unsigned int vsess_cmode(int idx);
+void vsess_set_cmode(int idx, unsigned int m);
+void vsess_set_cmode_default(unsigned int m);   /* for sessions created from now on */
+const unsigned short *vsess_cells(int idx, unsigned int *cursor);   /* cursor: col | row << 8 | shown << 16 */
+#endif
 /* Provided by kernel/surface.c: a surface leaves its session (closed, or its session or owner ended). */
 void surf_release(struct gsurf *g);
 void surf_job_ended(unsigned int job_id, int idx);
