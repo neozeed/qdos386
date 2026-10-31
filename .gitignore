@@ -10,6 +10,7 @@ guest-programs/
 guest-programs-r12a/
 guest-programs-r12b/
 images/
+kernels/
 launch/
 logs/
 patches/

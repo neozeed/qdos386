@@ -33,6 +33,9 @@
  * option is not implemented.
  */
 #include "jobs.h"
+#ifdef QDOS_R16
+#include "smp.h"
+#endif
 #ifdef QDOS_AMP
 #include "amp.h"
 #endif
@@ -85,8 +88,13 @@
 #endif
 
 struct job jobs[JOB_MAX];
+#ifdef QDOS_R16
+int g_jobcur[2] = { JOB_SYSTEM, JOB_SYSTEM };   /* per-CPU current slot (indexed by kx_this_cpu) */
+int g_jobidle[2] = { 3, 3 };                    /* per-CPU idle slot */
+#else
 int job_current = JOB_SYSTEM;
 int job_idle = 3;
+#endif
 volatile unsigned long sched_ticks = 0;
 volatile unsigned long sched_yields = 0;
 volatile unsigned long sched_passes = 0;
@@ -97,12 +105,16 @@ volatile unsigned long stack_faults = 0;
 unsigned long jobs_reclaimed = 0;
 unsigned long bytes_reclaimed = 0;
 unsigned int sv_rand = 0;
-#ifdef QDOS_DYNPROC
+#ifdef QDOS_R16
+/* R16: per-CPU {kx_lo, kx_hi, kx_entry, resume_fmt}, one row per CPU; kctx3.s selects the row by the task register.
+ * Row defaults (whole address space, fmt 0) mean "already on the kernel stack": template jobs never switch. */
+unsigned int kx_pc[2][4] = { { 0, 0xFFFFFFFFu, 0, 0 }, { 0, 0xFFFFFFFFu, 0, 0 } };
+#elif defined(QDOS_DYNPROC)
 /* R12A: the current job's kernel-entry stack, read by every entry stub in kctx.s.  The defaults (whole address space)
  * mean "already on the kernel stack": template jobs never switch. */
 unsigned int kx_lo = 0, kx_hi = 0xFFFFFFFFu, kx_entry = 0;
 #endif
-#ifndef QDOS_KCTX_PTRBITS
+#if !defined(QDOS_KCTX_PTRBITS) && !defined(QDOS_R16)
 unsigned int kx_resume_fmt = 0;           /* format of the frame resume_dispatch pops (kctx.s, jobs.h KX_RESUME) */
 #endif
 #ifdef QDOS_KCTX_CHECK
@@ -151,6 +163,10 @@ unsigned int kx_resume_check(unsigned int sp, unsigned int fmt)
 	kx_resume_fmt = fmt;
 	return sp;
 }
+#endif
+
+#ifdef QDOS_R16
+unsigned int job_kill_current(unsigned int sp);        /* defined below (QDOS_PAGING); used by the protected QT_EXIT */
 #endif
 
 static struct qtask *poll_list = 0;     /* SV.PLIST */
@@ -239,6 +255,10 @@ static void reclaim_dead(void)
 		struct job *j = &jobs[i];
 		if (i == job_current || !(dead_mask & bit))
 			continue;
+#ifdef QDOS_R16
+		if (j->running_on != -1)        /* still executing on the other CPU: reclaim after its next pass saves it */
+			continue;
+#endif
 #ifdef QDOS_PAGING
 		/* R11J: first the address space; if its directory were active, keep the slot dead
 		 * and retry on a later pass (never reached: guard). */
@@ -280,6 +300,9 @@ static int pick_next(unsigned int pollm)
 	unsigned int best_acc = 0;
 	int n, i;
 	struct job *j;
+#ifdef QDOS_R16
+	int cpu = kx_this_cpu();
+#endif
 
 	for (n = 1; n <= JOB_MAX; n++) {
 		i = (job_current + n) % JOB_MAX;
@@ -296,6 +319,11 @@ static int pick_next(unsigned int pollm)
 		}
 		if (j->status < 0)
 			continue;
+#ifdef QDOS_R16
+		/* R16: pinned affinity, no migration; never select a job already running on the other CPU. */
+		if (j->aff != (signed char) cpu || (j->running_on != -1 && i != job_current))
+			continue;
+#endif
 		if (j->acc_prio == 0) {
 			j->acc_prio = 1;
 		} else {
@@ -348,7 +376,13 @@ static unsigned int schedule(unsigned int sp, int fmt, int from_irq)
 		 * Both switch paths (timer ISR and cooperative yield) come through
 		 * here, so both are covered. */
 		fpu_save(out->fpu);
+#ifdef QDOS_R16
+		jobs[job_current].running_on = -1;     /* frame saved: the other CPU may now pick it (it will not, pinned) */
+#endif
 		job_current = next;
+#ifdef QDOS_R16
+		jobs[job_current].running_on = (signed char) kx_this_cpu();
+#endif
 		fpu_restore(jobs[job_current].fpu);
 #ifdef QDOS_PAGING
 		/* R11J: the incoming job's address space.  IF is off, and every stack and the
@@ -359,12 +393,31 @@ static unsigned int schedule(unsigned int sp, int fmt, int from_irq)
 	}
 	jobs[job_current].dispatches++;
 #ifdef QDOS_DYNPROC
+#ifdef QDOS_R16
+	{
+		int cpu = kx_this_cpu();
+		kx_pc[cpu][0] = jobs[job_current].kx_lo;
+		kx_pc[cpu][1] = jobs[job_current].kx_hi;
+		kx_pc[cpu][2] = jobs[job_current].kx_entry;
+		kx_set_esp0(jobs[job_current].kx_entry);   /* this CPU's TSS.ESP0: CPL3 entries of the incoming job */
+	}
+#else
 	kx_lo = jobs[job_current].kx_lo;
 	kx_hi = jobs[job_current].kx_hi;
 	kx_entry = jobs[job_current].kx_entry;
 #endif
+#endif
 	return KX_RESUME(jobs[job_current].saved_sp, jobs[job_current].saved_fmt);
 }
+
+#ifdef QDOS_R16
+/* R16: a scheduler pass for an application processor's LAPIC timer.  No timekeeping, poll lists or wall clock (CPU 0
+ * owns those); just save the current job and pick/resume this CPU's next.  Runs under the BKL. */
+unsigned int schedule_entry(unsigned int sp)
+{
+	return schedule(sp, 1, 1);
+}
+#endif
 
 /* IRQ0 path (l00900): poll list, then scheduler. */
 unsigned int sched_irq_tick(unsigned int sp)
@@ -543,6 +596,10 @@ int job_alloc_sized(const char *name, void (*entry)(void), unsigned char inc, un
 	j->args = 0;
 	j->stack_hwm = 0;
 #ifdef QDOS_DYNPROC
+#ifdef QDOS_R16
+	j->aff = (signed char) kx_this_cpu();   /* inherit the creator's CPU; QT_SMP SETAFF may move it before it runs */
+	j->running_on = -1;
+#endif
 	j->kx_lo = 0;                      /* a template job until proc_load gives it a private user stack */
 	j->kx_hi = 0xFFFFFFFFu;
 	j->kx_entry = 0;
@@ -629,6 +686,10 @@ void sched_init(void)
 		jobs[i].id = 0;
 		jobs[i].in_use = 0;
 		jobs[i].dead = 0;
+#ifdef QDOS_R16
+		jobs[i].aff = 0;
+		jobs[i].running_on = -1;
+#endif
 		jobs[i].name = 0;
 		jobs[i].entry = 0;
 		jobs[i].stack_base = 0;
@@ -650,6 +711,10 @@ void sched_init(void)
 	jobs[JOB_SYSTEM].name = "SYSTEM";
 	jobs[JOB_SYSTEM].id = 0;
 	job_current = JOB_SYSTEM;
+#ifdef QDOS_R16
+	jobs[JOB_SYSTEM].aff = 0;
+	jobs[JOB_SYSTEM].running_on = 0;   /* SYSTEM is running on CPU 0 from boot */
+#endif
 	dead_mask = 0;
 }
 
@@ -853,6 +918,14 @@ unsigned int trap_dispatch(unsigned int sp)
 		exit_rec[job_current].id = jobs[job_current].id;
 		exit_rec[job_current].exited = 1;
 		exit_rec[job_current].status = a;
+#ifdef QDOS_R16
+		/* A CPL3 job has no return path into the kernel: QT_EXIT ends it here (same mechanics as a
+		 * fault kill; the recorded status above is what a waiting parent reads). */
+		if (pg_slot_prot(job_current)) {
+			f[7] = 0;
+			return job_kill_current(sp);
+		}
+#endif
 		result = 0;
 		break;
 
@@ -1065,6 +1138,11 @@ unsigned int trap_dispatch(unsigned int sp)
 #ifdef QDOS_AMP
 	case QT_AMP:                              /* R15 AMP0: worker CPU service (kernel/amp.c) */
 		result = amp_trap(a, b, c);
+		break;
+#endif
+#ifdef QDOS_R16
+	case QT_SMP:                              /* R16: two-CPU scheduling service (kernel/smp.c) */
+		result = smp_trap(a, b, c);
 		break;
 #endif
 	case QT_SER:                              /* R14: serial ports (kernel/uart.c) */

@@ -369,6 +369,11 @@ int aout_check_src(app_rd_fn rd, void *ctx, unsigned int len, struct app_image *
 	trs   = rd32(hb + 24);
 	drs   = rd32(hb + 28);
 
+#ifdef QDOS_R16
+	/* R16: magic 0x01000107 marks a protected (CPL3) executable; frozen kernels reject it (docs/R16-CPL3-ABI.md). */
+	out->prot = (magic >> 24) & 1u;
+	magic &= ~0x01000000u;
+#endif
 	if (magic != AOUT_MAGIC)
 		return APP_ERR_MAGIC;
 	if (trs != 0 || drs != 0)

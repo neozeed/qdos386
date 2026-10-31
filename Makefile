@@ -203,7 +203,7 @@ PCCTX ?= $(PCD)/context.o
 # that links kernel/kctx.s (every current kernel) gets the default: the exact stack pointer, format in kx_resume_fmt.
 # Any other context object (context.s, paging.s: R6..R12; kernel/frozen/kctx-r12a-r14.s: the frozen R12A..R14 targets)
 # keeps the historical saved_sp | fmt encoding (-DQDOS_KCTX_PTRBITS), which only those frozen images use.
-PCKCTX = $(if $(filter %/kctx.o,$(PCCTX)),,-DQDOS_KCTX_PTRBITS)
+PCKCTX = $(if $(filter %/kctx.o %/kctx3.o,$(PCCTX)),,-DQDOS_KCTX_PTRBITS)
 # R11J/R11K: PCEXTRA adds the paging objects (empty for every default image).
 PCEXTRA ?=
 PC_OBJS += $(PCEXTRA)
@@ -240,6 +240,18 @@ $(PCD)/kctx.o: kernel/kctx.s
 	mkdir -p $(PCD)
 	$(AS) -o $@ $<
 $(PCD)/kctx_frozen.o: kernel/frozen/kctx-r12a-r14.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+$(PCD)/kctx3.o: kernel/kctx3.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+$(PCD)/uart_s3.o: kernel/uart_s3.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+$(PCD)/smp_s.o: kernel/smp_s.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+$(PCD)/bkl_s.o: kernel/bkl_s.s
 	mkdir -p $(PCD)
 	$(AS) -o $@ $<
 $(PCD)/entry.o: platform/pc/entry.s
@@ -424,6 +436,15 @@ qdos386-pc:
 	$(MAKE) build/pc-r9/boot2.bin
 	$(MAKE) pc PCD=build/qdos386/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(QDOS386_OPTS)" PCIMG=qdos386.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/qdos386/pc/kctx.o PCEXTRA="$(addprefix build/qdos386/pc/,$(QDOS386_OBJS))"
 	$(MAKE) pc PCD=build/qdos386/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(QDOS386_OPTS)" PCIMG=qdos386-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/qdos386/pc-vga/kctx.o PCEXTRA="$(addprefix build/qdos386/pc-vga/,$(QDOS386_OBJS))"
+# R16 (opt-in, EXPERIMENTAL; docs/R16-AUDIT.md, docs/R16-CPL3-ABI.md): CPL3 user mode for marked or flagged
+# processes, per-CPU kernel state, big kernel lock and two-CPU scheduling.  QEMU build/qdos386-smp/pc-vga/
+# qdos386-smp-vga.img, headless build/qdos386-smp/pc/qdos386-smp.img.  The default `make` kernels are unchanged.
+R16_OPTS = $(QDOS386_OPTS) -DQDOS_R16 $(R16_EXTRA)
+R16_OBJS = $(R13B_OBJS) uart.o uart_s3.o bkl.o bkl_s.o smp.o smp_s.o
+qdos386-smp-pc:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/qdos386-smp/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R16_OPTS)" PCIMG=qdos386-smp.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/qdos386-smp/pc/kctx3.o PCEXTRA="$(addprefix build/qdos386-smp/pc/,$(R16_OBJS))"
+	$(MAKE) pc PCD=build/qdos386-smp/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R16_OPTS)" PCIMG=qdos386-smp-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/qdos386-smp/pc-vga/kctx3.o PCEXTRA="$(addprefix build/qdos386-smp/pc-vga/,$(R16_OBJS))"
 # R15 AMP0 (opt-in, docs/R15-AMP-ARCHITECTURE.md): the current kernel plus the master/worker service - CPU 0 keeps the
 # whole kernel, one application processor runs kernel/amp_ap.c only.  QEMU build/qdos386-amp/pc-vga/qdos386-amp-vga.img,
 # headless build/qdos386-amp/pc/qdos386-amp.img.  The default `make` kernels are unchanged.  Test-only variants:

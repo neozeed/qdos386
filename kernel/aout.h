@@ -74,6 +74,9 @@ struct app_image {
 	unsigned int data;          /* bytes, includes alignment padding */
 	unsigned int bss;           /* bytes, not in the file */
 	unsigned int entry;         /* == slot base */
+#ifdef QDOS_R16
+	unsigned int prot;          /* R16: bit 24 of the magic word - launch at CPL3 */
+#endif
 };
 
 struct app_xfer_entry {

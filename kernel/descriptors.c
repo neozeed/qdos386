@@ -20,7 +20,10 @@ extern void load_descriptors(unsigned int gdtr, unsigned int idtr);
 
 #define IRQ0_VECTOR 0x20
 
-#ifdef QDOS_DYNPROC
+#ifdef QDOS_R16
+/* R16: user code 0x28 (selector 0x2B), user data 0x30 (selector 0x33), AP TSS 0x38 (filled by kernel/smp.c). */
+#define GDT_BYTES 64
+#elif defined(QDOS_DYNPROC)
 /* R12A: two more descriptors, 0x18 = main TSS (loaded into TR), 0x20 = #DF TSS (task gate at vector 8). */
 #define GDT_BYTES 40
 #else
@@ -82,6 +85,9 @@ static void kx_tss_descriptors(void)
 		kx_tss_df[i] = 0;
 	}
 	kx_tss_main[25] = 104u << 16;
+#ifdef QDOS_R16
+	kx_tss_main[2] = 0x10u;                        /* SS0: kernel entries from CPL3 use SS0:ESP0 */
+#endif
 	kx_tss_df[8] = (unsigned int) kx_df_entry;
 	kx_tss_df[9] = 0x2u;
 	kx_tss_df[14] = (unsigned int) &kx_df_stack[1020];
@@ -97,6 +103,36 @@ void kx_tss_init(unsigned int template_cr3)
 {
 	kx_tss_df[7] = template_cr3;
 }
+
+#ifdef QDOS_R16
+/* R16: per-CPU TSS.  CPU 0 uses kx_tss_main (selector 0x18); CPU 1 uses kx_tss_ap (selector 0x38). */
+unsigned int kx_tss_ap[26];
+int kx_this_cpu(void);
+
+void kx_set_esp0(unsigned int esp)                 /* dispatching CPU's TSS.ESP0 for the incoming job */
+{
+	if (kx_this_cpu() == 0) kx_tss_main[1] = esp;
+	else kx_tss_ap[1] = esp;
+}
+void kx_set_esp0_cpu(int cpu, unsigned int esp) { if (cpu == 0) kx_tss_main[1] = esp; else kx_tss_ap[1] = esp; }
+
+unsigned int kx_gdtr_addr(void) { return (unsigned int) gdtr; }
+unsigned int kx_idtr_addr(void) { return (unsigned int) idtr; }
+
+/* Build the AP TSS (ring 0, SS0=0x10, template CR3, own ESP0) and install its descriptor at GDT 0x38. */
+void kx_install_ap_tss(unsigned int esp0, unsigned int cr3)
+{
+	int i;
+	for (i = 0; i < 26; i++) kx_tss_ap[i] = 0;
+	kx_tss_ap[1] = esp0;                          /* ESP0 */
+	kx_tss_ap[2] = 0x10u;                         /* SS0 */
+	kx_tss_ap[7] = cr3;                           /* CR3 (unused by a non-switching TSS, set for safety) */
+	kx_tss_ap[25] = 104u << 16;                   /* I/O map base beyond the limit */
+	tss_desc(gdt + 0x38, (unsigned long) kx_tss_ap);
+}
+/* Install an IDT gate at run time for the AP timer vector (interrupt gate, DPL 0). */
+void kx_set_ap_gate(int vector, unsigned int handler) { set_gate(vector, (unsigned long) handler); }
+#endif
 #endif
 
 void descriptors_init(void)
@@ -117,6 +153,13 @@ void descriptors_init(void)
 		idt[i] = 0;
 	set_gate(IRQ0_VECTOR, (unsigned long) irq0_stub);
 	set_gate(TRAP_VECTOR, (unsigned long) trap_stub);
+#ifdef QDOS_R16
+	idt[TRAP_VECTOR * 8 + 5] = 0xee;               /* R16: DPL 3 - int 0x30 is callable from CPL3; all other gates stay DPL 0 */
+	put32(gdt + 0x28, 0x0000ffffUL);               /* user code 0x2B: flat, DPL 3 */
+	put32(gdt + 0x2c, 0x00cffa00UL);
+	put32(gdt + 0x30, 0x0000ffffUL);               /* user data 0x33: flat, DPL 3 */
+	put32(gdt + 0x34, 0x00cff200UL);
+#endif
 	set_gate(0x21, (unsigned long) irq1_stub);          /* master IRQ1: keyboard */
 	set_gate(0x27, (unsigned long) irq7_stub);          /* master IRQ7 */
 	set_gate(0x2f, (unsigned long) irq15_stub);         /* slave IRQ7 = IRQ15 */

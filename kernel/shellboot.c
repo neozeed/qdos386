@@ -2,6 +2,10 @@
  * QDOS/386 R7 - shell boot.  See shellboot.h.  Compiled into every image, but
  * entered only from main() when R7_SHELL_MODE is defined.
  */
+#ifdef QDOS_R16
+#include "bkl.h"
+#include "smp.h"
+#endif
 #ifdef QDOS_AMP
 #include "amp.h"
 #endif
@@ -67,6 +71,11 @@ int shell_boot(void)
 {
 	unsigned int arena;
 	int shell_id, idle_id, st;
+#ifdef QDOS_R16
+	unsigned int sys_fl;
+	extern unsigned int irq_save(void);
+	extern void irq_restore(unsigned int flags);
+#endif
 
 	con_puts("QDOS/386 R7\n");
 	con_puts("Native i386 kernel\n\n");
@@ -90,6 +99,9 @@ int shell_boot(void)
 		boot_fail("heap arena rejected");
 #ifdef QDOS_AMP
 	amp_boot();                    /* R15: worker CPU start-up, BEFORE paging: LAPIC and firmware tables are physical */
+#endif
+#ifdef QDOS_R16
+	smp_boot();                    /* R16: detect CPUs and the LAPIC base BEFORE paging (firmware tables are physical) */
 #endif
 #ifdef QDOS_PAGING
 	pg_init();                     /* R11J: identity paging before the volume and shell */
@@ -201,6 +213,9 @@ int shell_boot(void)
 	ser_boot();                    /* R14: COM1/COM2 probe (kernel/uart.c) */
 #endif
 	timer_start(SHELL_TIMER_UNITS);
+#ifdef QDOS_R16
+	smp_start_ap();                /* R16: bring up CPU 1 once the timebase and the shell process exist */
+#endif
 	con_puts("SHELL: running\n\n");
 #else
 	clock_boot(0);
@@ -214,12 +229,25 @@ int shell_boot(void)
 		st = qtrap(QT_JOB_EXIT, (unsigned int) shell_id, 0, 0);
 		if (st != JOB_ERR_RUNNING)
 			break;
+#ifdef QDOS_R16
+		/* The SYSTEM job touches shared kernel state here outside any trap.  The BKL is only ever held with
+		 * interrupts OFF (every kernel entry holds it under an interrupt gate); holding it with interrupts on
+		 * would let a timer IRQ nest, run the scheduler under the recursed lock, switch jobs and leak the lock
+		 * held across the context switch - after which CPU 0 never releases it and CPU 1 spins forever.  These
+		 * polls never wait on an IRQ (pres_poll copies frames; taskmgr_poll's SYNC already runs IF-off). */
+		sys_fl = irq_save();
+		bkl_enter();
+#endif
 #ifdef QDOS_SURFACES
 		surface_poll();            /* R13: free released surfaces (the presenter is not copying: same job) */
-		pres_poll();               /* R13: the presenter - mode switches and frame copies, interrupts on */
+		pres_poll();               /* R13: the presenter - mode switches and frame copies */
 #endif
 #ifdef QDOS_TASKMGR
 		taskmgr_poll();            /* R12C: SYSTASK - the task selector and the periodic SYNC */
+#endif
+#ifdef QDOS_R16
+		bkl_leave();
+		irq_restore(sys_fl);
 #endif
 		qtrap(QT_SUSPEND, 1, 0, 0);
 	}

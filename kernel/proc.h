@@ -56,6 +56,9 @@ void proc_boot(void);
  * -1 for any origin, with the R8/R11H error codes for a mismatch.  flags: PROC_LOAD_HELD (created inactive).  Returns
  * the tagged job id or a negative code; on failure nothing is left behind. */
 #define PROC_LOAD_HELD    0x0001u
+#ifdef QDOS_R16
+#define PROC_LOAD_PROT    0x0002u          /* R16: launch at CPL3 (docs/R16-CPL3-ABI.md); also set by the a.out magic bit 24 */
+#endif
 int proc_load(app_rd_fn rd, void *ctx, unsigned int len, int want_slot, const unsigned char *packed,
               unsigned int plen, unsigned int flags);
 int proc_shell_is_process(void);

@@ -79,6 +79,13 @@
 #define QT_PROC_INFO  0x32        /* a = job id (0 = caller), b = PROC_INFO_WORDS-word buffer -> 0 */
 #define QT_PROC_KILL  0x33        /* a = child id -> 0 */
 #define QT_PROC_VA    0x34        /* a = virtual address -> its PTE in the caller's space (diagnostic) */
+#ifdef QDOS_R16
+extern unsigned int kx_pc[2][4];                   /* per-CPU {lo,hi,entry,resume_fmt}; kctx3.s reads it by str->ebp */
+int kx_this_cpu(void);                             /* kctx3.s */
+void kx_set_esp0(unsigned int esp);                /* descriptors.c: TSS.ESP0 for CPL3 entries */
+void kx_user_enter(unsigned int entry, unsigned int user_esp);   /* kctx3.s: one-way iret to CPL3 */
+int pg_slot_prot(int slot);                        /* proc.c: slot holds a live protected (CPL3) process */
+#endif
 extern unsigned int kx_lo, kx_hi, kx_entry;   /* the current job's kernel-entry stack (kctx.s reads them) */
 #endif
 #ifdef QDOS_ENV
@@ -129,6 +136,10 @@ struct job {
 	unsigned int kx_lo, kx_hi;    /* R12A: kernel stack range; an entry from outside it switches to kx_entry */
 	unsigned int kx_entry;        /* R12A: kernel-stack ESP for entries from the private user stack */
 #endif
+#ifdef QDOS_R16
+	signed char aff;              /* R16: CPU this job runs on (0/1); default 0 */
+	signed char running_on;       /* R16: -1 not running, else the CPU currently running it */
+#endif
 };
 
 /* Exit record per slot.  Kept after the job is reclaimed, so SYSTEM can read
@@ -140,7 +151,13 @@ struct job_exit_rec {
 };
 
 extern struct job jobs[JOB_MAX];
+#ifdef QDOS_R16
+extern int g_jobcur[2], g_jobidle[2];
+#define job_current (g_jobcur[kx_this_cpu()])
+#define job_idle    (g_jobidle[kx_this_cpu()])
+#else
 extern int job_current;
+#endif
 #ifdef QDOS_R13B
 /* R13B: a kernel launch on behalf of another job (SYSTASK F2 with the boot shell's directory and PATH): while
  * job_ctx_override >= 0, the program search, the new job's directory and its environment come from that slot instead
@@ -150,7 +167,9 @@ extern int job_ctx_override;
 #else
 #define JOB_CTX_SLOT() (job_current)
 #endif
+#ifndef QDOS_R16
 extern int job_idle;                       /* slot of the idle job */
+#endif
 extern volatile unsigned long sched_ticks;          /* timer interrupts handled */
 extern volatile unsigned long sched_yields;         /* cooperative yields */
 extern volatile unsigned long sched_passes;         /* scheduler passes */
@@ -184,6 +203,11 @@ int qtrap(unsigned int fn, unsigned int a, unsigned int b, unsigned int c);
  * R6..R14 images): the historical value saved_sp | fmt, decoded there with a mask that assumes a 4-byte-aligned stack. */
 #ifdef QDOS_KCTX_PTRBITS
 #define KX_RESUME(sp, fmt) ((sp) | (unsigned int) (fmt))
+#elif defined(QDOS_R16)
+/* R16: per-CPU resume format in kx_pc[cpu][3] (kctx3.s reads kx_pc+12(%ebp)); full stack pointer returned. */
+extern unsigned int kx_pc[2][4];
+int kx_this_cpu(void);
+#define KX_RESUME(sp, fmt) (kx_pc[kx_this_cpu()][3] = (unsigned int) (fmt), (unsigned int) (sp))
 #elif defined(QDOS_KCTX_CHECK)
 /* Test-only kernels (make qdos386-check-pc): the same hand-off through a checking function (jobs.c). */
 extern unsigned int kx_resume_fmt;

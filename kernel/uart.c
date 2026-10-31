@@ -25,8 +25,7 @@
 
 extern void outb(unsigned int port, unsigned int val);
 extern unsigned int inb(unsigned int port);
-extern int job_current;
-extern struct job jobs[];
+/* job_current and jobs[] come from jobs.h (R16 makes job_current a per-CPU macro, so no local extern). */
 
 struct ser_port {
 	unsigned int base, irq;

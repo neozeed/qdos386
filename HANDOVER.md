@@ -1,56 +1,84 @@
-# HANDOVER — QDOS/386 R15 AMP0 (master / worker multiprocessing)
+# R16 — BKL / Ring 3 / two-CPU SMP experiment — HANDOVER
 
-CPU 0 runs the whole, unchanged QDOS/386 kernel and every device; one application processor (the **worker**) runs
-only fixed compute commands on pinned buffers, reached through one mailbox. Asymmetric, not SMP. Opt-in: the
-ordinary `make` kernels are byte-identical to KCTX-FIX2.
+## What this is
 
-## Frozen baseline
+The largest defensible step from R15 AMP0 toward true SMP: **two ordinary native QDOS/386 applications running
+concurrently on two x86 processors, at CPL 3, in private address spaces, over one shared kernel serialized by a Big
+Kernel Lock.** It is additive and opt-in — an R16 kernel runs every existing program unchanged, and an ordinary
+`make` still produces the byte-identical KCTX-FIX2 kernels.
 
-KCTX-FIX2 mainline: `qdos386-KCTX-FIX2-MAINLINE.tar.gz` `778a3d61…`, tag `kctx-fix2-mainline` (`b1db28a`), verification
-`5b6fc47` — untouched. R15 branch: `r15-amp-worker` (commit in `PACKAGE.md`), tag `r15-amp0`.
+## Result against the mandate
 
-## Build
+| Required | Status |
+| --- | --- |
+| CPL 3 user mode (CS.RPL=3, SS.RPL=3, supervisor pages inaccessible), safe syscall + timer on one CPU | **met** — Gate 1, 24/24 |
+| One serialized shared kernel under a BKL covering all shared state | **met** — Gate 2; BKL on every entry, held IF-off, never across `iret` |
+| Ultimate: two existing CPL3 processes on two CPUs | **met** — Gate 3; two CPL3 apps interleaved on CPU 0 and CPU 1, both exit cleanly |
+| Per-CPU current job / kernel stack / TSS.ESP0 / resume_fmt (no shared `kx_resume_fmt`) | **met** — §2 of R16-ARCHITECTURE |
+| Kernel supervisor-only in every CR3; private address spaces | **met** — inherited R12A paging, audited |
+| No deadlocks; no double-running jobs; safe memory lifetime/TLBs | **met** — CAS lock, atomic `running_on` ownership, deferred reclaim (KILLW) |
+| Regression: frozen builds reproducible, default kernel unchanged silently | **met** — default + 25 frozen + AMP0 all byte-identical |
 
-    export QDOS386_TOOLS=<I386VM R1 tree>       # toolchain/ in this archive
-    make                                       # ordinary kernels (unchanged): build/qdos386/pc-vga/qdos386-vga.img, pc/qdos386.img
-    make qdos386-amp-pc                        # AMP kernels: build/qdos386-amp/pc-vga/qdos386-amp-vga.img, pc/qdos386-amp.img
-    sh scripts/r15-build-guest.sh              # build/r15/AMPT.aout (tests), build/r15/WORKER.aout (demo)
+## Build and run
 
-## Run (QEMU)
+```
+. scratchpad/env-r11c.sh ; export QDOS386_TOOLS        # historical toolchain (GCC 1.40 / GAS 1.38 / i386-ld)
+make qdos386-smp-pc                                    # R16 kernel -> build/qdos386-smp/pc-vga/qdos386-smp-vga.img
+sh scripts/r16-build-guest.sh                          # CPL3 test program -> build/r16/R16T.aout (+ R16TP.aout, marked protected)
+sh tests/r16/run-gate1.sh logs/g1                      # Gate 1 (CPL3), QEMU -smp 1, expect 24/24
 
-    cp volumes/r15-public.img /tmp/r15.img
-    qemu-system-i386 -machine pc -cpu pentium -smp 2 -m 32 -vga std \
-      -drive file=kernels/qdos386-amp-vga.img,format=raw,if=ide,index=0,media=disk \
-      -drive file=/tmp/r15.img,format=raw,if=ide,index=1,media=disk -boot order=c
+make qdos386-pc                                        # ordinary kernels, still f8e5d5e1… / 7c675978…
+```
 
-Boot shows `AMP: ACPI MADT: 2 enabled processor(s), BSP LAPIC id 0` and `AMP: worker CPU LAPIC id 1 READY …`. Then:
-`AMPT INFO` (state, heartbeat, counters), `AMPT RUN 1000` (checked requests), `AMPT PROOF 20000000` (CPU 0 spins
-with interrupts off while the worker computes; the result is checked), `WORKER VECTOR 7`,
-`WORKER FILE /ETC/STARTUP.CMD`, `AMPT EDGE`, `AMPT FAULT` (worker fault, record, restart). With `-smp 1` (or
-`-cpu pentium,-apic`) the boot says `AMP: worker service unavailable - …` and everything else works as before.
+Two-CPU run (QEMU multi-threaded TCG for real parallelism):
 
-## Programs
+```
+QEMU_MEM=32 QEMU_EXTRA="-smp 2 -accel tcg,thread=multi" \
+  R12_QKERNEL=build/qdos386-smp/pc-vga/qdos386-smp-vga.img \
+  sh scripts/r12-run-qemu.sh VOL.img SEQ OUTDIR tag 300
+```
 
-An application includes `qdos386amp.h` and calls `qtrap(QT_AMP, op, b, c)`: SUBMIT (buffers are copied by the
-kernel), POLL, RESULT, CANCEL, INFO — `docs/R15-AMP-MAILBOX-ABI.md`. `sdk/examples/r15/worker.c` is the example.
+where `VOL.img` is an R14A system volume built with `R16T.AOU` = the protected binary (`build/r16/R16TP.aout`), and
+`SEQ` is a sequence file of shell commands — e.g. `R16T RACE` (two CPL3 apps on two CPUs), `R16T INFO` (live BKL and
+per-CPU counters), `R16T STRESS 1000`, `R16T KILLW`, `R16T RACEPRIV`.
 
-## Results
+## Opt-in launch (how a job becomes CPL3)
 
-`docs/R15-AMP-RUNTIME-REPORT.md` (exact numbers, commands, hashes). Gate 1, 2, 3 pass; Gate 4: no regression
-attributable to AMP, with two recorded non-AMP results (an R14A Gate 3 deterministic-replay divergence caused by
-QEMU `-icount` counting a busy worker's instructions, and a one-off R14A Gate 4 CPU-meter timing failure that passed on
-rerun). Static check: the worker's code references nothing outside itself.
+Per launch, versioned, never by reinterpreting old binaries (full ABI in docs/R16-CPL3-ABI.md):
 
-## Known limitations
+* **Executable mark**: bit 24 of the a.out magic (`0x01000107`). `tools/r16-protect-mark.py FILE [OUT]` sets/clears it.
+  Frozen kernels reject such a file; the R16 loader accepts both and records the bit.
+* **Spawn flag**: `qd_spawn(..., QD_SPAWN_PROT, ...)`.
 
-`docs/R15-AMP-KNOWN-LIMITATIONS.md`: no system calls on the worker, no SMP, no protection (ring 0), one worker and one
-outstanding request, polling worker (busy host thread under QEMU), cooperative cancellation only, worker stack
-corruption → triple fault (machine reset), QEMU only (real hardware not tested), `-smp 3` two-worker stretch not
-attempted.
+Placement on CPU 1 is by the `QT_SMP` trap (`SMP_OP_SETAFF`), protected jobs only.
 
-## Next work (separate milestones; AMP0 is frozen at delivery)
+## The three frozen gates (git tags)
 
-1. IPI wake-up (map the LAPIC for CPU 0 permanently, `hlt` in the worker loop) — removes the busy idle loop.
-2. Two workers (`-smp 3`): one mailbox, stack, fault record and buffer pair per worker; per-worker generation.
-3. A larger command set (vector/matrix kernels) with the same copy-in/copy-out rule.
-Full SMP (kernel on several CPUs) would first need per-CPU `kx_resume_fmt`, per-CPU scheduler state and kernel locking.
+* `r16-cpl3-proof` — single-CPU CPL3 protection, 24/24.
+* `r16-bkl-up` — the same under BKL instrumentation, balanced, no leaked owners.
+* `r16-smp2-proof` — two CPL3 apps concurrent on two CPUs.
+
+## Source map
+
+New: `kernel/bkl.{h,c}`, `kernel/bkl_s.s` (the BKL + CAS primitive); `kernel/smp.{h,c}`, `kernel/smp_s.s` (CPU
+discovery, bring-up, AP trampoline/timer, `QT_SMP`); `kernel/kctx3.s` (R16 entry/resume with per-CPU `str` indexing
+and the CPL3 transitions); `kernel/uart_s3.s` (R16 serial IRQ stubs); `tools/r16-protect-mark.py`;
+`scripts/r16-build-guest.sh`; `tests/r16/*`. Changed only under `-DQDOS_R16`: `descriptors.c` (user GDT selectors,
+DPL3 gate, per-CPU + AP TSS), `proc.c` (per-CPU CR3/exc-depth, protected `prot` bit, exit stub, LAPIC map), `jobs.{c,h}`
+(per-CPU current/idle, `kx_pc[2][4]`, affinity/`running_on`, schedule), `aout.c` (magic bit 24), `channel.c`/`uart.c`
+(R16 `job_current` macro), `shellboot.c` (bring-up + IF-off SYSTEM poll), `Makefile` (`qdos386-smp-pc`).
+
+## Documents in this package
+
+1. **R16-ARCHITECTURE.md** — the two-CPU design: per-CPU state, the BKL, bring-up, scheduling/affinity, lifetime.
+2. **R16-CPL3-ABI.md** — the CPL3 (protected-process) ABI: opt-in, what changes at ring 3, fault containment.
+3. **R16-AUDIT.md** — the pre-existing protection foundations (U/S paging, supervisor-only kernel, buffer validation).
+4. **R16-SMP-RUNTIME-REPORT.md** — the measured runs (bring-up, the three gates, the stress/fault/kill matrix, identity).
+5. **R16-KNOWN-LIMITATIONS.md** — the boundaries, the one bring-up bug (the BKL acquire), and the BKL diagnostics.
+
+## Next steps for a future builder
+
+Finer-grained locking (split the BKL by subsystem, starting with the console and the heap), per-CPU run queues with
+balancing, N > 2 CPUs (the per-CPU state is sized `[2]`; widen the arrays and the `str`→index map), and device
+interrupts on CPU 1 (needs an IOAPIC routing path). None of these are attempted here; R16 stops at the first correct,
+demonstrable two-CPU CPL3 result.

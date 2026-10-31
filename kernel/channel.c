@@ -25,7 +25,11 @@
 #error "QDOS_VCON needs QDOS_FS_WRITE (the channel control trap)"
 #endif
 #include "vcon.h"
+#ifdef QDOS_R16
+#include "jobs.h"                     /* R16: job_current is a per-CPU macro */
+#else
 extern int job_current;              /* jobs.c: slot of the running job */
+#endif
 #endif
 
 struct chan_slot {

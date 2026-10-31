@@ -59,14 +59,28 @@ struct proc {
 	struct pheap heap;
 	unsigned int stk_lo, stk_hi;
 	unsigned char hold_pending;
+#ifdef QDOS_R16
+	unsigned char prot;              /* R16: this process runs at CPL3 */
+#endif
 	unsigned int faults;
 };
 
 static struct proc procs[JOB_MAX];
+#ifdef QDOS_R16
+int kx_this_cpu(void);
+static unsigned int g_curcr3[2];
+#define cur_cr3 (g_curcr3[kx_this_cpu()])
+#else
 static unsigned int cur_cr3;
+#endif
 static unsigned int cr3_loads;
 static unsigned int holds_deferred;
+#ifdef QDOS_R16
+static int g_excdepth[2];
+#define exc_depth (g_excdepth[kx_this_cpu()])
+#else
 static int exc_depth;
+#endif
 static unsigned long procs_created, procs_destroyed, load_failures;
 
 /* ---- template sections ------------------------------------------------------------------------------------------ */
@@ -196,6 +210,24 @@ void pg_init(void)
 	proc_boot();
 }
 
+#ifdef QDOS_R16
+/* R16: map the local APIC page (physical = linear, supervisor, PCD) into the template directory, so every process
+ * directory cloned afterwards inherits it and kernel code on either CPU can reach the LAPIC with paging on.  User
+ * code cannot (supervisor).  Call once, after proc_boot and before the first process is created. */
+static unsigned char lapic_pt_mem[2u * 4096u];    /* GCC 1.40 ignores aligned(); align by hand below */
+void pg_map_lapic(unsigned int lapic_pa)
+{
+	unsigned int *dir = (unsigned int *) tpl_dir;
+	unsigned int *pt = (unsigned int *) (((unsigned int) lapic_pt_mem + 4095u) & ~4095u);
+	unsigned int pde = lapic_pa >> 22, pte = (lapic_pa >> 12) & 0x3FFu, i;
+
+	for (i = 0; i < 1024u; i++)
+		pt[i] = 0;
+	pt[pte] = (lapic_pa & 0xFFFFF000u) | 0x01u | 0x02u | 0x10u;        /* P, RW, PCD; supervisor (no US) */
+	dir[pde] = ((unsigned int) pt) | 0x01u | 0x02u;                   /* present, rw, supervisor */
+}
+#endif
+
 /* ---- scheduler hooks -------------------------------------------------------------------------------------------- */
 
 static unsigned int dir_of_slot(int slot)
@@ -308,6 +340,10 @@ static void proc_entry(void)
 {
 	struct proc *p = &procs[job_current];
 
+#ifdef QDOS_R16
+	if (p->prot)
+		kx_user_enter(p->entry, PROC_STACK_TOP - 20u);   /* one way: ends by QT_EXIT or a fault */
+#endif
 	kx_call_user(p->entry, PROC_STACK_TOP, &jobs[job_current].kx_entry);
 }
 
@@ -334,6 +370,21 @@ static int build_space(struct proc *p, app_rd_fn rd, void *ctx, const struct app
 	for (va = p->stk_lo; va < p->stk_hi; va += VAS_PAGE)
 		if ((rc = vas_map_new(&p->vas, &pool, va, VAS_RW | VAS_US)) != VAS_OK)
 			return rc;
+#ifdef QDOS_R16
+	/* R16, protected jobs: the user-mode exit stub at the top of the stack and the initial return address under it.
+	 * _start's final ret lands in the stub, which turns main's return value (EAX) into QT_EXIT (docs/R16-CPL3-ABI.md). */
+	if (p->prot) {
+		static const unsigned char xs[15] = {
+			0xF0, 0xFF, 0xFF, 0x1F,                   /* [STACK_TOP-20] = STACK_TOP-16 (the stub) */
+			0x89, 0xC3,                               /* movl %eax,%ebx */
+			0xB8, 0x18, 0x00, 0x00, 0x00,             /* movl $QT_EXIT,%eax */
+			0xCD, 0x30,                               /* int $0x30 */
+			0xEB, 0xFE                                /* jmp . */
+		};
+		if (vas_copy_to(&p->vas, PROC_STACK_TOP - 20u, xs, sizeof xs) != VAS_OK)
+			return APP_ERR_LAYOUT;
+	}
+#endif
 	/* text and data, read in 512-byte chunks; BSS is already zero (frames are zeroed when mapped) */
 	off = AOUT_HDR_BYTES;
 	va = p->origin;
@@ -378,6 +429,14 @@ unsigned int proc_parent_of(int slot)
 	if (slot < 0 || slot >= JOB_MAX || procs[slot].state != P_LIVE || procs[slot].id != jobs[slot].id)
 		return 0xFFFFFFFFu;
 	return procs[slot].parent;
+}
+#endif
+
+#ifdef QDOS_R16
+int pg_slot_prot(int slot)
+{
+	return slot >= 0 && slot < JOB_MAX && procs[slot].state == P_LIVE &&
+	       procs[slot].id == jobs[slot].id && procs[slot].prot != 0;
 }
 #endif
 
@@ -438,6 +497,9 @@ int proc_load(app_rd_fn rd, void *ctx, unsigned int len, int want_slot, const un
 	p->stk_hi = PROC_STACK_TOP;
 	p->stk_lo = PROC_STACK_TOP - PROC_STACK_BYTES;
 	p->hold_pending = 0;
+#ifdef QDOS_R16
+	p->prot = (unsigned char) (((flags & PROC_LOAD_PROT) != 0) || info.prot != 0);
+#endif
 	p->faults = 0;
 	p->vas.dir = 0;
 	p->vas.ntab = 0;
@@ -478,7 +540,11 @@ int pg_release_owner(unsigned int job_id, int slot)
 	p = &procs[slot];
 	if (p->state != P_LIVE || p->id != job_id)
 		return 0;
-	if (p->vas.dir == cur_cr3 || p->vas.dir == pg_read_cr3()) {
+	if (p->vas.dir == cur_cr3 || p->vas.dir == pg_read_cr3()
+#ifdef QDOS_R16
+	    || p->vas.dir == g_curcr3[0] || p->vas.dir == g_curcr3[1]   /* active on either CPU: a CR3 load flushed the TLB */
+#endif
+	   ) {
 		con_puts("PAGING: release deferred\n");
 		return PG_ERR_ACTIVE;
 	}
@@ -622,6 +688,12 @@ void proc_job_reaped(unsigned int id, int status)
 	}
 }
 
+#ifdef QDOS_R16
+#define PROC_SPAWN_FLAGS (PROC_LOAD_HELD | PROC_LOAD_PROT)
+#else
+#define PROC_SPAWN_FLAGS PROC_LOAD_HELD
+#endif
+
 int proc_spawn(unsigned int name_addr, unsigned int req_addr)
 {
 	unsigned int req[5], i, me = jobs[job_current].id;
@@ -634,12 +706,12 @@ int proc_spawn(unsigned int name_addr, unsigned int req_addr)
 	con = (int) req[4];
 #ifdef QDOS_SURFACES
 	/* R13: -2 = a new private session for the child; 0..VSESS_MAX-1 = an existing session */
-	if (req[0] != 1u || (req[3] & ~PROC_LOAD_HELD) != 0 || con < -2 || con >= VSESS_MAX || (con >= 0 && !vsess_valid(con)))
+	if (req[0] != 1u || (req[3] & ~PROC_SPAWN_FLAGS) != 0 || con < -2 || con >= VSESS_MAX || (con >= 0 && !vsess_valid(con)))
 		return APP_ERR_ARGS;
 	if (con == -2)
 		con = VCON_CHILD_NEW;
 #else
-	if (req[0] != 1u || (req[3] & ~PROC_LOAD_HELD) != 0 || con < -1 || con > 3)
+	if (req[0] != 1u || (req[3] & ~PROC_SPAWN_FLAGS) != 0 || con < -1 || con > 3)
 		return APP_ERR_ARGS;
 #endif
 	if (children_of(me) >= PROC_CHILD_LIMIT)
