@@ -25,6 +25,7 @@ toolchain/guest-bin
 toolchain/host-bin
 toolchain/objects
 toolchain/src-original-lf
+toolchain/*.zip
 volumes/
 *.o
 *.a
