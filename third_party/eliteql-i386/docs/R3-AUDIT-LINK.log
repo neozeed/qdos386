@@ -1,0 +1,62 @@
+make: Entering directory '/workspace/scratch/48f5a4c775ba/elite386-r3'
+make: 'build/aout/save.o' is up to date.
+make: 'build/aout/keyboard.o' is up to date.
+make: 'build/aout/universe.o' is up to date.
+make: 'build/aout/explosion.o' is up to date.
+make: 'build/aout/dust.o' is up to date.
+make: 'build/aout/dust_generated.o' is up to date.
+make: 'build/aout/render_game.o' is up to date.
+make: 'build/aout/planet_view.o' is up to date.
+make: 'build/aout/presentation.o' is up to date.
+make: 'build/aout/sound.o' is up to date.
+make: 'build/aout/dials.o' is up to date.
+make: 'build/aout/scanner.o' is up to date.
+make: 'build/aout/dashboard.o' is up to date.
+make: 'build/aout/models_game.o' is up to date.
+make: 'build/aout/release.o' is up to date.
+make: 'build/aout/screen_store.o' is up to date.
+make: 'build/aout/bulbs.o' is up to date.
+make: 'build/aout/controls.o' is up to date.
+make: 'build/aout/commander.o' is up to date.
+make: 'build/aout/universe_list.o' is up to date.
+make: 'build/aout/views.o' is up to date.
+make: 'build/aout/random.o' is up to date.
+make: 'build/aout/equipment.o' is up to date.
+make: 'build/aout/cargo.o' is up to date.
+make: 'build/aout/station_ai.o' is up to date.
+make: 'build/aout/motion.o' is up to date.
+make: 'build/aout/shop.o' is up to date.
+make: 'build/aout/computer_dock.o' is up to date.
+make: 'build/aout/travel.o' is up to date.
+make: 'build/aout/flight.o' is up to date.
+make: 'build/aout/tidy.o' is up to date.
+make: 'build/aout/line.o' is up to date.
+make: 'build/aout/combat.o' is up to date.
+make: 'build/aout/tactics.o' is up to date.
+make: 'build/aout/navigation.o' is up to date.
+make: 'build/aout/missile.o' is up to date.
+make: 'build/aout/docking.o' is up to date.
+make: 'build/aout/target.o' is up to date.
+make: 'build/aout/market.o' is up to date.
+make: 'build/aout/planet.o' is up to date.
+make: 'build/aout/station.o' is up to date.
+make: 'build/aout/encounters.o' is up to date.
+make: 'build/aout/compass.o' is up to date.
+make: 'build/aout/shell_text.o' is up to date.
+make: 'build/aout/shell_save.o' is up to date.
+make: 'build/aout/shell_data.o' is up to date.
+make: 'build/aout/shell_cheats.o' is up to date.
+make: 'build/aout/shell_start.o' is up to date.
+make: 'build/aout/shell_setup.o' is up to date.
+make: 'build/aout/shell_scene.o' is up to date.
+mkdir -p build/aout
+build/tools/as138 -o build/aout/shell_flow.o src/shell_flow.s
+python3 tools/check-aout-symbols.py src/shell_flow.s build/aout/shell_flow.o
+make: 'build/aout/shell_sound.o' is up to date.
+make: 'build/aout/shell_universe.o' is up to date.
+make: 'build/aout/shell_adapters.o' is up to date.
+make: 'build/aout/shell_spawn.o' is up to date.
+make: 'build/aout/shell_world.o' is up to date.
+make: 'build/tools/ld194' is up to date.
+make: Leaving directory '/workspace/scratch/48f5a4c775ba/elite386-r3'
+14 unimplemented/platform entries guarded with INT3; cannot be treated as a playable link

@@ -1,0 +1,99 @@
+make: Entering directory '/workspace/scratch/48f5a4c775ba/elite386-r1'
+mkdir -p build/elf
+sh tools/build-gas138.sh
+cc -m32 -march=i386 -O2 -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/controls_test.c -o build/elf/controls_test.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c tests/host/runtime.c -o build/elf/runtime.o
+mkdir -p build/elf
+as --32 -o build/elf/start.o tests/host/start.s
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/commander_test.c -o build/elf/commander_test.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/universe_list_test.c -o build/elf/universe_list_test.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/views_test.c -o build/elf/views_test.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/equipment_test.c -o build/elf/equipment_test.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/cargo_test.c -o build/elf/cargo_test.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/motion_test.c -o build/elf/motion_test.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/controls.o src/controls.s
+mkdir -p build/aout
+build/tools/as138 -o build/aout/commander.o src/commander.s
+mkdir -p build/aout
+build/tools/as138 -o build/aout/universe_list.o src/universe_list.s
+mkdir -p build/aout
+build/tools/as138 -o build/aout/views.o src/views.s
+mkdir -p build/aout
+build/tools/as138 -o build/aout/random.o src/random.s
+mkdir -p build/aout
+build/tools/as138 -o build/aout/equipment.o src/equipment.s
+mkdir -p build/aout
+build/tools/as138 -o build/aout/cargo.o src/cargo.s
+mkdir -p build/aout
+build/tools/as138 -o build/aout/station_ai.o src/station_ai.s
+mkdir -p build/aout
+build/tools/as138 -o build/aout/motion.o src/motion.s
+mkdir -p build/aout
+build/tools/as138 -o build/aout/shop.o src/shop.s
+mkdir -p build/aout
+build/tools/as138 -o build/aout/computer_dock.o src/computer_dock.s
+mkdir -p build/aout
+build/tools/as138 -o build/aout/travel.o src/travel.s
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/shop_test.c -o build/elf/shop_test.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/controls.o build/elf/controls.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/commander.o build/elf/commander.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/universe_list.o build/elf/universe_list.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/views.o build/elf/views.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/random.o build/elf/random.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/equipment.o build/elf/equipment.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/cargo.o build/elf/cargo.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/station_ai.o build/elf/station_ai.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/motion.o build/elf/motion.o
+mkdir -p build/elf
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/shop.o build/elf/shop.o
+python3 tools/aout-to-elf.py build/aout/computer_dock.o build/elf/computer_dock.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/travel.o build/elf/travel.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/fittings_test.c -o build/elf/fittings_test.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/travel_test.c -o build/elf/travel_test.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -Ireference/tests -c tests/extra_test.c -o build/elf/extra_test.o
+ld -m elf_i386 -o build/elf/controls_test build/elf/controls_test.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/runtime.o build/elf/start.o
+ld -m elf_i386 -o build/elf/commander_test build/elf/commander_test.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/runtime.o build/elf/start.o
+ld -m elf_i386 -o build/elf/universe_list_test build/elf/universe_list_test.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/runtime.o build/elf/start.o
+ld -m elf_i386 -o build/elf/views_test build/elf/views_test.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/runtime.o build/elf/start.o
+ld -m elf_i386 -o build/elf/equipment_test build/elf/equipment_test.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/runtime.o build/elf/start.o
+ld -m elf_i386 -o build/elf/cargo_test build/elf/cargo_test.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/runtime.o build/elf/start.o
+ld -m elf_i386 -o build/elf/motion_test build/elf/motion_test.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/runtime.o build/elf/start.o
+ld -m elf_i386 -o build/elf/shop_test build/elf/shop_test.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/runtime.o build/elf/start.o
+ld -m elf_i386 -o build/elf/fittings_test build/elf/fittings_test.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/runtime.o build/elf/start.o
+ld -m elf_i386 -o build/elf/travel_test build/elf/travel_test.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/runtime.o build/elf/start.o
+ld -m elf_i386 -o build/elf/extra_test build/elf/extra_test.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/runtime.o build/elf/start.o
+Original player controls: PASS (2048 cases, 1024 sequential updates, 0 failures)
+Original commander: PASS (65536 ranks, 4096 bounty/tally/countdown states, 0 failures)
+Original universe list: PASS (4096 NWSHP/KILLSHP operations,2560 KS2 target cases,0 failures)
+Original views/station police: PASS (2048 transforms, 4096 police cases, 1075 launches, 0 failures)
+Original equipment: PASS (2048 OUCH, 4096 bomb targets, 512 key states, 256 expiry states, 0 failures)
+Original cargo: PASS (2048 tnpr, 1024 scoop/boundary, 512 debris/tumble cases, 0 failures)
+Original 6502 motion: PASS (768 cases, 0 failures)
+Source-derived equipment transactions: PASS (3072 cases, 0 failures)
+Original laser fittings/computer: PASS (2592 et3/et4/MCASH, 4096 MA64 cases, 0 failures)
+Original travel: PASS (2048 systems, 2048 distances, countdown, fuel, preservation, all eight galaxy transitions; 0 failures)
+Additional assembly: PASS (65536 chart moves, 1024 nearest searches, 1024 packed DORND cases, 256 escape states; 0 failures)
+make: Leaving directory '/workspace/scratch/48f5a4c775ba/elite386-r1'
