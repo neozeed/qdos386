@@ -114,7 +114,11 @@ static unsigned int cwd_of(unsigned int id)
 
 static unsigned int cur_cwd(void)
 {
+#ifdef QDOS_R13B
+	return cwd_of(jobs[JOB_CTX_SLOT()].id);        /* R13B: a kernel launch searches from its context's directory */
+#else
 	return cwd_of(job_current_id());
+#endif
 }
 
 static void cwd_set(unsigned int dir)

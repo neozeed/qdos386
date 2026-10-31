@@ -28,5 +28,12 @@ int img_start_request(unsigned int name_addr, int profile);
 /* Boot path (kernel): load the named file into the given slot (0 or 1), with
  * argv = { name }.  The name is a kernel string. */
 int img_load_kernel(const char *name, unsigned int want_slot);
+#ifdef QDOS_R13B
+/* R13B: a launch by the kernel (SYSTASK F2): the program name and its packed arguments (each NUL-terminated, alen
+ * bytes) in kernel memory; the program search, the new job's directory and environment come from job slot ctx (the
+ * boot shell) - job_ctx_override; the creator (parent) is the current job (SYSTEM).  Linked for the canonical origin
+ * like START.  Returns the tagged job id or a negative code; interrupts off. */
+int img_launch_as(int ctx, const char *name, const unsigned char *args, unsigned int alen);
+#endif
 
 #endif

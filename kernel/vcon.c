@@ -46,6 +46,10 @@ struct vcon {
 	struct kfont *font;                /* R13A: the session's font (a reference), 0: the system default */
 	unsigned int cmode;                /* R13A: VSESS_CM_VGA (VGA text mode) or VSESS_CM_GFX (rendered text) */
 #endif
+#ifdef QDOS_R13B
+	int ret;                           /* R13B: the session to show when this one ends while shown (the creator's) */
+	unsigned int ret_tag;              /*        its tag then: a reused or changed session is not returned to */
+#endif
 };
 
 static struct vcon cons[VCON_MAX];
@@ -136,6 +140,10 @@ static void sess_reset(struct vcon *v)
 #ifdef QDOS_R13A
 	v->font = 0;
 	v->cmode = cmode_default;
+#endif
+#ifdef QDOS_R13B
+	v->ret = 0;
+	v->ret_tag = 0;
 #endif
 	v->tag = stag_next++;
 	if (stag_next > 0xffffffu)
@@ -718,6 +726,12 @@ void vcon_job_inherit(int slot, int creator)
 			int n = vsess_new(jobs[slot].id);
 
 			job_child[creator] = -1;
+#ifdef QDOS_R13B
+			if (n >= 0) {                       /* R13B: when it ends while shown, show the creator's session again */
+				CON(n).ret = c;
+				CON(n).ret_tag = CON(c).tag;
+			}
+#endif
 			if (n >= 0)
 				c = n;
 			else
@@ -863,10 +877,35 @@ static void sess_free(int idx)
 		kfont_unref(v->font);
 	kev_session_gone(idx);
 #endif
+#ifdef QDOS_R13B
+	{
+		int r = v->ret;
+		unsigned int rt = v->ret_tag;
+
+		(void) mem_free(v, VSESS_OWNER);
+		if (fg == idx)                             /* R13B: back to the session it was started from, if unchanged */
+			(void) vcon_switch(valid(r) && CON(r).tag == rt ? r : 0);
+		return;
+	}
+#endif
 	(void) mem_free(v, VSESS_OWNER);
 	if (fg == idx)
 		(void) vcon_switch(0);                     /* the shown session ended: back to console 0 */
 }
+
+#ifdef QDOS_R13B
+/* R13B: the session to show when idx ends while shown (SYSTASK F2: the session that was shown when the selector
+ * opened).  0, or VCON_ERR_BADCON. */
+int vsess_set_return(int idx, int ret)
+{
+	ensure();
+	if (!valid(idx) || idx < VCON_MAX || !valid(ret))
+		return VCON_ERR_BADCON;
+	CON(idx).ret = ret;
+	CON(idx).ret_tag = CON(ret).tag;
+	return 0;
+}
+#endif
 
 int vsess_valid(int idx)
 {

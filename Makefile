@@ -117,6 +117,20 @@ build/apps/shell-e.o: apps/shell/shell.c apps/shell/shell_r11m.inc apps/shell/sh
 	$(GCC) -c -O -DSH_LINE_MAX=160 -DR11M_SHELL -DR11M_JOBS -DR12A_SHELL -DR12B_SHELL -DR12C_SHELL -DR13_SHELL -DR13A_SHELL -DJC_MAXJOBS=16 -DSJ_MAX=16 -Iapps/common -Iapps/shell $< -o $@
 build/apps/shell-e.aout: build/apps/shell-e.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
 	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shell-e.o build/apps/qtrap.o
+# R13B: the R13A shell plus CLS, DATE, TIME and programs run by name (-DR13B_SHELL).  shell-f is the boot shell
+# (0x200000, slot0.ld); sh is the same source as an ordinary program (-DR13B_DYN, canonical 0x240000, slot1.ld): /BIN/SH.AOU.
+SHELL_R13B_SRC = apps/shell/shell.c apps/shell/shell_r11m.inc apps/shell/shell_jobs.inc apps/shell/shell_edit.inc apps/shell/shell_env.inc apps/shell/shell_parse.inc apps/shell/shell_r12c.inc apps/shell/shell_r13a.inc apps/shell/shell_r13b.inc apps/common/appcalls.h
+SHELL_R13B_FLAGS = -DSH_LINE_MAX=160 -DR11M_SHELL -DR11M_JOBS -DR12A_SHELL -DR12B_SHELL -DR12C_SHELL -DR13_SHELL -DR13A_SHELL -DR13B_SHELL -DJC_MAXJOBS=16 -DSJ_MAX=16
+build/apps/shell-f.o: $(SHELL_R13B_SRC)
+	mkdir -p build/apps
+	$(GCC) -c -O $(SHELL_R13B_FLAGS) -Iapps/common -Iapps/shell $< -o $@
+build/apps/shell-f.aout: build/apps/shell-f.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
+	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shell-f.o build/apps/qtrap.o
+build/apps/sh.o: $(SHELL_R13B_SRC)
+	mkdir -p build/apps
+	$(GCC) -c -O $(SHELL_R13B_FLAGS) -DR13B_DYN -Iapps/common -Iapps/shell $< -o $@
+build/apps/sh.aout: build/apps/sh.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot1.ld
+	$(LD) -N -T apps/common/slot1.ld -e _start -o $@ build/apps/app_start.o build/apps/sh.o build/apps/qtrap.o
 build/apps/shellt.aout: build/apps/shellt.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
 	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shellt.o build/apps/qtrap.o
 
@@ -371,6 +385,24 @@ r13a-pc:
 	$(MAKE) build/pc-r9/boot2.bin
 	$(MAKE) pc PCD=build/r13a/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13A_OPTS)" PCIMG=r13a.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13a/pc/kctx.o PCEXTRA="$(addprefix build/r13a/pc/,$(R13A_OBJS))"
 	$(MAKE) pc PCD=build/r13a/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13A_OPTS)" PCIMG=r13a-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13a/pc-vga/kctx.o PCEXTRA="$(addprefix build/r13a/pc-vga/,$(R13A_OBJS))"
+# R13B: the R13A kernel plus focus return to the launching session, SYSTASK F2 (start a program) and the CMOS RTC wall
+# clock (docs/R13B-*.md).  QEMU kernel build/r13b/pc-vga/r13b-vga.img, headless (Tiny386) build/r13b/pc/r13b.img.
+R13B_OPTS = $(R13A_OPTS) -DQDOS_R13B $(R13B_EXTRA)
+R13B_OBJS = $(R13A_OBJS) rtc.o
+r13b-pc:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r13b/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13B_OPTS)" PCIMG=r13b.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13b/pc/kctx.o PCEXTRA="$(addprefix build/r13b/pc/,$(R13B_OBJS))"
+	$(MAKE) pc PCD=build/r13b/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13B_OPTS)" PCIMG=r13b-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13b/pc-vga/kctx.o PCEXTRA="$(addprefix build/r13b/pc-vga/,$(R13B_OBJS))"
+# R13B test kernels for the R11F calendar boundaries through DATE/TIME/time(): the R13B QEMU kernel with a build-time
+# epoch instead of the RTC (QEMU's RTC cannot hold dates after 2038 reliably: see docs/R13B-CLOCK-ABI.md).
+#   make r13b-epoch EPD=e2100 EPOCH=4107542397    -> build/r13b/e2100/e2100.img
+r13b-epoch:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r13b/$(EPD) PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13B_OPTS) -DQDOS_CLOCK_EPOCH=$(EPOCH)UL" PCIMG=$(EPD).img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13b/$(EPD)/kctx.o PCEXTRA="$(addprefix build/r13b/$(EPD)/,$(R13B_OBJS))"
+r13b-epoch-kernels:
+	$(MAKE) r13b-epoch EPD=e2100 EPOCH=4107542397
+	$(MAKE) r13b-epoch EPD=e2101 EPOCH=4133980797
+	$(MAKE) r13b-epoch EPD=e2106 EPOCH=4294967280
 r11m-kernels: r11m-i386vm r11m-i386vm-pg r11m-pc r11m-pc-pg
 
 # Canonical R11H PC images (the shipped set).  Requires I386VM=<tree>.  The R9 boot

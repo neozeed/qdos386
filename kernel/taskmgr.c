@@ -23,6 +23,9 @@
 #ifdef QDOS_SYNC
 #include "sync.h"
 #endif
+#ifdef QDOS_R13B
+#include "imgload.h"
+#endif
 
 extern unsigned int irq_save(void);
 extern void irq_restore(unsigned int flags);
@@ -47,6 +50,10 @@ extern void irq_restore(unsigned int flags);
 #define K_PGUP  0x86
 #define K_PGDN  0x87
 #define K_F1    0x90
+#define K_F2    0x91
+#define K_LEFT  0x82
+#define K_RIGHT 0x83
+#define K_DEL   0x88
 
 struct tm_row {
 	unsigned int id, parent, start;
@@ -76,6 +83,18 @@ static int nrows;
 static unsigned short scr[TM_ROWS * TM_COLS];
 static unsigned long tm_last_draw;
 unsigned long tm_opens, tm_switches, tm_kills, tm_keys, tm_draws;
+#ifdef QDOS_R13B
+/* R13B: F2 Start Program - a bounded edit line, launched by the kernel (img_launch_as) with the boot shell's directory
+ * and PATH, owner SYSTEM, into a new private session; see docs/R13B-TASK-LAUNCHER.md. */
+#define TM_CMD_MAX 70
+static int tm_edit;                     /* the Start Program line is open */
+static char tm_cmd[TM_CMD_MAX + 1];
+static unsigned int tm_len, tm_pos;
+static unsigned int tm_ctx_id;          /* tagged id of the job whose directory and PATH launches use (the boot shell) */
+static unsigned char tm_args[TM_CMD_MAX + 1];
+static char tm_name[TM_CMD_MAX + 1];
+unsigned long tm_launches, tm_launch_fails;
+#endif
 
 /* ---- called with interrupts off (keyboard IRQ or a trap) ----------------------------------------------------- */
 
@@ -109,6 +128,9 @@ static void tm_close(int restore)
 		(void) vcon_switch(tm_prev_fg);
 	tm_open = 0;
 	tm_confirm_id = 0;
+#ifdef QDOS_R13B
+	tm_edit = 0;
+#endif
 	vcon_overlay(0);
 }
 
@@ -141,6 +163,9 @@ void taskmgr_console_key(int con)
 	if (tm_open) {
 		tm_open = 0;
 		tm_confirm_id = 0;
+#ifdef QDOS_R13B
+		tm_edit = 0;
+#endif
 		(void) vcon_switch(con);         /* the overlay is still on: only the focus moves */
 		vcon_overlay(0);
 		return;
@@ -162,6 +187,10 @@ int taskmgr_trap(unsigned int op)
 		return tm_open ? 1 : 0;
 	case TM_OP_OPENS:
 		return (int) tm_opens;
+#ifdef QDOS_R13B
+	case TM_OP_LAUNCHES:
+		return (int) tm_launches;
+#endif
 	default:
 		return -15;
 	}
@@ -466,10 +495,36 @@ static void draw(void)
 			cat(b, "; protected, cannot be ended", sizeof b);
 		put(22, 1, b, 78, A_BAR);
 	}
+#ifdef QDOS_R13B
+	if (tm_edit) {
+		fill(21, A_LIST);
+		put(21, 1, tm_msg, 78, A_LIST);
+		fill(22, A_BAR);
+		put(22, 1, "Start program: name [arguments], searched like a shell command (dir, PATH)", 78, A_BAR);
+		fill(23, A_SEL);
+		put(23, 1, "Run:", 4, A_SEL);
+		put(23, 6, tm_cmd, TM_CMD_MAX + 1, A_SEL);
+		fill(24, A_BAR);
+		put(24, 1, "Enter start (new session)  Esc cancel  Left/Right/Home/End/Bksp/Del edit", 78, A_BAR);
+		vdisp_load(scr);
+		vdisp_cursor(23, 6 + tm_pos, 1);
+#ifndef QDOS_CON_VGA
+		diag_dump();
+#endif
+		tm_draws++;
+		tm_last_draw = sched_ticks;
+		irq_restore(irq);
+		return;
+	}
+#endif
 	fill(23, tm_confirm_id ? A_WARN : A_LIST);
 	put(23, 1, tm_msg, 78, tm_confirm_id ? A_WARN : A_LIST);
 	fill(24, A_BAR);
+#ifdef QDOS_R13B
+	put(24, 1, "Up/Down select  Enter go to it  F1 end job  F2 start program  Esc back  Alt+Fn", 78, A_BAR);
+#else
 	put(24, 1, "Up/Down select  Enter go to its console  F1 end job  Esc back  Alt+Fn console", 78, A_BAR);
+#endif
 	vdisp_load(scr);
 	vdisp_cursor(24, 79, 0);
 #ifndef QDOS_CON_VGA
@@ -546,11 +601,166 @@ static void do_end(unsigned int id)
 	}
 }
 
+#ifdef QDOS_R13B
+void taskmgr_set_context(int job_id)
+{
+	tm_ctx_id = (unsigned int) job_id;
+}
+
+static const char *launch_error(int rc)
+{
+	switch (rc) {
+	case -44: return ": not found (here, in PATH or in /)";
+	case -46: case -47: return ": invalid name";
+	case -87: return ": not a directory (a part of the path is a file)";
+	case -88: return ": is a directory";
+	case -90: return ": name too long with its directory";
+	case -20: case -21: case -22: case -23: case -24: case -25: case -26: return ": not a valid a.out program";
+	case -31: return ": too large for the loader";
+	case -32: return ": not linked for the standard origin 0x240000";
+	case -34: return ": arguments refused (too many or too long)";
+	case -29: case -69: return ": no free job slot";
+	case -30: return ": out of kernel memory";
+	case -60: return ": out of memory (no free page frames)";
+	case -18: return ": no volume";
+	default: return ": could not be started";
+	}
+}
+
+/* Split the line like the shell: a name (quoted if it has blanks), then arguments at blanks, "..." keeps blanks. */
+static int launch_parse(unsigned int *alen)
+{
+	unsigned int i = 0, k = 0, a = 0;
+
+	while (i < tm_len && tm_cmd[i] == ' ')
+		i++;
+	if (i < tm_len && tm_cmd[i] == '"') {
+		for (i++; i < tm_len && tm_cmd[i] != '"'; i++)
+			tm_name[k++] = tm_cmd[i];
+		if (i >= tm_len)
+			return -1;                   /* unterminated quote */
+		i++;
+	} else
+		for (; i < tm_len && tm_cmd[i] != ' '; i++)
+			tm_name[k++] = tm_cmd[i];
+	tm_name[k] = 0;
+	if (k == 0)
+		return -2;
+	for (;;) {
+		while (i < tm_len && tm_cmd[i] == ' ')
+			i++;
+		if (i >= tm_len)
+			break;
+		if (tm_cmd[i] == '"') {
+			for (i++; i < tm_len && tm_cmd[i] != '"'; i++)
+				tm_args[a++] = (unsigned char) tm_cmd[i];
+			if (i >= tm_len)
+				return -1;
+			i++;
+		} else
+			for (; i < tm_len && tm_cmd[i] != ' '; i++)
+				tm_args[a++] = (unsigned char) tm_cmd[i];
+		tm_args[a++] = 0;
+	}
+	*alen = a;
+	return 0;
+}
+
+/* Start the program in tm_cmd: a new private session, the boot shell's directory and PATH, owner SYSTEM (no child
+ * record: the job is reclaimed when it ends, like every job).  On success the selector closes on the new session. */
+static void launch(void)
+{
+	unsigned int alen = 0, irq;
+	int rc, ctx, id, slot, con;
+	char n[12];
+
+	rc = launch_parse(&alen);
+	if (rc == -1) {
+		set_msg("unterminated quote", 0, 0);
+		return;
+	}
+	if (rc == -2) {
+		set_msg("type a program name (and arguments), or Esc", 0, 0);
+		return;
+	}
+	irq = irq_save();
+	ctx = tm_ctx_id ? job_lookup(tm_ctx_id) : JOB_NONE;
+	if (ctx == JOB_NONE)
+		ctx = -1;                        /* no boot shell: SYSTEM's own context */
+	(void) vcon_set_child(job_current, VCON_CHILD_NEW);
+	id = img_launch_as(ctx, tm_name, tm_args, alen);
+	(void) vcon_set_child(job_current, -1);
+	if (id < 0) {
+		irq_restore(irq);
+		tm_launch_fails++;
+		set_msg(tm_name, launch_error(id), 0);
+		return;
+	}
+	slot = job_lookup((unsigned int) id);
+	con = slot == JOB_NONE ? 0 : vcon_job_con(slot);
+	if (con >= VCON_MAX)
+		(void) vsess_set_return(con, tm_prev_fg);   /* when it ends while shown: back to what was shown before */
+	tm_launches++;
+	(void) vcon_switch(con);
+	tm_edit = 0;
+	tm_close(0);
+	irq_restore(irq);
+	(void) n;
+}
+
+static void edit_key(int c)
+{
+	unsigned int i;
+
+	switch (c) {
+	case 0x1b:
+		tm_edit = 0;
+		set_msg("start cancelled", 0, 0);
+		return;
+	case '\r':
+	case '\n':
+		launch();
+		return;
+	case K_LEFT: if (tm_pos > 0) tm_pos--; return;
+	case K_RIGHT: if (tm_pos < tm_len) tm_pos++; return;
+	case K_HOME: tm_pos = 0; return;
+	case K_END: tm_pos = tm_len; return;
+	case 0x08:
+	case 0x7f:
+		if (tm_pos == 0)
+			return;
+		tm_pos--;
+		/* fall through: delete the character now under the cursor */
+	case K_DEL:
+		if (tm_pos >= tm_len)
+			return;
+		for (i = tm_pos; i < tm_len; i++)
+			tm_cmd[i] = tm_cmd[i + 1];
+		tm_len--;
+		return;
+	default:
+		if (c < 0x20 || c > 0x7e || tm_len >= TM_CMD_MAX)
+			return;                      /* other keys, or the line is full: ignored */
+		for (i = tm_len + 1; i > tm_pos; i--)
+			tm_cmd[i] = tm_cmd[i - 1];
+		tm_cmd[tm_pos++] = (char) c;
+		tm_len++;
+		return;
+	}
+}
+#endif
+
 static void key(int c)
 {
 	int i;
 	char n[12];
 
+#ifdef QDOS_R13B
+	if (tm_edit) {
+		edit_key(c);
+		return;
+	}
+#endif
 	if (tm_confirm_id) {
 		unsigned int id = tm_confirm_id;
 
@@ -590,6 +800,14 @@ static void key(int c)
 		irq_restore(irq);
 		break;
 	}
+#ifdef QDOS_R13B
+	case K_F2:
+		tm_edit = 1;
+		tm_len = tm_pos = 0;
+		tm_cmd[0] = 0;
+		set_msg("", 0, 0);
+		break;
+#endif
 	case K_F1:
 		i = find_row(tm_sel_id);
 		if (i < 0) {

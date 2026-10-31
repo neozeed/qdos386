@@ -25,4 +25,8 @@ void clock_tick(void);
  * overflowed.  Backs the QT_WALL_TIME trap. */
 unsigned long kernel_wall_time(void);
 
+/* R13B: the anchor's source: 2 build-time QDOS_CLOCK_EPOCH, 1 the CMOS RTC (QDOS_R13B kernels), 0 none configured,
+ * negative: the RTC_ERR_* (rtc.h) that left the clock unavailable. */
+int clock_source(void);
+
 #endif

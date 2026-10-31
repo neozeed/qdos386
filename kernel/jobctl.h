@@ -71,6 +71,9 @@ struct jc_entry {                 /* 40 bytes, little endian, as copied to the c
 /* From jobs.c / the launch traps. */
 void jobctl_slot_reset(int slot);                     /* job_alloc_sized: a new job in the slot */
 void jobctl_note_launch(int id, unsigned int name_addr, unsigned int flags);   /* after a successful launch trap */
+#ifdef QDOS_R13B
+void jobctl_note_launch_k(int id, const char *name, unsigned int flags);      /* R13B: the same, name in kernel memory */
+#endif
 int jobctl_killed(unsigned int id);                   /* 1 if the job with this id was killed */
 int jobctl_query(unsigned int buf, unsigned int bytes, unsigned int version);
 int jobctl_kill(unsigned int id);

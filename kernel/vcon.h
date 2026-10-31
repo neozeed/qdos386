@@ -116,7 +116,10 @@ int vsess_users(int idx);
 int vsess_dynamic(int idx);                     /* 1 for a private session (4..19) */
 unsigned int vsess_owner(int idx);              /* tagged id of the job that created a private session */
 int vsess_count(void);                          /* sessions in use */
-int vsess_new_failures(void);                   /* VCON_CHILD_NEW requests that fell back to the creator's session */
+int vsess_new_failures(void);
+#ifdef QDOS_R13B
+int vsess_set_return(int idx, int ret);          /* R13B: show ret when private session idx ends while shown */
+#endif                   /* VCON_CHILD_NEW requests that fell back to the creator's session */
 int vcon_overlay_on(void);
 void vcon_present_text(void);                   /* the presenter is in text mode again: draw what the display shows */
 int vcon_write_cells(int con, unsigned int row, unsigned int col, const unsigned short *cells, unsigned int n);

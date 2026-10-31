@@ -69,6 +69,9 @@ static int copy_user_name(unsigned int addr, char *out)
 #include "env.h"
 #include "jobs.h"
 #include "pathres.h"
+#ifdef QDOS_R13B
+#include "jobctl.h"
+#endif
 /* R12B: every load (RUN, START, QT_IMG_START, qd_spawn, BASIC EXEC) searches with path_resolve (pathres.h) using the
  * caller's PATH; candidates are opened like a name given directly (win1_open_img: relative to the caller's directory,
  * without regard to case). */
@@ -85,7 +88,7 @@ static int img_open_cb(void *ctx, const char *cand)
 static int img_resolve_open(const char *name, struct fat16_file *f)
 {
 	unsigned int vlen = 0;
-	const char *pv = env_value_of(job_current, "PATH", &vlen);
+	const char *pv = env_value_of(JOB_CTX_SLOT(), "PATH", &vlen);   /* R13B: the launch context's PATH */
 
 #ifdef QDOS_TITLES
 	{
@@ -299,6 +302,51 @@ int img_pg_start_request(unsigned int name_addr, unsigned int args_addr, unsigne
 #else
 	return app_load_paged(fat_rd, &src, (unsigned int) f.size, img_packed, total, held);
 #endif
+}
+#endif
+
+#if defined(QDOS_R13B) && defined(QDOS_DYNPROC) && defined(QDOS_ENV)
+int img_launch_as(int ctx, const char *name, const unsigned char *args, unsigned int alen)
+{
+	unsigned int n = 0, i, total;
+	struct fat16_vol *v;
+	struct fat16_file f;
+	struct fat_src src;
+	int rc;
+
+	while (name[n] != 0 && n < IMG_NAME_MAX)
+		n++;
+	if (n == 0 || n >= IMG_NAME_MAX - 1)
+		return FAT_ERR_NAME;
+	if (alen > APP_ARG_STR_MAX || n + 1 + alen > APP_ARG_STR_MAX)
+		return APP_ERR_ARGS;
+	for (i = 0; i <= n; i++)
+		img_packed[i] = (unsigned char) name[i];
+	total = n + 1;
+	for (i = 0; i < alen; i++)
+		img_packed[total + i] = args[i];
+	total += alen;
+	IMG_TITLE_CLEAR();
+	v = win1_volume();
+	if (v == 0)
+		return CHAN_ERR_NOVOL;
+	job_ctx_override = (ctx >= 0 && ctx < JOB_MAX && jobs[ctx].in_use) ? ctx : -1;
+	rc = IMG_OPEN(name, &f);
+	if (rc == FAT_OK) {
+		if (f.size == 0)
+			rc = APP_ERR_SIZE;
+		else if (f.size > IMG_FILE_MAX)
+			rc = APP_ERR_TOOBIG;
+		else {
+			src.f = &f;
+			rc = IMG_TITLE_AFTER(proc_load(fat_rd, &src, (unsigned int) f.size, 1, img_packed, total, 0),
+			                     &src, (unsigned int) f.size);
+		}
+	}
+	job_ctx_override = -1;
+	if (rc >= 0)
+		jobctl_note_launch_k(rc, name, JC_F_PAGED);
+	return rc;
 }
 #endif
 

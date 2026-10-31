@@ -243,3 +243,15 @@ BOUNCE.aout: r13/bounce/bounce.c r13/gfxmodel.h $(LIBS)
 # R13A: fonts, rendered consoles, logical surfaces, key events (docs/R13A-GRAPHICS-ABI.md).
 GFXA.aout: r13a/gfxa/gfxa.c $(LIBS)
 	$(WRAP) -o $@ r13a/gfxa/gfxa.c
+
+# R13B: argument / lookup probe (docs/R13B-EXEC-RESOLUTION-ABI.md); WHICHA/WHICHB are the same source with another tag.
+ARGV.aout: r13b/argv/argv.c $(LIBS)
+	$(WRAP) -o $@ r13b/argv/argv.c
+WHICHA.aout: r13b/argv/argv.c $(LIBS)
+	$(WRAP) -DTAG=\"WHICH-A\" -o $@ r13b/argv/argv.c
+WHICHB.aout: r13b/argv/argv.c $(LIBS)
+	$(WRAP) -DTAG=\"WHICH-B\" -o $@ r13b/argv/argv.c
+WHICHC.aout: r13b/argv/argv.c $(LIBS)
+	$(WRAP) -DTAG=\"WHICH-CWD\" -o $@ r13b/argv/argv.c
+TIMEQ.aout: r13b/timeq/timeq.c $(LIBS)
+	$(WRAP) -o $@ r13b/timeq/timeq.c

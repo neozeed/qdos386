@@ -405,6 +405,10 @@ unsigned int job_current_id(void)
 	return jobs[job_current].id;
 }
 
+#ifdef QDOS_R13B
+int job_ctx_override = -1;
+#endif
+
 int stack_canary_ok(int slot)
 {
 	unsigned int b = jobs[slot].stack_base;
@@ -489,7 +493,7 @@ int job_alloc_sized(const char *name, void (*entry)(void), unsigned char inc, un
 	exit_rec[i].status = 0;
 	init_frame(j);
 #ifdef QDOS_FS_WRITE
-	win1_cwd_inherit(id, jobs[job_current].id);     /* R11M: the creator's current directory */
+	win1_cwd_inherit(id, jobs[JOB_CTX_SLOT()].id);  /* R11M: the creator's current directory (R13B: or the launch context's) */
 #endif
 #ifdef QDOS_VCON
 	vcon_job_inherit(i, job_current);               /* R11M: the creator's console (or its chosen child console) */

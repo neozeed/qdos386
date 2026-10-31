@@ -416,7 +416,7 @@ int proc_load(app_rd_fn rd, void *ctx, unsigned int len, int want_slot, const un
 #ifdef QDOS_ENV
 	/* R12B: a snapshot of the creator's environment, owned by the new id, before the job can run.  On failure the job
 	 * (and so the block) is released by job_cancel, like every other failure below. */
-	if (env_inherit(js, (unsigned int) id, job_current) != 0) {
+	if (env_inherit(js, (unsigned int) id, JOB_CTX_SLOT()) != 0) {   /* R13B: the launch context's environment */
 		job_cancel((unsigned int) id);
 		irq_restore(irq);
 		load_failures++;

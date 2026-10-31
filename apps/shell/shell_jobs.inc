@@ -743,18 +743,31 @@ static int exit_blocked(void)
 
 	if (n < 0 || exit_warned)
 		return 0;
+#ifdef R13B_DYN
+	/* R13B: a dynamic shell counts only the jobs it started itself (the other shells' jobs are not its business) */
+	jt_harvest();
+	for (i = 0; i < jt_n; i++)
+		if (!jt[i].done)
+			live++;
+#else
 	for (i = 0; i < n; i++) {
 		const unsigned char *e = jbuf + JC_HDR + (unsigned int) i * JC_ENT;
 
 		if ((e[8] & 1) && !(e[8] & 4) && e[5] != 4)
 			live++;
 	}
+#endif
 	if (live == 0)
 		return 0;
 	exit_warned = 1;
 	outnum(live);
+#ifdef R13B_DYN
+	outs(" started job(s) still running; they go on after this shell ends (KILL or Ctrl+Esc F1 ends them later).\n");
+	outs("Type EXIT again to leave this shell anyway.\n");
+#else
 	outs(" started job(s) still running; EXIT ends the whole session and stops them (PS lists them, KILL /CON:n ends them).\n");
 	outs("Type EXIT again to leave anyway.\n");
+#endif
 	return 1;
 }
 

@@ -206,6 +206,14 @@ static void say_name_error(int rc)
 		outs("bad cluster chain\n");
 	else if (rc == E_NOVOL)
 		outs("volume not mounted\n");
+#ifdef R13B_SHELL
+	else if (rc == -87)
+		outs("not a directory (a part of the path is a file)\n");
+	else if (rc == -88)
+		outs("is a directory, not a program or file\n");
+	else if (rc == -90)
+		outs("name too long (with its directory)\n");
+#endif
 	else {
 		outs("error ");
 		outnum(rc);
@@ -244,6 +252,10 @@ static void cmd_help(void)
 	outs("SET [NAME[=value]]   list / show / set environment variables (SET NAME= sets an empty value)\n");
 	outs("UNSET NAME           remove a variable;  ECHO text   print text;  %NAME% in a line is replaced by its value\n");
 	outs("CALL script          run the commands in a file (also SOURCE); REM starts a comment line\n");
+#ifdef R13B_SHELL
+	outs("name [args]          not a command: run program name like RUN (\"quoted name\" for spaces)\n");
+	outs("CLS                  clear this session's screen;  DATE / TIME   show the clock (UTC)\n");
+#endif
 #ifdef R13A_SHELL
 	outs("FONT [path|n] [/CON|/SURF]  list fonts / load a QFNT font and use it (SET FONT=path too)\n");
 	outs("CONSOLE [GFX|VGA] [/ALL]    rendered text console (640x480, the font) or VGA text mode\n");
@@ -368,6 +380,9 @@ static int wait_job(int id)
 /* Packed argument strings for RUN: the arguments after the name, each
  * NUL-terminated.  The kernel adds argv[0] (the name) itself. */
 static unsigned char runargs[APP_ARG_STR_MAX];
+#ifdef R13B_SHELL
+static int run_direct, run_notfound;        /* R13B: a program run by its name as the command word */
+#endif
 #ifdef R11M_JOBS
 static int run_bg;                          /* START: report the job id and return without waiting */
 static int run_con = -1;                    /* START /CON:n */
@@ -601,6 +616,15 @@ static void cmd_run(char *arg)
 			break;
 #endif
 		default:
+#ifdef R13B_SHELL
+			if (run_direct && id == E_NOFILE) {
+				outs("unknown command or program: ");
+				outs(name);
+				outs(" (not built in; not found here or in PATH)\n");
+				run_notfound = 1;
+				break;
+			}
+#endif
 			say_name_error(id);
 		}
 		return;
@@ -690,6 +714,13 @@ static void font_env_hook(const char *name, const char *value);
 #ifdef R13A_SHELL
 #include "shell_r13a.inc"
 #endif
+#ifdef R13B_SHELL
+#include "shell_r13b.inc"
+#endif
+
+#ifdef R13B_SHELL
+static char word0[SH_LINE_MAX];             /* the command word as typed (a program name keeps its case) */
+#endif
 
 /* Run one line.  Returns 1 for EXIT, 0 otherwise.  The line is changed in place. */
 static int exec_line(char *s)
@@ -712,6 +743,17 @@ static int exec_line(char *s)
 		w++;
 	if (*w == 0)
 		return 0;
+#ifdef R13B_SHELL
+	if (*w == '"') {          /* R13B: "a quoted program name" [arguments] */
+		jt_harvest();
+		exit_warned = 0;
+		r13b_run_word(w, "");
+		if (run_notfound)
+			sh_fatal = 1;
+		run_notfound = 0;
+		return 0;
+	}
+#endif
 	arg = w;
 	while (*arg && *arg != ' ')
 		arg++;
@@ -720,6 +762,15 @@ static int exec_line(char *s)
 		while (*arg == ' ')
 			arg++;
 	}
+#ifdef R13B_SHELL
+	{
+		unsigned int q;
+
+		for (q = 0; w[q] && q < SH_LINE_MAX - 1; q++)
+			word0[q] = w[q];
+		word0[q] = 0;
+	}
+#endif
 	fold(w);                  /* only the command word; arguments keep case */
 #ifdef R11M_JOBS
 	jt_harvest();
@@ -803,6 +854,14 @@ static int exec_line(char *s)
 	else if (same(w, "CONSOLE"))
 		cmd_console(arg);
 #endif
+#ifdef R13B_SHELL
+	else if (same(w, "CLS"))
+		cmd_cls(arg);
+	else if (same(w, "DATE"))
+		cmd_datetime(arg, 1);
+	else if (same(w, "TIME"))
+		cmd_datetime(arg, 0);
+#endif
 	else if (same(w, "EXIT")) {
 #ifdef R12B_SHELL
 		if (sc_depth > 0) {
@@ -817,11 +876,18 @@ static int exec_line(char *s)
 		return 1;
 	}
 	else {
+#ifdef R13B_SHELL
+		r13b_run_word(word0, arg);        /* R13B: not a built-in: a program, found like RUN finds it */
+		if (run_notfound)
+			sh_fatal = 1;
+		run_notfound = 0;
+#else
 		outs("unknown command: ");
 		outs(w);
 		outc('\n');
 #ifdef R12B_SHELL
 		sh_fatal = 1;
+#endif
 #endif
 	}
 	return 0;
@@ -834,7 +900,14 @@ int main(void)
 	con_ch = (int) qtrap(APP_QT_CH_OPEN, (unsigned int) "CON", 0, 0);
 	if (con_ch <= 0)
 		return 1;
-#if defined(R13A_SHELL)
+#if defined(R13B_DYN)
+	/* R13B: a dynamic shell (SH.AOU) inherits the environment and directory of its creator; STARTUP.CMD is the boot
+	 * shell's alone. */
+	outs("QDOS/386 R13B shell (SH: a program; EXIT ends only this shell). Type HELP.\n");
+#elif defined(R13B_SHELL)
+	startup();
+	outs("QDOS/386 R13B shell. Type HELP.\n");
+#elif defined(R13A_SHELL)
 	startup();
 	outs("QDOS/386 R13A shell. Type HELP.\n");
 #elif defined(R13_SHELL)

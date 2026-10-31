@@ -49,6 +49,95 @@ void jobctl_slot_reset(int slot)
 #endif
 }
 
+#ifdef QDOS_R13B
+/* The last component of a file name, without a volume prefix ("WIN1_", "WIN1:"). */
+static void note_launch_name(int slot, const char *tmp, unsigned int flags);
+
+void jobctl_note_launch(int id, unsigned int name_addr, unsigned int flags)
+{
+	int slot = job_lookup((unsigned int) id);
+	unsigned int i;
+	char tmp[80];
+
+	if (slot == JOB_NONE)
+		return;
+	for (i = 0; i < sizeof tmp - 1; i++) {
+		if (!chan_user_range_ok(name_addr + i, 1))
+			break;
+		tmp[i] = *(const char *) (name_addr + i);
+		if (tmp[i] == 0)
+			break;
+	}
+	tmp[i] = 0;
+	note_launch_name(slot, tmp, flags);
+}
+
+#ifdef QDOS_R13B
+/* R13B: the same for a launch made by the kernel itself (SYSTASK F2): the name is in kernel memory. */
+void jobctl_note_launch_k(int id, const char *name, unsigned int flags)
+{
+	int slot = job_lookup((unsigned int) id);
+	unsigned int i;
+	char tmp[80];
+
+	if (slot == JOB_NONE)
+		return;
+	for (i = 0; i < sizeof tmp - 1 && name[i]; i++)
+		tmp[i] = name[i];
+	tmp[i] = 0;
+	note_launch_name(slot, tmp, flags);
+}
+#endif
+
+static void note_launch_name(int slot, const char *tmp, unsigned int flags)
+{
+	const char *p, *s, *base;
+	unsigned int i, n = 0;
+
+	meta[slot].flags = (unsigned char) (flags | JC_F_LAUNCHED);
+	base = tmp;
+	for (s = tmp; *s; s++)
+		if (*s == '/' || *s == ':')
+			base = s + 1;
+	if (base == tmp && tmp[0] == 'W' && tmp[1] == 'I' && tmp[2] == 'N' && tmp[3] == '1' && tmp[4] == '_')
+		base = tmp + 5;                       /* the legacy flat form WIN1_NAME */
+	for (p = base; *p && n < JC_NAME_MAX - 1; p++)
+		meta[slot].name[n++] = *p;
+	meta[slot].name[n] = 0;
+#ifdef QDOS_TITLES
+	{
+		/* the file the loader actually opened (after the PATH search and the .AOU suffix), else the name as given */
+		const char *img_resolved_name(void);
+		const char *r = img_resolved_name();
+
+		if (r == 0)
+			r = tmp;
+		for (i = 0; r[i] && i < JT_EXE_MAX - 1; i++)
+			t_exe[slot][i] = r[i];
+		t_exe[slot][i] = 0;
+		base = t_exe[slot];
+		for (s = t_exe[slot]; *s; s++)
+			if (*s == '/' || *s == ':')
+				base = s + 1;
+		if (base == t_exe[slot] && base[0] == 'W' && base[1] == 'I' && base[2] == 'N' && base[3] == '1' && base[4] == '_')
+			base += 5;
+		for (n = 0, p = base; *p && n < JC2_EXE_MAX - 1; p++)
+			t_base[slot][n++] = *p;
+		t_base[slot][n] = 0;
+	}
+	{
+		/* the compiled title from the image's symbol table (_prog_name): binaries linked before R12C included */
+		const char *img_symbol_title(void);
+		const char *c = img_symbol_title();
+
+		for (i = 0; c[i] && i < JT_TITLE_MAX - 1; i++)
+			t_prog[slot][i] = c[i];
+		t_prog[slot][i] = 0;
+	}
+#endif
+}
+
+#else
 /* The last component of a file name, without a volume prefix ("WIN1_", "WIN1:"). */
 void jobctl_note_launch(int id, unsigned int name_addr, unsigned int flags)
 {
@@ -109,6 +198,8 @@ void jobctl_note_launch(int id, unsigned int name_addr, unsigned int flags)
 	}
 #endif
 }
+
+#endif /* QDOS_R13B */
 
 #ifdef QDOS_TITLES
 void jobctl_note_kernel(int id, const char *exe)

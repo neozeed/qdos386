@@ -141,6 +141,15 @@ struct job_exit_rec {
 
 extern struct job jobs[JOB_MAX];
 extern int job_current;
+#ifdef QDOS_R13B
+/* R13B: a kernel launch on behalf of another job (SYSTASK F2 with the boot shell's directory and PATH): while
+ * job_ctx_override >= 0, the program search, the new job's directory and its environment come from that slot instead
+ * of the current job.  Set and cleared with interrupts off around one load. */
+extern int job_ctx_override;
+#define JOB_CTX_SLOT() (job_ctx_override >= 0 ? job_ctx_override : job_current)
+#else
+#define JOB_CTX_SLOT() (job_current)
+#endif
 extern int job_idle;                       /* slot of the idle job */
 extern volatile unsigned long sched_ticks;          /* timer interrupts handled */
 extern volatile unsigned long sched_yields;         /* cooperative yields */

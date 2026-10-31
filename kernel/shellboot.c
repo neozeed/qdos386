@@ -8,6 +8,9 @@
 #include "memory.h"
 #include "platform.h"
 #include "clock_boot.h"
+#ifdef QDOS_R13B
+#include "rtc.h"
+#endif
 #include "aout.h"
 #include "imgload.h"
 #include "win1.h"
@@ -110,6 +113,9 @@ int shell_boot(void)
 #ifdef QDOS_TITLES
 	jobctl_note_kernel(shell_id, SHELL_IMAGE_NAME);   /* R12C: the shell's name in the task list */
 #endif
+#if defined(QDOS_TASKMGR) && defined(QDOS_R13B)
+	taskmgr_set_context(shell_id);                     /* R13B: F2 launches use the boot shell's directory and PATH */
+#endif
 #ifdef QDOS_TASKMGR
 	if (taskmgr_start() < 0)                           /* R12C: SYSTASK (task selector, periodic SYNC) */
 		boot_fail("no job for SYSTASK");
@@ -142,6 +148,46 @@ int shell_boot(void)
 	cin_enable_poll();             /* i386VM: pull bytes from input_poll */
 #ifndef QDOS_NO_TIMER
 	clock_boot(1);
+#ifdef QDOS_R13B
+	{
+		int cs = clock_source();
+
+		if (cs == 2)
+			con_puts("CLOCK: build-time epoch (test kernel)");
+		else if (cs == 1)
+			con_puts("CLOCK: CMOS RTC (UTC) read at boot");
+		else if (cs == 0)
+			con_puts("CLOCK: none configured - wall time unavailable");
+		else {
+			con_puts("CLOCK: unavailable - ");
+			con_puts(rtc_reason(cs));
+		}
+#if !defined(QDOS_CLOCK_EPOCH) && !defined(QDOS_NO_RTC)
+		{
+			extern struct rtc_raw clock_raw;
+			static const char hx[] = "0123456789abcdef";
+			unsigned char v[8];
+			int k;
+
+			v[0] = clock_raw.century; v[1] = clock_raw.year; v[2] = clock_raw.mon; v[3] = clock_raw.mday;
+			v[4] = clock_raw.hour; v[5] = clock_raw.min; v[6] = clock_raw.sec; v[7] = clock_raw.regb;
+			con_puts(" [cc yy mm dd hh mi ss B =");
+			for (k = 0; k < 8; k++) {
+				con_putc(' ');
+				con_putc((unsigned char) hx[v[k] >> 4]);
+				con_putc((unsigned char) hx[v[k] & 15u]);
+			}
+			con_puts("]");
+		}
+#endif
+		if (kernel_wall_time() != 0xFFFFFFFFUL) {
+			con_puts(", ");
+			con_putdec(kernel_wall_time());
+			con_puts(" s since 1970");
+		}
+		con_puts("\n");
+	}
+#endif
 	timer_start(SHELL_TIMER_UNITS);
 	con_puts("SHELL: running\n\n");
 #else

@@ -15,6 +15,10 @@ void taskmgr_poll(void);          /* the SYSTEM job's loop, every tick */
 int taskmgr_open(void);           /* interrupts off */
 int taskmgr_is_open(void);
 int taskmgr_trap(unsigned int op);
+#ifdef QDOS_R13B
+#define TM_OP_LAUNCHES 3u         /* R13B: -> programs started with F2 */
+void taskmgr_set_context(int job_id);   /* R13B: F2 launches use this job's directory and PATH (the boot shell) */
+#endif
 
 /* jobs.c: mark a sleeping job runnable now (timed or indefinite sleep); never schedules. */
 void job_wake(int slot);
