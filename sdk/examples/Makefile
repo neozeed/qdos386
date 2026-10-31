@@ -255,3 +255,9 @@ WHICHC.aout: r13b/argv/argv.c $(LIBS)
 	$(WRAP) -DTAG=\"WHICH-CWD\" -o $@ r13b/argv/argv.c
 TIMEQ.aout: r13b/timeq/timeq.c $(LIBS)
 	$(WRAP) -o $@ r13b/timeq/timeq.c
+
+# R14: serial terminal and the QXF1 transfer test probe (not XMODEM) - docs/R14-SERIAL-ABI.md
+TERM.aout: r14/term/term.c $(LIBS)
+	$(WRAP) -O -o $@ r14/term/term.c
+XFER.aout: r14/xfer/xfer.c $(LIBS)
+	$(WRAP) -O -o $@ r14/xfer/xfer.c

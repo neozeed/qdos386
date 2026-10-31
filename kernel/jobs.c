@@ -65,6 +65,9 @@
 #include "taskmgr.h"
 #ifdef QDOS_SURFACES
 #include "surface.h"
+#ifdef QDOS_R14
+#include "uart.h"
+#endif
 #endif
 #endif
 
@@ -318,6 +321,9 @@ unsigned int sched_irq_tick(unsigned int sp)
 	timer_ack();
 	sv_pollm++;
 	cin_poll_tick();                       /* R7: bounded, no-op unless enabled */
+#ifdef QDOS_R14
+	ser_tick();                            /* R14: serial wait deadlines (kernel/uart.c) */
+#endif
 	RUN_TASKS(poll_list, &poll_runs);
 	return schedule(sp, 1, 1);
 }
@@ -995,6 +1001,12 @@ unsigned int trap_dispatch(unsigned int sp)
 	case QT_SURFACE:                          /* R13: display surfaces */
 		result = surface_trap(a, b, c);
 		break;
+#endif
+#ifdef QDOS_R14
+	case QT_SER:                              /* R14: serial ports (kernel/uart.c) */
+		if (ser_trap(a, b, c, &f[7]))
+			return schedule(sp, 1, 0);
+		return sp | 1u;
 #endif
 
 	case QT_ENV_SET:

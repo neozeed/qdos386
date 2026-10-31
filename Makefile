@@ -393,6 +393,17 @@ r13b-pc:
 	$(MAKE) build/pc-r9/boot2.bin
 	$(MAKE) pc PCD=build/r13b/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13B_OPTS)" PCIMG=r13b.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13b/pc/kctx.o PCEXTRA="$(addprefix build/r13b/pc/,$(R13B_OBJS))"
 	$(MAKE) pc PCD=build/r13b/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13B_OPTS)" PCIMG=r13b-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13b/pc-vga/kctx.o PCEXTRA="$(addprefix build/r13b/pc-vga/,$(R13B_OBJS))"
+# R14: the R13B kernel plus the PC UART driver (COM1/COM2, SER1/SER2 channels, QT_SER 0x3C: kernel/uart.c,
+# kernel/uart_s.s; docs/R14-SERIAL-ABI.md).  QEMU kernel build/r14/pc-vga/r14-vga.img, headless build/r14/pc/r14.img.
+R14_OPTS = $(R13B_OPTS) -DQDOS_R14 $(R14_EXTRA)
+R14_OBJS = $(R13B_OBJS) uart.o uart_s.o
+$(PCD)/uart_s.o: kernel/uart_s.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+r14-pc:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r14/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R14_OPTS)" PCIMG=r14.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r14/pc/kctx.o PCEXTRA="$(addprefix build/r14/pc/,$(R14_OBJS))"
+	$(MAKE) pc PCD=build/r14/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R14_OPTS)" PCIMG=r14-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r14/pc-vga/kctx.o PCEXTRA="$(addprefix build/r14/pc-vga/,$(R14_OBJS))"
 # R13B test kernels for the R11F calendar boundaries through DATE/TIME/time(): the R13B QEMU kernel with a build-time
 # epoch instead of the RTC (QEMU's RTC cannot hold dates after 2038 reliably: see docs/R13B-CLOCK-ABI.md).
 #   make r13b-epoch EPD=e2100 EPOCH=4107542397    -> build/r13b/e2100/e2100.img

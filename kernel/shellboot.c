@@ -28,6 +28,9 @@
 #ifdef QDOS_SURFACES
 #include "present.h"
 #include "surface.h"
+#ifdef QDOS_R14
+#include "uart.h"
+#endif
 #ifdef QDOS_R13A
 #include "fontreg.h"
 #else
@@ -187,6 +190,9 @@ int shell_boot(void)
 		}
 		con_puts("\n");
 	}
+#endif
+#ifdef QDOS_R14
+	ser_boot();                    /* R14: COM1/COM2 probe (kernel/uart.c) */
 #endif
 	timer_start(SHELL_TIMER_UNITS);
 	con_puts("SHELL: running\n\n");

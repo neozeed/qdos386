@@ -1,0 +1,33 @@
+make: Entering directory '/workspace/scratch/1202f38a2509/qlterm-c'
+make: Nothing to be done for 'all'.
+make: Leaving directory '/workspace/scratch/1202f38a2509/qlterm-c'
+/workspace/scratch/1202f38a2509/qlterm-c/tests/work/suite-_n8c3zt3/probe: dataspace 940 (3ac)
+[qlbox] frame=3000 pc=002e08 sr=2704 ramtop=0c0000 video=00 keys=16 irq_acks=2960
+RESULT checks=90 failures=0
+PASS 28 MenuConfig records / 3 groups; all relative data, descriptions, attributes and defaults; exact 1318 font bytes
+PASS exact original 256-entry CRC table
+Executable SHA256 f299f83ba0aa73c7c173a5a3ec09dc42237155180946df47a236fa0e5e4cb150
+PASS QDOS boot, serial connection, screen rendering, keyboard send; peer received [b'H']
+PASS native Telnet over raw QLBox serial transport: fragmented IAC, NAWS, TTYPE, refusals, DSR; command-tail device override
+/workspace/scratch/1202f38a2509/qlterm-c/tests/work/suite-_n8c3zt3/launcher: dataspace 100 (64)
+PASS 1 inherited channels: correct mapping and exit
+/workspace/scratch/1202f38a2509/qlterm-c/tests/work/suite-_n8c3zt3/launcher: dataspace 100 (64)
+PASS 2 inherited channels: correct mapping and exit
+/workspace/scratch/1202f38a2509/qlterm-c/tests/work/suite-_n8c3zt3/launcher: dataspace 100 (64)
+PASS 3 inherited channels: correct mapping and exit
+/workspace/scratch/1202f38a2509/qlterm-c/tests/work/suite-_n8c3zt3/launcher: dataspace 100 (64)
+PASS 4 inherited channels: rejected
+PASS F3 Connect, filename editing, cooked logging, log close, text transmission and CR/LF conversion
+PASS dl0crc download 35072 bytes; byte-exact
+PASS dl0sum download 1408 bytes; byte-exact
+PASS dl1crc download 33792 bytes; byte-exact
+PASS dl2crchdr download 35001 bytes; byte-exact
+PASS dl3crc download 13001 bytes; byte-exact
+PASS dl2crc download 1501 bytes; byte-exact
+PASS ul0crc upload 33001 bytes; byte-exact
+PASS ul0sum upload 1501 bytes; byte-exact
+PASS ul1crc upload 1501 bytes; byte-exact
+PASS ul2crchdr upload 1481 bytes; byte-exact
+PASS ul3crc upload 1501 bytes; byte-exact
+PASS multi-file YMODEM batch and duplicate-name suffix
+PASS complete QLTerm C R1 suite

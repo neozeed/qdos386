@@ -1,0 +1,6 @@
+QLTerm C R1
+Compiler: supplied QDOS GCC 2.95.3 R3, built on Linux x86-64
+Target: 68000, soft-float, -O2 -Wall -W -fno-builtin
+Executable bytes: 33886
+XTcc dataspace: 722
+Executable SHA256: f299f83ba0aa73c7c173a5a3ec09dc42237155180946df47a236fa0e5e4cb150

@@ -545,4 +545,49 @@ int qd_key_read(unsigned long *ev, unsigned int max);     /* never blocks -> eve
 long qd_gfx_blit_key(long x, long y, long w, long h, const void *src, unsigned long stride, unsigned int key);
 long qd_gfx_copy(long sx, long sy, long w, long h, long dx, long dy);
 int qd_gfx_memstats(unsigned long *w8);
+
+/* ---- R14: serial ports SER1/SER2 (kernels built with -DQDOS_R14; docs/R14-SERIAL-ABI.md) ------------------------
+ * Open with qd_open_ex("SER1", ...) or qd_open("SER1"): "SER" + 1|2 + [O|E|M|S] [H|I] [R].  qd_read never blocks
+ * (QD_SER_AGAIN when nothing is buffered); qd_write takes what the transmit ring holds.  On a kernel without the
+ * driver the calls below return QD_SER_NOTSUP. */
+#define QD_TRAP_SER          0x3Cu
+#define QD_SER_ABSENT        0
+#define QD_SER_8250          1
+#define QD_SER_16450         2
+#define QD_SER_16550A        3
+#define QD_SER_RX            0x01u   /* wait flags / ready mask */
+#define QD_SER_TXSPACE       0x02u
+#define QD_SER_TXEMPTY       0x04u
+#define QD_SER_KEY           0x08u   /* input queued on the caller's console (foreground only) */
+#define QD_SER_FOREVER       0xFFFFFFul
+#define QD_SER_FLUSH_RX      1u
+#define QD_SER_FLUSH_TX      2u
+#define QD_SER_TIMEOUT       (-1)    /* QDOS "not complete" */
+#define QD_SER_NOTFOUND      (-7)    /* no such port on this machine, or a bad name */
+#define QD_SER_INUSE         (-9)
+#define QD_SER_NOTSUP        (-15)   /* unsupported setting, not a SER channel, or no driver */
+#define QD_SER_AGAIN         (-19)
+#define QD_SER_CANCELLED     (-51)
+struct qd_ser_cfg {
+	unsigned long baud;            /* must divide 115200 */
+	unsigned char data_bits;       /* 5..8 */
+	unsigned char parity;          /* 'N' 'O' 'E' 'M' 'S' */
+	unsigned char stop_bits;       /* 1 or 2 */
+	unsigned char handshake;       /* 'I' none, 'H' RTS/CTS */
+};
+struct qd_ser_status {
+	unsigned long type, rx_bytes, tx_bytes, rx_queued, tx_queued, overrun, parity, framing, breaks,
+	              rx_dropped, tx_discarded, msr, lsr, irqs, cancels, rts;
+};
+int qd_ser_probe(int port);                                         /* QD_SER_ABSENT .. QD_SER_16550A, or negative */
+int qd_ser_config(int ch, const struct qd_ser_cfg *cfg);
+int qd_ser_getconfig(int ch, struct qd_ser_cfg *cfg);
+int qd_ser_status(int ch, struct qd_ser_status *st);
+int qd_ser_wait(int ch, unsigned int flags, unsigned long ticks);  /* ready mask > 0, QD_SER_TIMEOUT, QD_SER_CANCELLED */
+int qd_ser_read_timeout(int ch, void *buf, unsigned int n, unsigned long ticks);   /* >= 1, timeout, cancelled */
+int qd_ser_write_all(int ch, const void *buf, unsigned int n, unsigned long ticks); /* n, or timeout / cancelled */
+int qd_ser_drain(int ch, unsigned long ticks);                      /* 0 once the transmitter is empty */
+int qd_ser_flush(int ch, unsigned int what);
+int qd_ser_cancel(int port);                                        /* any job: end the wait on that port */
+int qd_ser_default_baud(int port, unsigned long baud);              /* rate for the next open (0: 9600) */
 #endif

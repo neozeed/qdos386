@@ -76,6 +76,9 @@ struct chan_object {
 #ifdef QDOS_VCON
 	int con;                         /* R11M: the virtual console a CON channel is bound to */
 #endif
+#ifdef QDOS_R14
+	int ser;                         /* R14: the serial port (0 = SER1, 1 = SER2) of a SER channel */
+#endif
 };
 
 /* Service entry points.  id and owner are as described above; owner is the
@@ -141,6 +144,9 @@ struct chan_con_snap {          /* request and reply of CHAN_CON_SNAP (88 bytes)
 #endif
 int chan_open_ex(unsigned int owner, unsigned int name_addr, unsigned int flags);
 int chan_ctl(unsigned int id, unsigned int owner, unsigned int op, unsigned int arg);
+#ifdef QDOS_R14
+int chan_lookup(unsigned int id, unsigned int owner, struct chan_object **out);   /* R14: 0, or BADID/OWNER */
+#endif
 int chan_fsop(unsigned int op, unsigned int a_addr, unsigned int b_addr);
 #endif
 

@@ -1,0 +1,11 @@
+make: Entering directory '/workspace/scratch/1202f38a2509/qlterm-c'
+/workspace/scratch/1202f38a2509/original/gcc/QDOS-GCC-2.95.3-R3-HOST-CALL-FIX/bin/qdos-gcc -O2 -Wall -W -fno-builtin -c src/main.c -o build/main.o
+/workspace/scratch/1202f38a2509/original/gcc/QDOS-GCC-2.95.3-R3-HOST-CALL-FIX/bin/qdos-gcc -O2 -Wall -W -fno-builtin -c src/platform.c -o build/platform.o
+/workspace/scratch/1202f38a2509/original/gcc/QDOS-GCC-2.95.3-R3-HOST-CALL-FIX/bin/qdos-gcc -O2 -Wall -W -fno-builtin -c src/screen.c -o build/screen.o
+/workspace/scratch/1202f38a2509/original/gcc/QDOS-GCC-2.95.3-R3-HOST-CALL-FIX/bin/qdos-gcc -O2 -Wall -W -fno-builtin -c src/serio.c -o build/serio.o
+/workspace/scratch/1202f38a2509/original/gcc/QDOS-GCC-2.95.3-R3-HOST-CALL-FIX/bin/qdos-gcc -O2 -Wall -W -fno-builtin -c src/filexfer.c -o build/filexfer.o
+/workspace/scratch/1202f38a2509/original/gcc/QDOS-GCC-2.95.3-R3-HOST-CALL-FIX/bin/qdos-gcc -O2 -Wall -W -fno-builtin -c src/font.c -o build/font.o
+/workspace/scratch/1202f38a2509/original/gcc/QDOS-GCC-2.95.3-R3-HOST-CALL-FIX/bin/qdos-gcc -O2 -Wall -W -fno-builtin -c src/config.c -o build/config.o
+/workspace/scratch/1202f38a2509/original/gcc/QDOS-GCC-2.95.3-R3-HOST-CALL-FIX/bin/qdos-gcc build/main.o build/platform.o build/screen.o build/serio.o build/filexfer.o build/font.o build/config.o -o qlterm
+qlterm: dataspace 722 (2d2)
+make: Leaving directory '/workspace/scratch/1202f38a2509/qlterm-c'

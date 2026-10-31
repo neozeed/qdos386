@@ -8,9 +8,9 @@ AS  = $(QDOS386_TOOLS)/bin/as
 AR  = ar
 SDK = $(abspath ..)
 
-libqdos.a: qdos.o qtrap.o qdospg.o qdosfs.o qdoscon.o qdosjob.o qdosproc.o qdosenv.o qdostitle.o progname.o qdossurf.o qdosgfx.o
+libqdos.a: qdos.o qtrap.o qdospg.o qdosfs.o qdoscon.o qdosjob.o qdosproc.o qdosenv.o qdostitle.o progname.o qdossurf.o qdosgfx.o qdosser.o
 	rm -f $@
-	$(AR) rc $@ qdos.o qtrap.o qdospg.o qdosfs.o qdoscon.o qdosjob.o qdosproc.o qdosenv.o qdostitle.o progname.o qdossurf.o qdosgfx.o
+	$(AR) rc $@ qdos.o qtrap.o qdospg.o qdosfs.o qdoscon.o qdosjob.o qdosproc.o qdosenv.o qdostitle.o progname.o qdossurf.o qdosgfx.o qdosser.o
 
 # R12C: titles, task list, task selector, SYNC; and the default _prog_name, alone in its member (taken only when the
 # program defines none).
@@ -22,6 +22,10 @@ qdosgfx.o: qdosgfx.c ../include/qdos386.h
 	$(GCC) -c -O -I../include qdosgfx.c -o $@
 progname.o: progname.c
 	$(GCC) -c -O progname.c -o $@
+
+# R14: serial port wrappers, a separate member.
+qdosser.o: qdosser.c ../include/qdos386.h
+	$(GCC) -c -O -I../include qdosser.c -o $@
 
 # R12B: environment wrappers, a separate member.
 qdosenv.o: qdosenv.c ../include/qdos386.h

@@ -12,6 +12,10 @@ extern void trap_stub(void);
 extern void irq7_stub(void);
 extern void irq1_stub(void);
 extern void irq15_stub(void);
+#ifdef QDOS_R14
+extern void irq3_stub(void);                        /* R14: kernel/uart_s.s */
+extern void irq4_stub(void);
+#endif
 extern void load_descriptors(unsigned int gdtr, unsigned int idtr);
 
 #define IRQ0_VECTOR 0x20
@@ -116,6 +120,10 @@ void descriptors_init(void)
 	set_gate(0x21, (unsigned long) irq1_stub);          /* master IRQ1: keyboard */
 	set_gate(0x27, (unsigned long) irq7_stub);          /* master IRQ7 */
 	set_gate(0x2f, (unsigned long) irq15_stub);         /* slave IRQ7 = IRQ15 */
+#ifdef QDOS_R14
+	set_gate(0x23, (unsigned long) irq3_stub);          /* R14: master IRQ3, COM2 (masked until SER2 is open) */
+	set_gate(0x24, (unsigned long) irq4_stub);          /* R14: master IRQ4, COM1 (masked until SER1 is open) */
+#endif
 #ifdef QDOS_PAGING
 	/* R11J: exception vectors 0..19 report and end a faulting paged job (paging.c);
 	 * 20..31 are reserved and stay not present. */

@@ -156,7 +156,12 @@ extern struct chan_driver win1_driver;   /* win1.c: WIN1_ file channels */
 static struct chan_driver con_driver;
 #ifdef QDOS_FS_WRITE
 extern struct chan_driver win1n_driver;  /* win1.c: the "WIN1:" native path prefix (R11M) */
+#ifdef QDOS_R14
+extern struct chan_driver ser_driver;    /* R14 uart.c: SER1, SER2 */
+static struct chan_driver *drivers[5];
+#else
 static struct chan_driver *drivers[4];
+#endif
 #else
 static struct chan_driver *drivers[3];
 #endif
@@ -177,7 +182,12 @@ static void drivers_init(void)
 	drivers[1] = &win1_driver;
 #ifdef QDOS_FS_WRITE
 	drivers[2] = &win1n_driver;
+#ifdef QDOS_R14
+	drivers[3] = &ser_driver;
+	drivers[4] = 0;
+#else
 	drivers[3] = 0;
+#endif
 #else
 	drivers[2] = 0;
 #endif
@@ -268,6 +278,13 @@ static int check(unsigned int id, unsigned int owner, struct chan_object **out)
 	*out = ch;
 	return 0;
 }
+
+#ifdef QDOS_R14
+int chan_lookup(unsigned int id, unsigned int owner, struct chan_object **out)
+{
+	return check(id, owner, out);
+}
+#endif
 
 /* ---- service entry points -------------------------------------------------- */
 
