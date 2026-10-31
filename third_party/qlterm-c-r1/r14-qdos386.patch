@@ -1,0 +1,21 @@
+--- a/src/platform.c
++++ b/src/platform.c
+@@ -11,11 +11,14 @@
+     if(n>max)n=max;memcpy(out,config_blob+off+4,n);out[n]=0;
+ }
+ void wait_frames(int n) {mt_susjb(-1,(short)n,NULL);}
+-/* TAS makes locks indivisible across the original's three QDOS jobs. */
++/* TAS makes locks indivisible across the original's three QDOS jobs.
++ * QDOS/386 (R14): the i386 XCHG of 0xFF with the lock byte is the same indivisible test-and-set; the lock was free
++ * if the old value was 0.  (The co-jobs of the QL compatibility layer switch only at QDOS calls, but a lock can be
++ * held across such a call, so the lock itself stays.) */
+ int try_lock(volatile U8 *p) {
+-    U8 result;
+-    __asm__ volatile ("tas %1\n\tseq %0" : "=d"(result) : "m"(*p) : "cc","memory");
+-    return result!=0;
++    int old=0xff;
++    __asm__ volatile ("xchgb %%al,(%1)" : "=a"(old) : "r"(p), "0"(old));
++    return (old&0xff)==0;
+ }
+ void lock(volatile U8 *p) {while(!try_lock(p))wait_frames(1);}
+ void unlock(volatile U8 *p) {*p=0;}

@@ -1,0 +1,82 @@
+# QDOS/386 build of the GW-BASIC port with the historical toolchain (GNU as 1.38, i386-ld 1.94,
+# a.out OMAGIC).  The Win32 build is the Makefile; this one leaves it unchanged.
+#
+#   make -f Makefile.qdos R13B=/path/to/qdos386-R13B-SHELL-USABILITY \
+#                         QDTOOLS=/path/to/bin-with-as-and-i386-ld
+#   make -f Makefile.qdos image R13B=...   -> build/qdos/launch-volume.img (volume copy + GWBASIC.AOU)
+#   make -f Makefile.qdos run R13B=...     -> QEMU with the R13B kernel and that volume copy
+#
+# The OS is not modified: the volume and kernel are copied from the R13B archive.
+# The port is converted from its Intel sources (src/) by tools/intel2att.py; tools/verify_att.py
+# checks the conversion against the Intel build with the modern assembler.
+
+MEMSIZE ?= 65536
+R13B    ?= $(HOME)/qdos386-R13B
+QDTOOLS ?= $(HOME)/qtools/bin
+SDK     := $(R13B)/sdk
+AS      := $(QDTOOLS)/as
+LD      := $(QDTOOLS)/i386-ld
+VOLUME  ?= $(R13B)/volumes/r13b-system.img
+KERNEL  ?= $(R13B)/build/r13b/pc-vga/r13b-vga.img
+MTOOLS_SKIP_CHECK := 1
+export MTOOLS_SKIP_CHECK
+
+# Port files: every converted source except the Win32 entry and platform layer.
+ATT_SRC  := $(filter-out build/qdos/att/main.S build/qdos/att/platform_win32.S,$(patsubst src/%.S,build/qdos/att/%.S,$(wildcard src/*.S)))
+PORT_OBJ := $(patsubst build/qdos/att/%.S,build/qdos/obj/%.o,$(ATT_SRC))
+QD_OBJ   := build/qdos/obj/platform_qdos.o build/qdos/obj/qdos_main.o
+OBJS     := $(PORT_OBJ) $(QD_OBJ)
+
+all: build/qdos/GWBASIC.AOU
+
+# The converted tree depends on the workspace size (a changed MEMSIZE regenerates it).
+build/qdos/memsize.stamp: FORCE | build/qdos
+	@if [ "$$(cat $@ 2>/dev/null)" != "$(MEMSIZE)" ]; then echo $(MEMSIZE) > $@; fi
+FORCE:
+
+build/qdos/att.stamp: $(wildcard src/*.S src/*.inc) tools/intel2att.py build/qdos/memsize.stamp
+	rm -rf build/qdos/att
+	python3 tools/intel2att.py src build/qdos/att --inline --memsize $(MEMSIZE)
+	touch $@
+
+build/qdos/obj/%.o: build/qdos/att.stamp | build/qdos/obj
+	$(AS) -o $@ build/qdos/att/$*.S
+
+build/qdos/obj/platform_qdos.o: qdos/platform_qdos.S | build/qdos/obj
+	$(AS) -o $@ $<
+
+build/qdos/obj/qdos_main.o: qdos/qdos_main.S | build/qdos/obj
+	$(AS) -o $@ $<
+
+build/qdos/obj/crt0.o: $(SDK)/lib/crt0.s | build/qdos/obj
+	$(AS) -o $@ $<
+
+build/qdos/obj/qtrap.o: $(SDK)/lib/qtrap.s | build/qdos/obj
+	$(AS) -o $@ $<
+
+# Application slot 1 (origin 0x240000), entry _start from crt0, libqdos for the console and files.
+build/qdos/GWBASIC.AOU: build/qdos/obj/crt0.o build/qdos/obj/qtrap.o $(OBJS) $(SDK)/lib/libqdos.a
+	$(LD) -N -T $(SDK)/ld/slot1.ld -e _start -o $@ build/qdos/obj/crt0.o build/qdos/obj/qtrap.o $(OBJS) $(SDK)/lib/libqdos.a
+	@magic=$$(od -A n -t x1 -N 4 $@ | tr -d ' '); \
+	  if [ "$$magic" != "07010000" ]; then echo "not an OMAGIC a.out: $$magic" >&2; exit 1; fi
+	@echo "built $@: $$(wc -c < $@) bytes, a.out OMAGIC 0407"
+
+image: build/qdos/launch-volume.img
+
+build/qdos/launch-volume.img: build/qdos/GWBASIC.AOU $(VOLUME)
+	cp $(VOLUME) $@
+	mcopy -o -i $@ build/qdos/GWBASIC.AOU ::/GWBASIC.AOU
+	@echo "copied $(VOLUME) to $@ with GWBASIC.AOU"
+
+run: build/qdos/launch-volume.img
+	qemu-system-i386 -machine pc -cpu pentium -m 16 -bios $(or $(QEMU_BIOS),/usr/share/seabios/bios.bin) -vga std \
+	  -drive file=$(KERNEL),format=raw,if=ide,index=0,media=disk \
+	  -drive file=build/qdos/launch-volume.img,format=raw,if=ide,index=1,media=disk -boot order=c
+
+build/qdos build/qdos/obj:
+	mkdir -p $@
+
+clean:
+	rm -rf build/qdos
+
+.PHONY: all image run clean

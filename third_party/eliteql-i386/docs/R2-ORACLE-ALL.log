@@ -1,0 +1,16 @@
+make: Entering directory '/workspace/scratch/48f5a4c775ba/elite386-r2'
+sh tools/build-gas138-m68k.sh
+python3 tools/build-m68k-oracle.py motion flight tidy line combat tactics navigation missile docking target render_game models_game planet_view dials scanner dashboard presentation screen_store explosion dust dust_generated universe travel
+build/tools/as138-m68k -m68000 -o oracle/core-m68k.o oracle/core-m68k.s
+own_rotate: PASS (2048 original-68000 comparisons, i386 ABI guards)
+move_ship: PASS (2048 original-68000 comparisons, i386 ABI guards)
+rotate_body: PASS (2048 original-68000 comparisons, i386 ABI guards)
+tidy_ship: PASS (2048 original-68000 comparisons, i386 ABI guards)
+motion_position: PASS (2048 original-68000 comparisons, i386 ABI guards)
+motion_matrix: PASS (2048 original-68000 comparisons, i386 ABI guards)
+TOTAL 12288 SHA256 75dc3d3d297ebf18b9fe3870ec96f940244b6a87aaff58126de36fd092638fd6
+MODE 8 raster: PASS (2048 original-68000 frames, clipped/boundary lines, XOR round trips, guards)
+SHA256 0eb5c78c366698ac1755d8a847772a1ab29557b9bec27cf3c323b37eca932993
+PASS: 2048 original 68000 ship renders / vertices / line caches / erase; 512 clipped circles; i386 ABI; SHA256 8e1d565cb7edcecf37b16653bfc08eb8e5715388ba32fe1c3a9ce87411b4250b
+PASS: 1024 dust scenarios x3 steps (all 168 state bytes, RNG, full framebuffer, guards); 1024 cloud point/RNG/guards; 64 complete galaxy charts; SHA256 46f3a58898eeaedd68d98c2d50a99b1ccd457477a7044122d1a57febcf565ff5
+make: Leaving directory '/workspace/scratch/48f5a4c775ba/elite386-r2'

@@ -1,0 +1,59 @@
+SOLAR/ZINF/SOS1: PASS (4096 seed/legal/tech cases, 0 failures)
+Original explosion: PASS (2048 DOEXP, 256 particles/pixels/XOR/bounds, 0 failures)
+ELITEDST original 6502 stardust: PASS (768 cases, 0 failures)
+Original planet view/altitude: PASS (2048 projection,4096 altitude cases,0 failures)
+Original presentation: PASS (2048 TT24/population/productivity/radius;4096 TT182 positions;0 failures)
+ELITEFID: PASS (0 failures): 65536 TT123 deltas, 1024 TT111 selections, RLE limits/roundtrips, 2560 original sound priorities, 256 SFXL states, envelope/repeat/expiry
+Original DIALS/recharge: PASS (512 pixels, 2048 states, 1024 trajectory updates, 0 failures)
+Original SCAN: PASS (512 geometry/pixel/XOR cases, 256 flags, 0 failures)
+Original compass: PASS (512 projection/pixel/XOR/guard cases, 0 failures)
+Original encounters with heap admission: PASS (256 cases, 0 failures)
+Original player controls: PASS (2048 cases, 1024 sequential updates, 0 failures)
+Original commander: PASS (65536 ranks, 4096 bounty/tally/countdown states, 0 failures)
+Original universe list: PASS (4096 NWSHP/KILLSHP operations,2560 KS2 target cases,0 failures)
+Original views/station police: PASS (2048 transforms, 4096 police cases, 1075 launches, 0 failures)
+Original equipment: PASS (2048 OUCH, 4096 bomb targets, 512 key states, 256 expiry states, 0 failures)
+Original cargo: PASS (2048 tnpr, 1024 scoop/boundary, 512 debris/tumble cases, 0 failures)
+Original 6502 motion: PASS (768 cases, 0 failures)
+Source-derived equipment transactions: PASS (3072 cases, 0 failures)
+Original laser fittings/computer: PASS (2592 et3/et4/MCASH, 4096 MA64 cases, 0 failures)
+Original travel: PASS (2048 systems, 2048 distances, countdown, fuel, preservation, all eight galaxy transitions; 0 failures)
+Additional assembly: PASS (65536 chart moves, 1024 nearest searches, 1024 packed DORND cases, 256 escape states; 0 failures)
+Original MVEIT parts 3-8: PASS (768 cases, 0 failures)
+Original TIDY: PASS (512 direct, 24 trajectories, 0 failures)
+Original combat: PASS (8192 source cases, 2048 thermal updates, XOR/bounds, 0 failures)
+Original tactics: PASS (512 vectors, 1536 dots, 1536 tactics + 1024 missile homing, 3072 scheduling cases, 0 failures)
+Events none/missile/escape/hit/cargo/death: 2089/65/22/345/9/30
+Navigation/icons: PASS (512 original pod states; 20 full-frame icon/guard cases; 0 failures)
+Missile boundaries: PASS (65536 ECM states, 1024 impact/ECM/spawn cases, 0 failures)
+Original docking: PASS (2048 ISDK/proximity/vector/failure states, 0 failures)
+Original target-relative steering: PASS (1024 source cases, 256 launch states, 0 failures)
+Original market: PASS (2048 economy/fluctuation markets, 2048 transactions/BAD, 1024 quantity purchases, 0 failures)
+Original planet: PASS (1024 MV40/MULT3/MVT3/MV45 cases and trajectories, 0 failures)
+Original station/WARP: PASS (4096 station cases, 1769 eligible; 2048 planet jumps; 1024 full WARP cases; 768 orientation cases; launch, 0 failures)
+Original encounters: PASS (2048 TT100/MTT/Ze/RNG cases, 0 failures)
+python3 tools/run-i386.py build/elf/platform_test
+Platform sequence tests: PASS (0 failures): read/write lengths, EQA2 extension, errors/short transfers/close precedence, 260 queue bounds, sound IPC decisions
+own_rotate: PASS (2048 original-68000 comparisons, i386 ABI guards)
+move_ship: PASS (2048 original-68000 comparisons, i386 ABI guards)
+rotate_body: PASS (2048 original-68000 comparisons, i386 ABI guards)
+tidy_ship: PASS (2048 original-68000 comparisons, i386 ABI guards)
+motion_position: PASS (2048 original-68000 comparisons, i386 ABI guards)
+motion_matrix: PASS (2048 original-68000 comparisons, i386 ABI guards)
+TOTAL 12288 SHA256 75dc3d3d297ebf18b9fe3870ec96f940244b6a87aaff58126de36fd092638fd6
+MODE 8 raster: PASS (2048 original-68000 frames, clipped/boundary lines, XOR round trips, guards)
+SHA256 0eb5c78c366698ac1755d8a847772a1ab29557b9bec27cf3c323b37eca932993
+PASS: 2048 original 68000 ship renders / vertices / line caches / erase; 512 clipped circles; i386 ABI; SHA256 8e1d565cb7edcecf37b16653bfc08eb8e5715388ba32fe1c3a9ce87411b4250b
+PASS: 1024 dust scenarios x3 steps (all 168 state bytes, RNG, full framebuffer, guards); 1024 cloud point/RNG/guards; 64 complete galaxy charts; SHA256 46f3a58898eeaedd68d98c2d50a99b1ccd457477a7044122d1a57febcf565ff5
+ELITE_NATIVE_IMAGE=build/aout/r3-shell-headless python3 tools/diff-shell-text.py
+PASS: original shell font/text 2048 complete frames + viewport clears; 4096 decimal values/widths; i386 ABI and guards; SHA256 5af01e98d24596d90d923a70c41af86882c6fdb14a28af4a6adf2ea95d83356e
+PASS: 2048 original shell save checksums and copy/restore cases, payloads/guards; combined SHA256 e0ef5da99b76c048d46d4141da88541e5a7decec9e2e9597f3c8dd007176613a
+mkdir -p build/aout
+build/tools/as138 -o build/aout/render.o src/render.s
+python3 tools/check-aout-symbols.py src/render.s build/aout/render.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/models.o src/models.s
+python3 tools/check-aout-symbols.py src/models.s build/aout/models.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/development.o src/development.s
+python3 tools/check-aout-symbols.py src/development.s build/aout/development.o

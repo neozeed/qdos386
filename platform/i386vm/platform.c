@@ -1,0 +1,169 @@
+/*
+ * QDOS/386 R1 - i386VM harness platform.
+ * Console: byte MMIO at 0x800001.  Timer: synthetic register at 0x800003
+ * (the i386VM patch).  Exit: HLT with the status in EAX.
+ */
+#include "platform.h"
+
+#define CON_PORT ((volatile unsigned char *) 0x800001)
+#define TIMER_PORT ((volatile unsigned char *) 0x800003)
+
+#ifdef QDOS_VCON
+#include "vcon.h"
+
+/* R11M: the byte port is the diagnostic stream; the consoles live in kernel/vcon.c.  There is no display. */
+void diag_putc(unsigned char c)
+{
+	*CON_PORT = c;
+}
+
+void con_putc(unsigned char c)
+{
+	vcon_kputc(c);
+}
+
+void vdisp_put(unsigned int row, unsigned int col, unsigned short cell)
+{
+	(void) row;
+	(void) col;
+	(void) cell;
+}
+
+void vdisp_load(const unsigned short *cells)
+{
+	(void) cells;
+}
+
+void vdisp_cursor(unsigned int row, unsigned int col, int visible)
+{
+	(void) row;
+	(void) col;
+	(void) visible;
+}
+#else
+void con_putc(unsigned char c)
+{
+	*CON_PORT = c;
+}
+#endif
+
+void con_puts(const char *s)
+{
+	while (*s)
+		con_putc((unsigned char) *s++);
+}
+
+void con_putdec(unsigned long v)
+{
+	char buf[12];
+	int n = 0;
+	int i;
+
+	if (v == 0)
+		con_putc('0');
+	while (v != 0) {
+		buf[n++] = (char) ('0' + (int) (v % 10));
+		v = v / 10;
+	}
+	for (i = n - 1; i >= 0; i--)
+		con_putc((unsigned char) buf[i]);
+}
+
+/* i386VM has no real-time timer: a tick is 1024 executed steps.  The rate
+ * below is nominal (100 ticks per second) so that the clock has a definite
+ * unit; it is NOT wall time.  Clock values on i386VM are tick-derived, and
+ * the advancing clock is not a real-time claim there. */
+void timer_rate(unsigned long *num, unsigned long *den)
+{
+	*num = 100UL;
+	*den = 1UL;
+}
+
+/* period in units of 1024 executed steps; the harness counts steps. */
+void timer_start(unsigned int period_units)
+{
+	*TIMER_PORT = (unsigned char) period_units;
+}
+
+void timer_stop(void)
+{
+	*TIMER_PORT = 0;
+}
+
+int timer_device_present(void)
+{
+	return 1;
+}
+
+unsigned int timer_device_count(void)
+{
+	return (unsigned int) *TIMER_PORT;
+}
+
+void timer_ack(void)
+{
+	/* no interrupt controller in the harness */
+}
+
+/* R7 console input.  Harness input: 0x800002 is the byte (blocking read, as
+ * before); 0x800004 is the status register added by the input patch:
+ * bit 0 = a byte is waiting, so reading 0x800002 will not block;
+ * bit 1 = end of input.  Polling never blocks. */
+#define INPUT_DATA   ((volatile unsigned char *) 0x800002)
+#define INPUT_STATUS ((volatile unsigned char *) 0x800004)
+
+void input_init(void)
+{
+}
+
+void input_irq1(void)
+{
+	/* no interrupt controller in the harness: IRQ1 never arrives */
+}
+
+void input_tick(void)
+{
+	/* no aux device in the harness */
+}
+
+int input_poll(void)
+{
+	unsigned char st = *INPUT_STATUS;
+	if ((st & 0x01) != 0)
+		return (int) *INPUT_DATA;
+	if ((st & 0x02) != 0)
+		return INPUT_EOF;
+	return INPUT_NONE;
+}
+
+/* The harness has no PIC: classification treats every IRQ7 as spurious. */
+int pic_present(void)
+{
+	return 0;
+}
+
+unsigned int pic_master_isr(void)
+{
+	return 0;
+}
+
+unsigned int pic_slave_isr(void)
+{
+	return 0;
+}
+
+void pic_eoi_master(void)
+{
+}
+
+void pic_eoi_slave(void)
+{
+}
+
+void halt_with(int status)
+{
+	extern void halt_with_asm(int status);
+	halt_with_asm(status);
+	for (;;)
+		;
+}

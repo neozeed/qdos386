@@ -1,0 +1,74 @@
+/*
+ * QDOS/386 R1 - platform services.  Implemented in platform/i386vm or
+ * platform/pc.  The shared kernel uses only this interface.
+ */
+#ifndef QDOS386_PLATFORM_H
+#define QDOS386_PLATFORM_H
+
+void con_putc(unsigned char c);
+void con_puts(const char *s);
+void con_putdec(unsigned long v);
+
+/* The timer tick rate in ticks per second, as num/den (R11F).  Used by the
+ * wall clock; each platform reports what it actually programs. */
+void timer_rate(unsigned long *num, unsigned long *den);
+
+/* Start periodic IRQ0.  Units are platform-defined; see each platform. */
+void timer_start(unsigned int period_units);
+void timer_stop(void);
+
+/* Device-side tick count, if the platform exposes one (returns 0 if not). */
+int timer_device_present(void);
+unsigned int timer_device_count(void);
+
+/* End of interrupt for IRQ0. */
+void timer_ack(void);
+
+/* Cascaded 8259 access for interrupt classification (kernel/irq.c).
+ * pic_present() is 0 on platforms without a PIC; the other calls are then
+ * not made by the kernel for classification, and their results are 0. */
+int pic_present(void);
+unsigned int pic_master_isr(void);      /* in-service register, master */
+unsigned int pic_slave_isr(void);       /* in-service register, slave */
+void pic_eoi_master(void);
+void pic_eoi_slave(void);
+
+/* Disk sector source for the FAT16 volume (R6).  Read-only use: the kernel
+ * only ever calls disk_read_sector.  Returns 0 on success, negative on error.
+ * disk_sector_count is the device size in 512-byte sectors (0 if absent). */
+int disk_read_sector(unsigned int lba, unsigned char *buf);
+unsigned long disk_sector_count(void);
+
+#ifdef QDOS_FS_WRITE
+/* R11L, opt-in (-DQDOS_FS_WRITE): write one 512-byte sector.  Returns 0 on success, negative on
+ * error; -2 means the device is write-protected (i386VM harness opened read-only).  Synchronous:
+ * the sector is on the device when the call returns (the host may still cache it). */
+int disk_write_sector(unsigned int lba, const unsigned char *buf);
+#endif
+#ifdef QDOS_SYNC
+/* R12C: ATA FLUSH CACHE (0xE7) to the volume's drive and wait for it.  0 the device reported completion; -1 no device
+ * or no answer in time; -2 the device reported an error (ERR or DF) - with an older emulator that does not implement
+ * the command this is its abort (error register bit ABRT), which is not success either; *err gets the error register. */
+int disk_flush(unsigned int *err);
+#endif
+
+/* Console input (R7).  input_init configures the keyboard device before
+ * interrupts are enabled; on PC it sets up the i8042 and unmasks IRQ1.
+ * input_irq1 is the IRQ1 body (PC; empty on i386VM, which has no PIC).
+ * input_poll returns the next raw byte without blocking, INPUT_NONE when
+ * none is waiting, or INPUT_EOF at end of input.  The PC always returns
+ * INPUT_NONE: its bytes arrive by IRQ1. */
+#define INPUT_NONE  (-1)
+#define INPUT_EOF   (-2)
+void input_init(void);
+void input_irq1(void);
+int input_poll(void);
+/* Called on every timer tick, interrupts off.  The PC discards stale mouse
+ * output that would otherwise hold the shared i8042 output buffer, and
+ * with it the keyboard's IRQ1.  i386VM does nothing. */
+void input_tick(void);
+
+/* Stop the machine: finish the run with the given status. */
+void halt_with(int status);
+
+#endif

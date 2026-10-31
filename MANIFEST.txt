@@ -1,0 +1,25 @@
+qdos386-R11G-ZORK1
+Source commit: ffe2349769f4e8bb74084d111425edf15d15356d (branch r11g, base R11F d614fa6)
+
+Included:
+  sdk/ and third_party/infocom/   source tree of this commit (git archive); original Task Force '87
+                                  sources unmodified in third_party/infocom/orig, port patch separate
+  sdk/lib/*.a                     libraries built from this tree
+  build/r11g/infocom.aout         the interpreter, SHA-256 4204fcf9043d0580f04489c0eab41353b0661144e6eec357fb17fb5554ca2e4b
+  images/win1-r11g-missing.img    story-free FAT16 volume (R11F set + INFOCOM.AOU), SHA-256 1d4451af01695c401274b4fbbf84ad502be6eaab30158bb639bfa96feea0d56d
+  evidence/                       transcripts, logs and screenshots of the final runs (scripted input)
+  docs/                           R11G audit, port, runtime report, SDK notes
+
+Not included:
+  zork1_z3 (story)                SHA-256 37084966477dff679282de42974b2077156b1bd68fad92a65d4ea94d8eb64d79. Its licence is not yet established for private
+                                  or public distribution. Supply your own copy to run the game.
+  win1-r11g.img (production)      tested volume with the story; SHA-256 e47ddf039cb81c3cc2c356f93db27c4c90da63b1185e844b287c1e20e604d7ea
+  negative-test variants          derived from the story bytes; rebuilt by scripts/r11g-negative-volumes.sh
+  emulators, BIOS, boot disk      use the R11F release (qdos386-R11F): its build/pc-r11f-none and
+                                  build/pc-r11f-none-run boot disk and firmware are required by
+                                  scripts/r11g-run-tiny386.sh and the volume build
+
+To rebuild the production volume, copy from the R11F release into this tree at the same paths:
+build/fat16/win1-r11f.img and the build/r11f application images that scripts/r11f-volume.sh uses. Then run
+ZORK_STORY=<path to your zork1_z3> QDOS386_TOOLS=<historical GCC 1.40 tree> sh scripts/r11g-volume.sh.
+The result must have SHA-256 e47ddf039cb81c3cc2c356f93db27c4c90da63b1185e844b287c1e20e604d7ea for the story file above.

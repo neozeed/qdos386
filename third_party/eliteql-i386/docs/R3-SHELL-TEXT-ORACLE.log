@@ -1,0 +1,11 @@
+make: Entering directory '/workspace/scratch/48f5a4c775ba/elite386-r3'
+mkdir -p build/aout
+build/tools/as138 -o build/aout/shell_save.o src/shell_save.s
+python3 tools/check-aout-symbols.py src/shell_save.s build/aout/shell_save.o
+build/tools/ld194 -N -e _headless_start -Ttext 0x10000 -o build/aout/r3-shell-headless build/aout/save.o build/aout/keyboard.o build/aout/universe.o build/aout/explosion.o build/aout/dust.o build/aout/dust_generated.o build/aout/render_game.o build/aout/planet_view.o build/aout/presentation.o build/aout/sound.o build/aout/dials.o build/aout/scanner.o build/aout/dashboard.o build/aout/models_game.o build/aout/release.o build/aout/screen_store.o build/aout/bulbs.o build/aout/controls.o build/aout/commander.o build/aout/universe_list.o build/aout/views.o build/aout/random.o build/aout/equipment.o build/aout/cargo.o build/aout/station_ai.o build/aout/motion.o build/aout/shop.o build/aout/computer_dock.o build/aout/travel.o build/aout/flight.o build/aout/tidy.o build/aout/line.o build/aout/combat.o build/aout/tactics.o build/aout/navigation.o build/aout/missile.o build/aout/docking.o build/aout/target.o build/aout/market.o build/aout/planet.o build/aout/station.o build/aout/encounters.o build/aout/compass.o build/aout/shell_text.o build/aout/shell_save.o build/aout/headless.o
+python3 tools/build-shell-oracle.py
+build/tools/as138-m68k -m68000 -o oracle/shell-m68k.o oracle/shell-m68k.s
+ELITE_NATIVE_IMAGE=build/aout/r3-shell-headless python3 tools/diff-shell-text.py
+PASS: original shell font/text 2048 complete frames + viewport clears; 4096 decimal values/widths; i386 ABI and guards; SHA256 5af01e98d24596d90d923a70c41af86882c6fdb14a28af4a6adf2ea95d83356e
+PASS: 2048 original shell save checksums and copy/restore cases, payloads/guards; combined SHA256 e0ef5da99b76c048d46d4141da88541e5a7decec9e2e9597f3c8dd007176613a
+make: Leaving directory '/workspace/scratch/48f5a4c775ba/elite386-r3'

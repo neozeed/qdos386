@@ -1,0 +1,17 @@
+ITF (1991,92)
+
+This one appeared in March 1991 on a Sydney University FTP server
+(physics.su.oz.au), but was (according to the revision headers) actually
+written in June 1987. It supported Z-code V3 only; the version number was
+either 1.0 or 2.0.
+
+The elusive authors (David Beazley, George Janczuk, Peter Lisle, Russell
+Hoare, Chris Tham) kept their names and e-mail addresses secret and called
+themselves the InfoTaskForce (ITF). According to legend they started
+working on the interpreter in early 1987 when they were undergrads at
+Sydney University.
+
+The ITF disappeared after the interpreter's release but came back in
+September 1992 and published the second release (4.01). It supported V1-4
+(and partial V5, lacking timeouts and graphics) and has been widely ported
+since. Shortly thereafter the ITF disappeared (again).

@@ -1,0 +1,11 @@
+make: Entering directory '/workspace/scratch/48f5a4c775ba/elite386-r2'
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c tests/platform_test.c -o build/elf/platform_test.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/sound.o src/sound.s
+python3 tools/check-aout-symbols.py src/sound.s build/aout/sound.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/sound.o build/elf/sound.o
+ld -m elf_i386 -o build/elf/platform_test build/elf/platform_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/start.o
+python3 tools/run-i386.py build/elf/platform_test
+Platform sequence tests: PASS (0 failures): read/write lengths, EQA2 extension, errors/short transfers/close precedence, 260 queue bounds, sound IPC decisions
+make: Leaving directory '/workspace/scratch/48f5a4c775ba/elite386-r2'

@@ -1,0 +1,30 @@
+# This file is a shell script fragment that supplies the information
+# necessary for a configure script to process the program in
+# this directory.  For more information, look at ../configure.
+
+srctrigger=makeinfo.c
+srcname="C source info tools"
+commontargets=true
+
+# per-host:
+
+case "${host_os}" in
+
+m88kbcs | sysv | dgux | irix  )	
+	host_makefile_frag=config/mh-sysv
+	;;
+
+svr4  )	
+	host_makefile_frag=config/mh-svr4
+	;;
+
+esac
+
+case "${host_vendor}" in
+sco* )
+	host_makefile_frag=config/mh-sco
+	;;
+esac
+
+# per-target:
+

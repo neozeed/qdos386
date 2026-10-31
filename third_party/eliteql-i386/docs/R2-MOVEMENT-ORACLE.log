@@ -1,0 +1,7 @@
+own_rotate: PASS (2048 original-68000 comparisons, i386 ABI guards)
+move_ship: PASS (2048 original-68000 comparisons, i386 ABI guards)
+rotate_body: PASS (2048 original-68000 comparisons, i386 ABI guards)
+tidy_ship: PASS (2048 original-68000 comparisons, i386 ABI guards)
+motion_position: PASS (2048 original-68000 comparisons, i386 ABI guards)
+motion_matrix: PASS (2048 original-68000 comparisons, i386 ABI guards)
+TOTAL 12288 SHA256 75dc3d3d297ebf18b9fe3870ec96f940244b6a87aaff58126de36fd092638fd6

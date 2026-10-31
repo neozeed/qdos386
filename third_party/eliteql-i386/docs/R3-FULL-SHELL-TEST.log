@@ -1,0 +1,75 @@
+python3 tools/build-full-shell-oracle.py
+python3 tools/build-shell-audit.py
+make[1]: Entering directory '/workspace/scratch/48f5a4c775ba/elite386-r3'
+make[1]: 'build/aout/save.o' is up to date.
+make[1]: 'build/aout/keyboard.o' is up to date.
+make[1]: 'build/aout/universe.o' is up to date.
+make[1]: 'build/aout/explosion.o' is up to date.
+make[1]: 'build/aout/dust.o' is up to date.
+make[1]: 'build/aout/dust_generated.o' is up to date.
+make[1]: 'build/aout/render_game.o' is up to date.
+make[1]: 'build/aout/planet_view.o' is up to date.
+make[1]: 'build/aout/presentation.o' is up to date.
+make[1]: 'build/aout/sound.o' is up to date.
+make[1]: 'build/aout/dials.o' is up to date.
+make[1]: 'build/aout/scanner.o' is up to date.
+make[1]: 'build/aout/dashboard.o' is up to date.
+make[1]: 'build/aout/models_game.o' is up to date.
+make[1]: 'build/aout/release.o' is up to date.
+make[1]: 'build/aout/screen_store.o' is up to date.
+make[1]: 'build/aout/bulbs.o' is up to date.
+make[1]: 'build/aout/controls.o' is up to date.
+make[1]: 'build/aout/commander.o' is up to date.
+make[1]: 'build/aout/universe_list.o' is up to date.
+make[1]: 'build/aout/views.o' is up to date.
+make[1]: 'build/aout/random.o' is up to date.
+make[1]: 'build/aout/equipment.o' is up to date.
+make[1]: 'build/aout/cargo.o' is up to date.
+make[1]: 'build/aout/station_ai.o' is up to date.
+make[1]: 'build/aout/motion.o' is up to date.
+make[1]: 'build/aout/shop.o' is up to date.
+make[1]: 'build/aout/computer_dock.o' is up to date.
+make[1]: 'build/aout/travel.o' is up to date.
+make[1]: 'build/aout/flight.o' is up to date.
+make[1]: 'build/aout/tidy.o' is up to date.
+make[1]: 'build/aout/line.o' is up to date.
+make[1]: 'build/aout/combat.o' is up to date.
+make[1]: 'build/aout/tactics.o' is up to date.
+make[1]: 'build/aout/navigation.o' is up to date.
+make[1]: 'build/aout/missile.o' is up to date.
+make[1]: 'build/aout/docking.o' is up to date.
+make[1]: 'build/aout/target.o' is up to date.
+make[1]: 'build/aout/market.o' is up to date.
+make[1]: 'build/aout/planet.o' is up to date.
+make[1]: 'build/aout/station.o' is up to date.
+make[1]: 'build/aout/encounters.o' is up to date.
+make[1]: 'build/aout/compass.o' is up to date.
+make[1]: 'build/aout/shell_text.o' is up to date.
+make[1]: 'build/aout/shell_save.o' is up to date.
+make[1]: 'build/aout/shell_data.o' is up to date.
+make[1]: 'build/aout/shell_cheats.o' is up to date.
+make[1]: 'build/aout/shell_start.o' is up to date.
+make[1]: 'build/aout/shell_setup.o' is up to date.
+make[1]: 'build/aout/shell_scene.o' is up to date.
+make[1]: 'build/aout/shell_flow.o' is up to date.
+make[1]: 'build/aout/shell_sound.o' is up to date.
+make[1]: 'build/aout/shell_universe.o' is up to date.
+make[1]: 'build/aout/shell_adapters.o' is up to date.
+make[1]: 'build/aout/shell_spawn.o' is up to date.
+make[1]: 'build/aout/shell_world.o' is up to date.
+make[1]: 'build/tools/ld194' is up to date.
+make[1]: Leaving directory '/workspace/scratch/48f5a4c775ba/elite386-r3'
+14 unimplemented/platform entries guarded with INT3; cannot be treated as a playable link
+python3 tools/r3-shell-inventory.py
+1112 labels; 0 unmapped labels; 0 unmapped instruction lines
+[]
+[]
+PASS: 64 original full-shell asm_setup scenarios; all ship INWKs, controls, serialized commander/travel/market, RNG/dust, caches and 32KB frames; SHA256 5e616099dc45a411285bfd1ac68f147a82c69d4666926cdcca8115af66600ba0
+PASS: 64 complete original remember/restore/title/death initialization sequences; SHA256 8cb87e491205e108455d88873c4b2b042f628236af470513bef0fd118709741a
+PASS: 128 allocation/removal/missile/cargo/pod scenarios; original state and RNG; SHA256 ecf36e8d80d27333f0d1151e9191acb668cb5d2bb96d79cdcbcbf5c6e1ee1b78
+PASS: 128 original cheat/warp scenarios and 2048 encounter orchestration steps; state, RNG, model kinds and full frames; SHA256 9de0c0d16324807e7e13f7598911aea21b63600c6ef38945fca99cf08e738f43
+PASS: 64 original full save/load sequences, serialized bytes, checksum/validation failures, I/O errors and rendered result; SHA256 4274f4c927c2672c84ab2542eb60a715152a2141cd4455a67b6b16b1b03abd73
+PASS: accepted named-save path, filename and save bytes
+CONFIRMED ORIGINAL DEFECT: valid title load indexes asm_market_messages[6], outside four pointers; original A4=0x2053544f, native ESI=0x4f545320 (ASCII used as a pointer). No source behavior patched.
+PASS: 112 complete original status/cargo/market/shop/system/local-chart/cheat/quantity pages, byte-exact full frames; SHA256 e77f127072ff3410fb2e65090c163ad5d0f1befd1cef885b0f1ff5dd195129e5
+PASS: 800 actual original loop iterations: both complete title approaches, dock, launch, flight, firing, pitch/roll, status overlay, death animation and restart; byte-exact state and full frames; SHA256 4e71c957330c03b0a20e986f29a1a43c645ee7f7af03413eb89385a3fa7aef80

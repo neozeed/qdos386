@@ -1,0 +1,389 @@
+make: Entering directory '/workspace/scratch/48f5a4c775ba/r2-fresh-validation/elite386-r2'
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/universe_test.c -o build/elf/universe_test.o
+sh tools/build-gas138.sh
+mkdir -p build/aout
+build/tools/as138 -o build/aout/save.o src/save.s
+python3 tools/check-aout-symbols.py src/save.s build/aout/save.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/save.o build/elf/save.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/keyboard.o src/keyboard.s
+python3 tools/check-aout-symbols.py src/keyboard.s build/aout/keyboard.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/keyboard.o build/elf/keyboard.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/universe.o src/universe.s
+python3 tools/check-aout-symbols.py src/universe.s build/aout/universe.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/universe.o build/elf/universe.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/explosion.o src/explosion.s
+python3 tools/check-aout-symbols.py src/explosion.s build/aout/explosion.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/explosion.o build/elf/explosion.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/dust.o src/dust.s
+python3 tools/check-aout-symbols.py src/dust.s build/aout/dust.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/dust.o build/elf/dust.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/dust_generated.o src/dust_generated.s
+python3 tools/check-aout-symbols.py src/dust_generated.s build/aout/dust_generated.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/dust_generated.o build/elf/dust_generated.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/render_game.o src/render_game.s
+python3 tools/check-aout-symbols.py src/render_game.s build/aout/render_game.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/render_game.o build/elf/render_game.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/planet_view.o src/planet_view.s
+python3 tools/check-aout-symbols.py src/planet_view.s build/aout/planet_view.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/planet_view.o build/elf/planet_view.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/presentation.o src/presentation.s
+python3 tools/check-aout-symbols.py src/presentation.s build/aout/presentation.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/presentation.o build/elf/presentation.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/sound.o src/sound.s
+python3 tools/check-aout-symbols.py src/sound.s build/aout/sound.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/sound.o build/elf/sound.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/dials.o src/dials.s
+python3 tools/check-aout-symbols.py src/dials.s build/aout/dials.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/dials.o build/elf/dials.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/scanner.o src/scanner.s
+python3 tools/check-aout-symbols.py src/scanner.s build/aout/scanner.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/scanner.o build/elf/scanner.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/dashboard.o src/dashboard.s
+python3 tools/check-aout-symbols.py src/dashboard.s build/aout/dashboard.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/dashboard.o build/elf/dashboard.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/models_game.o src/models_game.s
+python3 tools/check-aout-symbols.py src/models_game.s build/aout/models_game.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/models_game.o build/elf/models_game.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/release.o src/release.s
+python3 tools/check-aout-symbols.py src/release.s build/aout/release.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/release.o build/elf/release.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/screen_store.o src/screen_store.s
+python3 tools/check-aout-symbols.py src/screen_store.s build/aout/screen_store.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/screen_store.o build/elf/screen_store.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/bulbs.o src/bulbs.s
+python3 tools/check-aout-symbols.py src/bulbs.s build/aout/bulbs.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/bulbs.o build/elf/bulbs.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/controls.o src/controls.s
+python3 tools/check-aout-symbols.py src/controls.s build/aout/controls.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/controls.o build/elf/controls.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/commander.o src/commander.s
+python3 tools/check-aout-symbols.py src/commander.s build/aout/commander.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/commander.o build/elf/commander.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/universe_list.o src/universe_list.s
+python3 tools/check-aout-symbols.py src/universe_list.s build/aout/universe_list.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/universe_list.o build/elf/universe_list.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/views.o src/views.s
+python3 tools/check-aout-symbols.py src/views.s build/aout/views.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/views.o build/elf/views.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/random.o src/random.s
+python3 tools/check-aout-symbols.py src/random.s build/aout/random.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/random.o build/elf/random.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/equipment.o src/equipment.s
+python3 tools/check-aout-symbols.py src/equipment.s build/aout/equipment.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/equipment.o build/elf/equipment.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/cargo.o src/cargo.s
+python3 tools/check-aout-symbols.py src/cargo.s build/aout/cargo.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/cargo.o build/elf/cargo.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/station_ai.o src/station_ai.s
+python3 tools/check-aout-symbols.py src/station_ai.s build/aout/station_ai.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/station_ai.o build/elf/station_ai.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/motion.o src/motion.s
+python3 tools/check-aout-symbols.py src/motion.s build/aout/motion.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/motion.o build/elf/motion.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/shop.o src/shop.s
+python3 tools/check-aout-symbols.py src/shop.s build/aout/shop.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/shop.o build/elf/shop.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/computer_dock.o src/computer_dock.s
+python3 tools/check-aout-symbols.py src/computer_dock.s build/aout/computer_dock.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/computer_dock.o build/elf/computer_dock.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/travel.o src/travel.s
+python3 tools/check-aout-symbols.py src/travel.s build/aout/travel.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/travel.o build/elf/travel.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/flight.o src/flight.s
+python3 tools/check-aout-symbols.py src/flight.s build/aout/flight.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/flight.o build/elf/flight.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/tidy.o src/tidy.s
+python3 tools/check-aout-symbols.py src/tidy.s build/aout/tidy.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/tidy.o build/elf/tidy.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/line.o src/line.s
+python3 tools/check-aout-symbols.py src/line.s build/aout/line.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/line.o build/elf/line.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/combat.o src/combat.s
+python3 tools/check-aout-symbols.py src/combat.s build/aout/combat.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/combat.o build/elf/combat.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/tactics.o src/tactics.s
+python3 tools/check-aout-symbols.py src/tactics.s build/aout/tactics.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/tactics.o build/elf/tactics.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/navigation.o src/navigation.s
+python3 tools/check-aout-symbols.py src/navigation.s build/aout/navigation.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/navigation.o build/elf/navigation.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/missile.o src/missile.s
+python3 tools/check-aout-symbols.py src/missile.s build/aout/missile.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/missile.o build/elf/missile.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/docking.o src/docking.s
+python3 tools/check-aout-symbols.py src/docking.s build/aout/docking.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/docking.o build/elf/docking.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/target.o src/target.s
+python3 tools/check-aout-symbols.py src/target.s build/aout/target.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/target.o build/elf/target.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/market.o src/market.s
+python3 tools/check-aout-symbols.py src/market.s build/aout/market.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/market.o build/elf/market.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/planet.o src/planet.s
+python3 tools/check-aout-symbols.py src/planet.s build/aout/planet.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/planet.o build/elf/planet.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/station.o src/station.s
+python3 tools/check-aout-symbols.py src/station.s build/aout/station.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/station.o build/elf/station.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/encounters.o src/encounters.s
+python3 tools/check-aout-symbols.py src/encounters.s build/aout/encounters.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/encounters.o build/elf/encounters.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/compass.o src/compass.s
+python3 tools/check-aout-symbols.py src/compass.s build/aout/compass.o
+mkdir -p build/elf
+python3 tools/aout-to-elf.py build/aout/compass.o build/elf/compass.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c tests/host/runtime.c -o build/elf/runtime.o
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -c tests/host/platform.c -o build/elf/platform.o
+mkdir -p build/elf
+as --32 -o build/elf/start.o tests/host/start.s
+ld -m elf_i386 -o build/elf/universe_test build/elf/universe_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/explosion_test.c -o build/elf/explosion_test.o
+ld -m elf_i386 -o build/elf/explosion_test build/elf/explosion_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+ld: warning: alignment 4 of normal symbol `effect_vertices' in build/elf/render_game.o is smaller than 32 used by the common definition in build/elf/explosion_test.o
+ld: warning: NOTE: alignment discrepancies can cause real problems.  Investigation is advised.
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/dust_test.c -o build/elf/dust_test.o
+ld -m elf_i386 -o build/elf/dust_test build/elf/dust_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/planet_view_test.c -o build/elf/planet_view_test.o
+ld -m elf_i386 -o build/elf/planet_view_test build/elf/planet_view_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/presentation_test.c -o build/elf/presentation_test.o
+ld -m elf_i386 -o build/elf/presentation_test build/elf/presentation_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/fidelity_test.c -o build/elf/fidelity_test.o
+ld -m elf_i386 -o build/elf/fidelity_test build/elf/fidelity_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/dials_test.c -o build/elf/dials_test.o
+ld -m elf_i386 -o build/elf/dials_test build/elf/dials_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/scanner_test.c -o build/elf/scanner_test.o
+ld -m elf_i386 -o build/elf/scanner_test build/elf/scanner_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/compass_test.c -o build/elf/compass_test.o
+ld -m elf_i386 -o build/elf/compass_test build/elf/compass_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/encounters_pool_test.c -o build/elf/encounters_pool_test.o
+ld -m elf_i386 -o build/elf/encounters_pool_test build/elf/encounters_pool_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/controls_test.c -o build/elf/controls_test.o
+ld -m elf_i386 -o build/elf/controls_test build/elf/controls_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/commander_test.c -o build/elf/commander_test.o
+ld -m elf_i386 -o build/elf/commander_test build/elf/commander_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/universe_list_test.c -o build/elf/universe_list_test.o
+ld -m elf_i386 -o build/elf/universe_list_test build/elf/universe_list_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/views_test.c -o build/elf/views_test.o
+ld -m elf_i386 -o build/elf/views_test build/elf/views_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/equipment_test.c -o build/elf/equipment_test.o
+ld -m elf_i386 -o build/elf/equipment_test build/elf/equipment_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/cargo_test.c -o build/elf/cargo_test.o
+ld -m elf_i386 -o build/elf/cargo_test build/elf/cargo_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/motion_test.c -o build/elf/motion_test.o
+ld -m elf_i386 -o build/elf/motion_test build/elf/motion_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/shop_test.c -o build/elf/shop_test.o
+ld -m elf_i386 -o build/elf/shop_test build/elf/shop_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/fittings_test.c -o build/elf/fittings_test.o
+ld -m elf_i386 -o build/elf/fittings_test build/elf/fittings_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/travel_test.c -o build/elf/travel_test.o
+ld -m elf_i386 -o build/elf/travel_test build/elf/travel_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -Ireference/tests -c tests/extra_test.c -o build/elf/extra_test.o
+ld -m elf_i386 -o build/elf/extra_test build/elf/extra_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/flight_test.c -o build/elf/flight_test.o
+ld -m elf_i386 -o build/elf/flight_test build/elf/flight_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/tidy_test.c -o build/elf/tidy_test.o
+ld -m elf_i386 -o build/elf/tidy_test build/elf/tidy_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/combat_test.c -o build/elf/combat_test.o
+ld -m elf_i386 -o build/elf/combat_test build/elf/combat_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/tactics_test.c -o build/elf/tactics_test.o
+ld -m elf_i386 -o build/elf/tactics_test build/elf/tactics_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/navigation_test.c -o build/elf/navigation_test.o
+ld -m elf_i386 -o build/elf/navigation_test build/elf/navigation_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/missile_test.c -o build/elf/missile_test.o
+ld -m elf_i386 -o build/elf/missile_test build/elf/missile_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/docking_test.c -o build/elf/docking_test.o
+ld -m elf_i386 -o build/elf/docking_test build/elf/docking_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/target_test.c -o build/elf/target_test.o
+ld -m elf_i386 -o build/elf/target_test build/elf/target_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/market_test.c -o build/elf/market_test.o
+ld -m elf_i386 -o build/elf/market_test build/elf/market_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/planet_test.c -o build/elf/planet_test.o
+ld -m elf_i386 -o build/elf/planet_test build/elf/planet_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/station_test.c -o build/elf/station_test.o
+ld -m elf_i386 -o build/elf/station_test build/elf/station_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+mkdir -p build/elf
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c reference/tests/encounters_test.c -o build/elf/encounters_test.o
+ld -m elf_i386 -o build/elf/encounters_test build/elf/encounters_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/platform.o build/elf/start.o
+SOLAR/ZINF/SOS1: PASS (4096 seed/legal/tech cases, 0 failures)
+Original explosion: PASS (2048 DOEXP, 256 particles/pixels/XOR/bounds, 0 failures)
+ELITEDST original 6502 stardust: PASS (768 cases, 0 failures)
+Original planet view/altitude: PASS (2048 projection,4096 altitude cases,0 failures)
+Original presentation: PASS (2048 TT24/population/productivity/radius;4096 TT182 positions;0 failures)
+ELITEFID: PASS (0 failures): 65536 TT123 deltas, 1024 TT111 selections, RLE limits/roundtrips, 2560 original sound priorities, 256 SFXL states, envelope/repeat/expiry
+Original DIALS/recharge: PASS (512 pixels, 2048 states, 1024 trajectory updates, 0 failures)
+Original SCAN: PASS (512 geometry/pixel/XOR cases, 256 flags, 0 failures)
+Original compass: PASS (512 projection/pixel/XOR/guard cases, 0 failures)
+Original encounters with heap admission: PASS (256 cases, 0 failures)
+Original player controls: PASS (2048 cases, 1024 sequential updates, 0 failures)
+Original commander: PASS (65536 ranks, 4096 bounty/tally/countdown states, 0 failures)
+Original universe list: PASS (4096 NWSHP/KILLSHP operations,2560 KS2 target cases,0 failures)
+Original views/station police: PASS (2048 transforms, 4096 police cases, 1075 launches, 0 failures)
+Original equipment: PASS (2048 OUCH, 4096 bomb targets, 512 key states, 256 expiry states, 0 failures)
+Original cargo: PASS (2048 tnpr, 1024 scoop/boundary, 512 debris/tumble cases, 0 failures)
+Original 6502 motion: PASS (768 cases, 0 failures)
+Source-derived equipment transactions: PASS (3072 cases, 0 failures)
+Original laser fittings/computer: PASS (2592 et3/et4/MCASH, 4096 MA64 cases, 0 failures)
+Original travel: PASS (2048 systems, 2048 distances, countdown, fuel, preservation, all eight galaxy transitions; 0 failures)
+Additional assembly: PASS (65536 chart moves, 1024 nearest searches, 1024 packed DORND cases, 256 escape states; 0 failures)
+Original MVEIT parts 3-8: PASS (768 cases, 0 failures)
+Original TIDY: PASS (512 direct, 24 trajectories, 0 failures)
+Original combat: PASS (8192 source cases, 2048 thermal updates, XOR/bounds, 0 failures)
+Original tactics: PASS (512 vectors, 1536 dots, 1536 tactics + 1024 missile homing, 3072 scheduling cases, 0 failures)
+Events none/missile/escape/hit/cargo/death: 2089/65/22/345/9/30
+Navigation/icons: PASS (512 original pod states; 20 full-frame icon/guard cases; 0 failures)
+Missile boundaries: PASS (65536 ECM states, 1024 impact/ECM/spawn cases, 0 failures)
+Original docking: PASS (2048 ISDK/proximity/vector/failure states, 0 failures)
+Original target-relative steering: PASS (1024 source cases, 256 launch states, 0 failures)
+Original market: PASS (2048 economy/fluctuation markets, 2048 transactions/BAD, 1024 quantity purchases, 0 failures)
+Original planet: PASS (1024 MV40/MULT3/MVT3/MV45 cases and trajectories, 0 failures)
+Original station/WARP: PASS (4096 station cases, 1769 eligible; 2048 planet jumps; 1024 full WARP cases; 768 orientation cases; launch, 0 failures)
+Original encounters: PASS (2048 TT100/MTT/Ze/RNG cases, 0 failures)
+cc -m32 -march=i386 -O2 -fcommon -ffreestanding -fno-builtin -fno-pie -fno-stack-protector -Itests/host -c tests/platform_test.c -o build/elf/platform_test.o
+ld -m elf_i386 -o build/elf/platform_test build/elf/platform_test.o build/elf/save.o build/elf/keyboard.o build/elf/universe.o build/elf/explosion.o build/elf/dust.o build/elf/dust_generated.o build/elf/render_game.o build/elf/planet_view.o build/elf/presentation.o build/elf/sound.o build/elf/dials.o build/elf/scanner.o build/elf/dashboard.o build/elf/models_game.o build/elf/release.o build/elf/screen_store.o build/elf/bulbs.o build/elf/controls.o build/elf/commander.o build/elf/universe_list.o build/elf/views.o build/elf/random.o build/elf/equipment.o build/elf/cargo.o build/elf/station_ai.o build/elf/motion.o build/elf/shop.o build/elf/computer_dock.o build/elf/travel.o build/elf/flight.o build/elf/tidy.o build/elf/line.o build/elf/combat.o build/elf/tactics.o build/elf/navigation.o build/elf/missile.o build/elf/docking.o build/elf/target.o build/elf/market.o build/elf/planet.o build/elf/station.o build/elf/encounters.o build/elf/compass.o build/elf/runtime.o build/elf/start.o
+python3 tools/run-i386.py build/elf/platform_test
+Platform sequence tests: PASS (0 failures): read/write lengths, EQA2 extension, errors/short transfers/close precedence, 260 queue bounds, sound IPC decisions
+build/tools/as138 -o build/aout/headless.o tests/host/headless.s
+python3 tools/check-aout-symbols.py tests/host/headless.s build/aout/headless.o
+sh tools/build-ld194.sh
+build/tools/ld194 -N -e _headless_start -Ttext 0x10000 -o build/aout/core-headless build/aout/save.o build/aout/keyboard.o build/aout/universe.o build/aout/explosion.o build/aout/dust.o build/aout/dust_generated.o build/aout/render_game.o build/aout/planet_view.o build/aout/presentation.o build/aout/sound.o build/aout/dials.o build/aout/scanner.o build/aout/dashboard.o build/aout/models_game.o build/aout/release.o build/aout/screen_store.o build/aout/bulbs.o build/aout/controls.o build/aout/commander.o build/aout/universe_list.o build/aout/views.o build/aout/random.o build/aout/equipment.o build/aout/cargo.o build/aout/station_ai.o build/aout/motion.o build/aout/shop.o build/aout/computer_dock.o build/aout/travel.o build/aout/flight.o build/aout/tidy.o build/aout/line.o build/aout/combat.o build/aout/tactics.o build/aout/navigation.o build/aout/missile.o build/aout/docking.o build/aout/target.o build/aout/market.o build/aout/planet.o build/aout/station.o build/aout/encounters.o build/aout/compass.o build/aout/headless.o
+sh tools/build-gas138-m68k.sh
+python3 tools/build-m68k-oracle.py motion flight tidy line combat tactics navigation missile docking target render_game models_game planet_view dials scanner dashboard presentation screen_store explosion dust dust_generated universe travel
+build/tools/as138-m68k -m68000 -o oracle/core-m68k.o oracle/core-m68k.s
+own_rotate: PASS (2048 original-68000 comparisons, i386 ABI guards)
+move_ship: PASS (2048 original-68000 comparisons, i386 ABI guards)
+rotate_body: PASS (2048 original-68000 comparisons, i386 ABI guards)
+tidy_ship: PASS (2048 original-68000 comparisons, i386 ABI guards)
+motion_position: PASS (2048 original-68000 comparisons, i386 ABI guards)
+motion_matrix: PASS (2048 original-68000 comparisons, i386 ABI guards)
+TOTAL 12288 SHA256 75dc3d3d297ebf18b9fe3870ec96f940244b6a87aaff58126de36fd092638fd6
+MODE 8 raster: PASS (2048 original-68000 frames, clipped/boundary lines, XOR round trips, guards)
+SHA256 0eb5c78c366698ac1755d8a847772a1ab29557b9bec27cf3c323b37eca932993
+PASS: 2048 original 68000 ship renders / vertices / line caches / erase; 512 clipped circles; i386 ABI; SHA256 8e1d565cb7edcecf37b16653bfc08eb8e5715388ba32fe1c3a9ce87411b4250b
+PASS: 1024 dust scenarios x3 steps (all 168 state bytes, RNG, full framebuffer, guards); 1024 cloud point/RNG/guards; 64 complete galaxy charts; SHA256 46f3a58898eeaedd68d98c2d50a99b1ccd457477a7044122d1a57febcf565ff5
+mkdir -p build/aout
+build/tools/as138 -o build/aout/render.o src/render.s
+python3 tools/check-aout-symbols.py src/render.s build/aout/render.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/models.o src/models.s
+python3 tools/check-aout-symbols.py src/models.s build/aout/models.o
+mkdir -p build/aout
+build/tools/as138 -o build/aout/development.o src/development.s
+python3 tools/check-aout-symbols.py src/development.s build/aout/development.o
+make: Leaving directory '/workspace/scratch/48f5a4c775ba/r2-fresh-validation/elite386-r2'

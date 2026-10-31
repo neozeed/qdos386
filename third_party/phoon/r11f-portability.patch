@@ -1,0 +1,166 @@
+diff -ruN a/date_parse.c b/date_parse.c
+--- a/date_parse.c	2026-10-27 10:47:23.463475486 +0000
++++ b/date_parse.c	2026-10-27 10:47:23.487801650 +0000
+@@ -45,7 +45,6 @@
+ ** dumb.
+ */
+ 
+-#include <sys/types.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -91,25 +90,35 @@
+     long tm_mon, tm_wday, ampm, gmtoff;
+     int got_zone;
+     time_t t;
++    long lt;
+     int i;
+ 
+     /* If it's all digits, treat it as a raw Unix time and we're done. */
+-    t = strtol( str, &cp, 10 );
++    lt = strtol( str, &cp, 10 );
+     if ( *cp == '\0' )
+-	return t;
++	{
++	if ( lt < 0 )
++	    return (time_t) -1;	/* negative raw times: illegal, as before */
++	return (time_t) lt;
++	}
+ 
+     /* Initialize tm with relevant parts of current local time. */
+     now = time( (time_t*) 0 );
+     now_tmP = localtime( &now );
+ 
+     (void) memset( (char*) &tm, 0, sizeof(struct tm) );
+-    tm.tm_sec = now_tmP->tm_sec;
+-    tm.tm_min = now_tmP->tm_min;
+-    tm.tm_hour = now_tmP->tm_hour;
+-    tm.tm_mday = now_tmP->tm_mday;
+-    tm.tm_mon = now_tmP->tm_mon;
+-    tm.tm_year = now_tmP->tm_year;
+-    tm.tm_isdst = now_tmP->tm_isdst;
++    /* QDOS/386: with no clock (localtime NULL) the defaults stay zero.  Every
++    ** format sets the year, so a date with no year is refused by tm_to_time. */
++    if ( now_tmP != NULL )
++	{
++	tm.tm_sec = now_tmP->tm_sec;
++	tm.tm_min = now_tmP->tm_min;
++	tm.tm_hour = now_tmP->tm_hour;
++	tm.tm_mday = now_tmP->tm_mday;
++	tm.tm_mon = now_tmP->tm_mon;
++	tm.tm_year = now_tmP->tm_year;
++	tm.tm_isdst = now_tmP->tm_isdst;
++	}
+     ampm = AMPM_NONE;
+     got_zone = 0;
+ 
+@@ -118,7 +127,6 @@
+     ** specify a zone - those don't occur in email and netnews.
+     */
+ #ifdef OS_SYSV
+-    tzset();
+     gmtoff = 0;	/* QL doesn't know timezones? -timezone; */
+ #else /* OS_SYSV */
+     gmtoff = now_tmP->tm_gmtoff;
+@@ -800,6 +808,11 @@
+     else if ( tm.tm_year < 70 )
+ 	tm.tm_year += 100;
+ 
++    /* QDOS/386: with no clock the date defaults are zero, and day 0 is never a
++    ** real day, so a date-less input is refused here rather than given a date. */
++    if ( now_tmP == NULL && tm.tm_mday == 0 )
++	return (time_t) -1;
++
+     t = tm_to_time( &tm );
+     t -= gmtoff;
+ #ifdef notdef
+@@ -1025,24 +1038,37 @@
+ tm_to_time( struct tm* tmP )
+     {
+     time_t t;
++    long days, sod;
+     static int monthtab[12] = {
+ 	0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334 };
+ 
++    /* QDOS/386: time_t is unsigned, so the day count is kept signed here and
++    ** negative results (years before 1970, day 0 of the epoch month) are
++    ** refused, as the signed original did.  Years after 2106 are refused too. */
++    if ( tmP->tm_year < 70 || tmP->tm_year > 206 )
++	return (time_t) -1;
++
+     /* Years since epoch, converted to days. */
+-    t = ( tmP->tm_year - 70 ) * 365;
+-    /* Leap days for previous years - this will break in 2100! */
+-    t += ( tmP->tm_year - 69 ) / 4;
++    days = ( tmP->tm_year - 70 ) * 365;
++    /* Leap days for previous years.  (tm_year-69)/4 counts 2100 as a leap year,
++    ** but 2100 is divisible by 100 and not by 400, so it is not one.  Every year
++    ** from 2101 on therefore has one leap day too many, and one is taken off.
++    ** R11F correction; see docs/R11F-PHOON-PORT.md. */
++    days += ( tmP->tm_year - 69 ) / 4 - ( tmP->tm_year > 200 ? 1 : 0 );
+     /* Days for the beginning of this month. */
+-    t += monthtab[tmP->tm_mon];
++    days += monthtab[tmP->tm_mon];
+     /* Leap day for this year. */
+     if ( tmP->tm_mon >= 2 && is_leap( tmP->tm_year + 1900 ) )
+-	++t;
++	++days;
+     /* Days since the beginning of this month. */
+-    t += tmP->tm_mday - 1;	/* 1-based field */
+-    /* Hours, minutes, and seconds. */
+-    t = t * 24 + tmP->tm_hour;
+-    t = t * 60 + tmP->tm_min;
+-    t = t * 60 + tmP->tm_sec;
++    days += tmP->tm_mday - 1;	/* 1-based field */
++    if ( days < 0 || days > 49710L )
++	return (time_t) -1;
++    /* Hours, minutes, and seconds, as the original's linear formula. */
++    sod = (long) tmP->tm_hour * 3600L + (long) tmP->tm_min * 60L + (long) tmP->tm_sec;
++    if ( sod < 0 || (unsigned long) sod > 0xFFFFFFFEUL - (unsigned long) days * 86400UL )
++	return (time_t) -1;
++    t = (time_t) ( (unsigned long) days * 86400UL + (unsigned long) sod );
+ 
+     return t;
+     }
+diff -ruN a/phoon.c b/phoon.c
+--- a/phoon.c	2026-10-27 10:47:23.463551652 +0000
++++ b/phoon.c	2026-10-27 10:47:23.468606401 +0000
+@@ -355,7 +355,7 @@
+     struct tm* tmP;
+     double jd, pctphase, angphase, cphase, aom, cdist, cangdia, csund, csuang;
+     double phases[2], which[2];
+-    long clocknow;
++    unsigned long clocknow;	/* QDOS/386: unsigned, as the time is never negative */
+     int atflrlen, atflridx, numcols, lin, col, midlin;
+     double mcap, yrad, xrad, y, xright, xleft;
+     int colright, colleft;
+@@ -371,7 +371,7 @@
+     mcap = -cos( angphase );
+ 
+     /* Get now for use as a random number. */
+-    (void) time( &clocknow );
++    clocknow = (unsigned long) time( (time_t) 0 );
+ 
+     /* Randomly cheat and generate Hubert. */
+     if ( clocknow % 13 == 3 && cphase > 0.8 )
+@@ -535,6 +535,11 @@
+ 	{
+ 	/* No arguments present - use the current date and time. */
+ 	t = time( (time_t) 0 );
++	if ( t == (time_t) -1 )
++	    {
++	    fprintf( stderr, "%s: no clock is configured; give a date\n", argv[0] );
++	    exit( 1 );
++	    }
+ 	}
+     else if ( argc - argn == 1 || argc - argn == 2 || argc - argn == 3 )
+ 	{
+@@ -551,7 +556,7 @@
+ 		}
+ 	    }
+ 	t = date_parse( buf );
+-	if ( t <= 0 )
++	if ( t == (time_t) -1 || t <= 0 )
+ 	    {
+ 	    fprintf( stderr, "illegal date/time: %s\n", buf );
+ 	    exit( 1 );
