@@ -91,6 +91,80 @@ int qd_fd_take(int fd, int *flags);
 /* Write everything waiting in the buffer.  Returns 0, or EOF with err set. */
 static int file_flush_w(struct qd_file *f);
 
+#ifdef QDOS_C68_CONWRITE
+/* R14A, C68 libc variant only (libc68.a; docs/R14A-LIBVT-ANSI.md): C68 libc 4.24.5's console write vector.  When a
+ * program sets it (Hack: `_conwrite = ANSI_conwrite`), console text of stdout and stderr is offered to it with C68's
+ * protocol: a result > 0 lets that many bytes go to the CON channel unchanged, < 0 says that many were consumed,
+ * 0 says all is done.  The UFB has the leading fields of C68's struct UFB (sdk/qlcompat/include/ansicondef.h).
+ * NULL (the default) means plain console output.  libc.a is built without this and is unchanged. */
+struct UFB {
+	char ufbtyp, ufbst;
+	short ufbflg;
+	long ufbfh, ufbfh1, ufbjob;
+	char *ufbnam;
+};
+int (*_conwrite)(struct UFB *, void *, unsigned int) = 0;
+static struct UFB c68_con_ufb;
+
+/* C68 libc 4.24.5's end message (defaults/endmsg.c, unistd/_exit.c): when stdout is a console the program owns,
+ * exit writes _endmsg at the cursor and waits for a key (ESC: one more key), so a program that ends in its own window
+ * leaves its last screen readable.  The QDOS/386 equivalent of "owns the console" is a private session with this
+ * job as its only user (START ... /NEW); in a shared session (the shell's) nothing is shown, as C68 does for an
+ * inherited channel.  A program sets _endmsg = NULL to suppress it.  Armed on the first console use. */
+char *_endmsg = "Press a key to exit";
+static int c68_end_armed;
+
+static void c68_endmsg_hook(void)
+{
+	struct qd_surface_info si;
+	int ch = con_channel(), k;
+	(void) fflush(stdout);
+	(void) fflush(stderr);
+	if (_endmsg == 0 || ch <= 0 || qd_surface_info(0, &si) != 0)
+		return;
+	if ((si.flags & 2u) == 0 || si.users != 1)
+		return;
+	(void) qd_write(ch, _endmsg, (unsigned int) strlen(_endmsg));
+	k = qd_con_getkey(ch);
+	if (k == 27)
+		(void) qd_con_getkey(ch);
+}
+
+static void c68_arm_end(void)
+{
+	if (!c68_end_armed) {
+		c68_end_armed = 1;
+		(void) atexit(c68_endmsg_hook);
+	}
+}
+
+static int c68_conwrite(int ch, unsigned char *p, unsigned int left)
+{
+	int r;
+	c68_con_ufb.ufbtyp = 2;                  /* D_CON */
+	c68_con_ufb.ufbfh = ch;
+	c68_con_ufb.ufbnam = "CON";
+	while (left > 0) {
+		r = _conwrite(&c68_con_ufb, p, left);
+		if (r == 0)
+			break;
+		if (r > 0) {
+			if ((unsigned int) r > left)
+				r = (int) left;
+			if (qd_write(ch, p, (unsigned int) r) != r)
+				return EOF;
+		} else {
+			r = -r;
+			if ((unsigned int) r > left)
+				r = (int) left;
+		}
+		p += r;
+		left -= (unsigned int) r;
+	}
+	return 0;
+}
+#endif
+
 static int stream_flush(struct qd_file *f)
 {
 	int ch;
@@ -99,6 +173,19 @@ static int stream_flush(struct qd_file *f)
 		return file_flush_w(f);
 	if (f->wlen == 0)
 		return 0;
+#ifdef QDOS_C68_CONWRITE
+	c68_arm_end();
+	if (_conwrite != 0) {
+		ch = con_channel();
+		if (ch <= 0 || c68_conwrite(ch, (unsigned char *) f->wbuf, f->wlen) != 0) {
+			f->wlen = 0;
+			f->err = 1;
+			return EOF;
+		}
+		f->wlen = 0;
+		return 0;
+	}
+#endif
 	ch = con_channel();
 	if (ch <= 0 || qd_write(ch, f->wbuf, f->wlen) != (int) f->wlen) {
 		f->wlen = 0;
@@ -970,6 +1057,18 @@ int fgetc(FILE *fp)
 		if (ch <= 0)
 			return EOF;
 		(void) stream_flush(&con_out);   /* a prompt must be seen before we wait */
+#ifdef QDOS_C68_CONWRITE
+		/* R14A C68 variant: wait in the kernel's console wait (no polling); ENTER (CR) is returned as LF */
+		c68_arm_end();
+		{
+			int k = qd_con_getkey(ch);
+			if (k < 0) {
+				f->eof = 1;
+				return EOF;
+			}
+			return k == '\r' ? '\n' : k;
+		}
+#endif
 		for (;;) {
 			got = qd_read(ch, &c, 1);
 			if (got == 1)

@@ -177,7 +177,24 @@ void yield_asm(void);
 /* Service trap entry from C.  Defined in kernel/context.s. */
 int qtrap(unsigned int fn, unsigned int a, unsigned int b, unsigned int c);
 
-/* Called from kernel/context.s; each returns saved_sp | fmt. */
+/* How a C entry point hands the frame to the resume path (KCTX-FIX2, docs/KCTX-FIX2-IMPLEMENTATION.md).
+ * Default (kernel/kctx.s, every current kernel): the FULL stack pointer is returned and the frame format goes in
+ * kx_resume_fmt, written with IF clear just before the return and read by resume_dispatch.  QDOS_KCTX_PTRBITS (set by
+ * the Makefile only for targets that link context.s, paging.s or kernel/frozen/kctx-r12a-r14.s, i.e. the frozen
+ * R6..R14 images): the historical value saved_sp | fmt, decoded there with a mask that assumes a 4-byte-aligned stack. */
+#ifdef QDOS_KCTX_PTRBITS
+#define KX_RESUME(sp, fmt) ((sp) | (unsigned int) (fmt))
+#elif defined(QDOS_KCTX_CHECK)
+/* Test-only kernels (make qdos386-check-pc): the same hand-off through a checking function (jobs.c). */
+extern unsigned int kx_resume_fmt;
+unsigned int kx_resume_check(unsigned int sp, unsigned int fmt);
+#define KX_RESUME(sp, fmt) kx_resume_check((unsigned int) (sp), (unsigned int) (fmt))
+#else
+extern unsigned int kx_resume_fmt;
+#define KX_RESUME(sp, fmt) (kx_resume_fmt = (unsigned int) (fmt), (unsigned int) (sp))
+#endif
+
+/* Called from kernel/context.s; each returns KX_RESUME(saved_sp, fmt). */
 unsigned int sched_irq_tick(unsigned int sp);
 unsigned int sched_yield_sp(unsigned int sp);
 unsigned int trap_dispatch(unsigned int sp);

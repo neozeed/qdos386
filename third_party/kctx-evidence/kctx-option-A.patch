@@ -1,0 +1,11 @@
+--- a/kernel/kctx.s
++++ b/kernel/kctx.s
+@@ -43,7 +43,7 @@
+ resume_dispatch:
+ 	movl %eax,%ecx
+ 	andl $1,%ecx
+-	andl $-4,%eax
++	andl $-2,%eax
+ 	movl %eax,%esp
+ 	cmpl $0,%ecx
+ 	je resume_ctx

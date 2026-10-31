@@ -1,0 +1,11 @@
+Files of the supplied hack.zip (SHA-256 aa1e48e1ba13a32fdf5f6e4e79ee05d988d4de64dea62d2184dd795a250b7233) that are
+listed in orig-SHA256SUMS but NOT kept in orig/ (docs/R14A-HACK-INTAKE.md section 4):
+
+  test/nethack   QDOS 68000 executable of NuPC NetHack ("Net%s Version %s"), no source supplied, licence not stated
+  test/data      NetHack 1.0 data file ("NetHack & Quest data file - version 1.0"), CR LF
+  test/help      NetHack 1.0 help ("Welcome to NetHack!"), CR LF
+  test/hh        NetHack 1.0 short help, CR LF
+  test/rumors    NetHack rumors, CR LF
+
+They belong to NetHack, not to Hack 1.03; the archive states no licence for them, so they are not redistributed.
+They were never executed or used: the QL oracle runs hack/hack with the Hack 1.03 data files of the source tree.

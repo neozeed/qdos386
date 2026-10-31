@@ -1,35 +1,30 @@
-# qdos386-R14-SERIAL-QLTERM
+# qdos386-R15-AMP0 — master/worker (AMP) milestone, complete source
 
-Base: frozen R13B `d9721897b4262a96a27e422e74c89cb5b428f06e` (archive `c13171d2...`). Branch `r14-serial-qlterm`.
-Final source commit: `43a1f4481dc080bdd4604f5a53694c78e7739aa0`. The SHA-256 of this archive is reported with the delivery (it cannot be inside the
-archive); `SHA256SUMS` lists every other file.
+Source: branch `r15-amp-worker`, commit `7651795d7f2ea5d4dbf4bf8e3daac566fdd1b687`, from the frozen KCTX-FIX2 mainline (`5b6fc47`, tag
+`kctx-fix2-mainline`, archive `778a3d61…`). The archive's own SHA-256 is given with the delivery; `SHA256SUMS` lists
+every other file. Start with **`HANDOVER.md`**.
 
-Read `docs/R14-RUNTIME-REPORT.md` first, then `docs/R14-KNOWN-LIMITATIONS.md`, `docs/R14-SERIAL-ABI.md`,
-`docs/R14-QL-COMPAT-ABI.md`, `docs/R14-QLTERM-PORT-MAP.md`, `docs/R14-AUDIT.md`, `docs/R14-LICENSE-PROVENANCE.md`.
+**Private archive**: like KCTX-FIX2 it carries SuperBASIC (`apps/superbasic/`) and the Infocom interpreter source
+(`third_party/infocom/orig/`). Publish only a tree made by `scripts/qdos386-public-source.sh` and the public volume.
 
-**Everything still runs at CPL 0: nothing here is security isolation.**
+| Path | What |
+| --- | --- |
+| (root) | full source: kernel (AMP: `kernel/amp*.{c,h,s}`), boot loader, drivers, SDK (`sdk/include/qdos386amp.h`), C68/QL compatibility, Hack, QLTerm, tests (`tests/r15/`), docs (`docs/R15-*`), logs (`logs/r15/`) |
+| `kernels/qdos386-amp-vga.img`, `qdos386-amp.img` | the opt-in AMP kernels (QEMU VGA / headless); `.map`; `ap-static-check.txt`; `qdos386-amp-vga.worker-disasm.txt` |
+| `kernels/qdos386-vga.img`, `qdos386.img` | the ordinary single-processor kernels (`make`), identical to KCTX-FIX2 |
+| `kernels/test-only/` | AMP test variants: `nosipi` (worker never started), `late` (worker READY seconds late), `burn` (worker computes continuously) — never use as the AMP kernel |
+| `kernels/bios.bin`, `vgabios.bin` | SeaBIOS / VGA BIOS for the Tiny386 runs |
+| `guest/` | `AMPT.aout` (test driver), `WORKER.aout` (demo), `SPINM.aout` |
+| `volumes/r15-public.img` | public-safe system volume (no SuperBASIC, Infocom or story file) with AMPT, WORKER, SPINM in `/BIN` |
+| `patches/` | `r15-against-kctx-fix2.patch`, `CHANGED-FILES.txt` |
+| `emulator/` | Tiny386 R12C source (BSD-3-Clause) and `bin/tiny386_headless` |
+| `toolchain/` | I386VM R1 toolchain source archive (GCC 1.40, GAS 1.38, binutils 1.94 ld) |
 
-Contents
-- source tree (git archive of `43a1f4481dc080bdd4604f5a53694c78e7739aa0`): the UART driver `kernel/uart.c`, `kernel/uart_s.s` (`-DQDOS_R14` only);
-  libqdos serial calls `sdk/lib/qdosser.c`; the QL compatibility layer `sdk/qlcompat`; QLTerm C R1 as supplied
-  `third_party/qlterm-c-r1/orig` (GPL-3.0-or-later, unmodified) and the one-function patch
-  `third_party/qlterm-c-r1/r14-qdos386.patch`; TERM and XFER `sdk/examples/r14`; host scripts
-  `scripts/r14-serial-args.sh`, `scripts/r14-qemu-serial.sh`; build scripts `scripts/r14-build-*.sh`,
-  `tools/r14-qlterm-config.py`; tests and host peers `tests/r14`; logs and screenshots `logs/r14`
-- `build/r14/pc-vga/r14-vga.img` (QEMU), `build/r14/pc/r14.img` (headless/Tiny386); the frozen R13B and R13A
-  kernels and shells, unchanged; firmware
-- `build/r14/qlterm/QLTERM.aout` (QLTerm for QDOS/386, configured SER1I / 115K2 / WIN1_HOME/), `QLTERM-raw.aout`
-  (the original configuration block), `source-changes.diff` (the whole source change)
-- `guest-programs/`; `volumes/r14-system.img` (R13B system volume + QLTERM, TERM, XFER, SERTEST in /BIN)
-- `emulator/`: Tiny386 (unchanged)
+Build: `export QDOS386_TOOLS=<I386VM R1 tree>`; `make` (ordinary kernels); `make qdos386-amp-pc` (AMP kernels);
+`sh scripts/r15-build-guest.sh` (AMPT, WORKER). Run: see `HANDOVER.md`. Tests: `tests/r15/run-gate1.sh` …
+`run-gate3.sh`, `run-regress.sh`, `run-hack-smoke.sh`, `run-tiny.sh`, `check-ap-objects.py`, `oracle.py`.
+Tested with QEMU 8.2.2 (`-machine pc -cpu pentium -smp 2 -m 32`, SeaBIOS) and Tiny386 R12C.
 
-Launch with COM1 on the host: `sh scripts/r14-qemu-serial.sh volumes/r14-system.img tcp` (prints the port; then
-e.g. `socat - TCP:127.0.0.1:PORT`) or `... pty`; in QDOS/386: `START QLTERM /NEW` then `CON 4` (or Ctrl+Esc),
-F3 for QLTerm's menu; or `TERM SER1 115200`. Tests: `sh tests/r14/run-host.sh`, `run-gate1.sh` .. `run-gate5.sh`
-(gates 4 and 5 need lrzsz on the host), `run-tiny.sh`, `run-regressions.sh`, `check-frozen.sh`.
-
-Licences: QLTerm C R1 and the QDOS/386 port of it (patch, compatibility layer as linked into QLTerm, build and test
-scripts) are GPL-3.0-or-later; the original notices are in `third_party/qlterm-c-r1/orig`. MINERVA.FNT (on the
-volume, optional) is Minerva 1.98's font data (GPL-2.0). SuperBASIC (`apps/superbasic`, `BASIC.AOU`) is private
-research code and not freely redistributable; `apps/superbasic/docs/PROVENANCE-LICENSING.md` applies. The example
-volume contains `/BIN/BASIC.AOU`: do not publish it as a public image without removing it.
+Licences as in KCTX-FIX2 (`PACKAGE.md` there; `docs/R14-LICENSE-PROVENANCE.md`): QLTerm GPL-3.0-or-later, optional
+Minerva font GPL-2.0, Hack 1.0.3 BSD-style, Tiny386 BSD-3-Clause, toolchain GPL; SuperBASIC private; Infocom
+interpreter unlicensed; no story file anywhere.

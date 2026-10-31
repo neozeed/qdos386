@@ -36,7 +36,9 @@ KCORE = kernel/region.c kernel/main.c kernel/jobs.c kernel/clock.c kernel/clock_
         tests/test_jobs.c tests/test_memory.c tests/test_channels.c tests/test_app.c tests/test_fs.c \
         tests/test_console.c tests/test_dir.c tests/test_shell.c tests/test_r8.c
 
-all: i386vm pc
+# KCTX-FIX2: the default goal is the current kernel (qdos386-pc).  The original R6 pair is `make r6-images`.
+all: qdos386-pc
+r6-images: i386vm pc
 
 # ---- applications (independently linked; the kernel never links them) ------
 APPS = build/apps/hello.aout build/apps/prep.aout build/apps/hello1.aout build/apps/shell.aout build/apps/shellt.aout build/apps/args.aout
@@ -168,7 +170,7 @@ I386VM_SRC = $(KCORE) kernel/context.s platform/i386vm/platform.c platform/i386v
 
 $(I386D)/kernel-raw.bin: $(I386VM_SRC) $(wildcard kernel/*.h) $(wildcard tests/*.h) platform/platform.h
 	mkdir -p $(I386D)
-	$(GCC) --raw $(I386FLAGS) $(INC) $(I386VM_SRC) -o $@
+	$(GCC) --raw $(I386FLAGS) -DQDOS_KCTX_PTRBITS $(INC) $(I386VM_SRC) -o $@
 
 # IMGENV selects the image layout for make-vm-image.py (R9: QDOS_LAYOUT=r9).
 IMGENV ?=
@@ -180,7 +182,7 @@ i386vm: $(I386D)/$(I386IMG)
 # Negative test: the same image with the synthetic timer never started.
 build/i386vm/kernel-notimer-raw.bin: $(I386VM_SRC) $(wildcard kernel/*.h) $(wildcard tests/*.h) platform/platform.h
 	mkdir -p build/i386vm
-	$(GCC) --raw -DQDOS_NO_TIMER $(INC) $(I386VM_SRC) -o $@
+	$(GCC) --raw -DQDOS_NO_TIMER -DQDOS_KCTX_PTRBITS $(INC) $(I386VM_SRC) -o $@
 
 build/i386vm/qdos386-r6-notimer.bin: build/i386vm/kernel-notimer-raw.bin build/xfer.bin build/fat16/win1.img tools/make-vm-image.py
 	python3 tools/make-vm-image.py build/i386vm/kernel-notimer-raw.bin build/xfer.bin $@ build/fat16/win1.img
@@ -197,6 +199,11 @@ PC_OBJS = $(PCD)/main.o $(PCD)/region.o $(PCD)/jobs.o $(PCD)/clock.o $(PCD)/cloc
 
 # R12A: PCCTX is the architecture assembly object (context.o everywhere except QDOS_DYNPROC kernels: kctx.o).
 PCCTX ?= $(PCD)/context.o
+# KCTX-FIX2: the C half of the resume convention follows the linked context object, so the two always match.  A kernel
+# that links kernel/kctx.s (every current kernel) gets the default: the exact stack pointer, format in kx_resume_fmt.
+# Any other context object (context.s, paging.s: R6..R12; kernel/frozen/kctx-r12a-r14.s: the frozen R12A..R14 targets)
+# keeps the historical saved_sp | fmt encoding (-DQDOS_KCTX_PTRBITS), which only those frozen images use.
+PCKCTX = $(if $(filter %/kctx.o,$(PCCTX)),,-DQDOS_KCTX_PTRBITS)
 # R11J/R11K: PCEXTRA adds the paging objects (empty for every default image).
 PCEXTRA ?=
 PC_OBJS += $(PCEXTRA)
@@ -205,7 +212,7 @@ pc: $(PCD)/$(PCIMG)
 
 # Every object depends on every header: the R8 change to a shared struct
 # (struct job) must rebuild all users, or the Tiny386 image runs stale layouts.
-PC_HDR = $(wildcard kernel/*.h) $(wildcard tests/*.h) $(wildcard platform/*.h) $(wildcard platform/pc/*.h)
+PC_HDR = $(wildcard kernel/*.h) $(wildcard tests/*.h) $(wildcard platform/*.h) $(wildcard platform/pc/*.h) $(wildcard sdk/include/qdos386amp.h)
 
 # The compiler flags are part of the build identity: a change to PCFLAGS for an
 # existing PCD must rebuild every object, not reuse objects built with other
@@ -213,16 +220,16 @@ PC_HDR = $(wildcard kernel/*.h) $(wildcard tests/*.h) $(wildcard platform/*.h) $
 FORCE:
 $(PCD)/.pcflags: FORCE
 	@mkdir -p $(PCD)
-	@printf '%s\n' '$(PCFLAGS)' > $@.new; if cmp -s $@.new $@; then rm -f $@.new; else mv $@.new $@; fi
+	@printf '%s\n' '$(PCFLAGS) $(PCKCTX)' > $@.new; if cmp -s $@.new $@; then rm -f $@.new; else mv $@.new $@; fi
 $(PCD)/%.o: kernel/%.c $(PC_HDR) $(PCD)/.pcflags
 	mkdir -p $(PCD)
-	$(GCC) -c $(INC) $(PCFLAGS) $< -o $@
+	$(GCC) -c $(INC) $(PCFLAGS) $(PCKCTX) $< -o $@
 $(PCD)/%.o: tests/%.c $(PC_HDR) $(PCD)/.pcflags
 	mkdir -p $(PCD)
-	$(GCC) -c $(INC) $(PCFLAGS) $< -o $@
+	$(GCC) -c $(INC) $(PCFLAGS) $(PCKCTX) $< -o $@
 $(PCD)/%.o: platform/pc/%.c $(PC_HDR) $(PCD)/.pcflags
 	mkdir -p $(PCD)
-	$(GCC) -c $(INC) $(PCFLAGS) $< -o $@
+	$(GCC) -c $(INC) $(PCFLAGS) $(PCKCTX) $< -o $@
 $(PCD)/context.o: kernel/context.s
 	mkdir -p $(PCD)
 	$(AS) -o $@ $<
@@ -230,6 +237,9 @@ $(PCD)/paging_s.o: kernel/paging.s
 	mkdir -p $(PCD)
 	$(AS) -o $@ $<
 $(PCD)/kctx.o: kernel/kctx.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+$(PCD)/kctx_frozen.o: kernel/frozen/kctx-r12a-r14.s
 	mkdir -p $(PCD)
 	$(AS) -o $@ $<
 $(PCD)/entry.o: platform/pc/entry.s
@@ -334,23 +344,23 @@ R12A_OPTS = $(R11M_OPTS) -DQDOS_PAGING -DQDOS_DYNPROC -DQDOS_DYNPROC_SHELL $(R12
 R12A_OBJS = proc.o frames.o vas.o pheap.o vcon.o jobctl.o
 r12a-pc:
 	$(MAKE) build/pc-r9/boot2.bin
-	$(MAKE) pc PCD=build/r12a/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12A_OPTS)" PCIMG=r12a.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r12a/pc/kctx.o PCEXTRA="$(addprefix build/r12a/pc/,$(R12A_OBJS))"
-	$(MAKE) pc PCD=build/r12a/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12A_OPTS)" PCIMG=r12a-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r12a/pc-vga/kctx.o PCEXTRA="$(addprefix build/r12a/pc-vga/,$(R12A_OBJS))"
+	$(MAKE) pc PCD=build/r12a/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12A_OPTS)" PCIMG=r12a.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r12a/pc/kctx_frozen.o PCEXTRA="$(addprefix build/r12a/pc/,$(R12A_OBJS))"
+	$(MAKE) pc PCD=build/r12a/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12A_OPTS)" PCIMG=r12a-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r12a/pc-vga/kctx_frozen.o PCEXTRA="$(addprefix build/r12a/pc-vga/,$(R12A_OBJS))"
 # R12B (opt-in): R12A + per-process environment (QDOS_ENV) and the program search path (docs/R12B-*.md).
 R12B_OPTS = $(R12A_OPTS) -DQDOS_ENV $(R12B_EXTRA)
 R12B_OBJS = $(R12A_OBJS) env.o pathres.o
 r12b-pc:
 	$(MAKE) build/pc-r9/boot2.bin
-	$(MAKE) pc PCD=build/r12b/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12B_OPTS)" PCIMG=r12b.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r12b/pc/kctx.o PCEXTRA="$(addprefix build/r12b/pc/,$(R12B_OBJS))"
-	$(MAKE) pc PCD=build/r12b/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12B_OPTS)" PCIMG=r12b-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r12b/pc-vga/kctx.o PCEXTRA="$(addprefix build/r12b/pc-vga/,$(R12B_OBJS))"
+	$(MAKE) pc PCD=build/r12b/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12B_OPTS)" PCIMG=r12b.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r12b/pc/kctx_frozen.o PCEXTRA="$(addprefix build/r12b/pc/,$(R12B_OBJS))"
+	$(MAKE) pc PCD=build/r12b/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12B_OPTS)" PCIMG=r12b-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r12b/pc-vga/kctx_frozen.o PCEXTRA="$(addprefix build/r12b/pc-vga/,$(R12B_OBJS))"
 # R12C: SYSTASK task selector (Ctrl+Esc, TASKS), program titles, storage SYNC (docs/R12C-*.md).
 # QEMU kernel build/r12c/pc-vga/r12c-vga.img, headless (Tiny386) build/r12c/pc/r12c.img.
 R12C_OPTS = $(R12B_OPTS) -DQDOS_TITLES -DQDOS_SYNC -DQDOS_TASKMGR $(R12C_EXTRA)
 R12C_OBJS = $(R12B_OBJS) sync.o taskmgr.o
 r12c-pc:
 	$(MAKE) build/pc-r9/boot2.bin
-	$(MAKE) pc PCD=build/r12c/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12C_OPTS)" PCIMG=r12c.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r12c/pc/kctx.o PCEXTRA="$(addprefix build/r12c/pc/,$(R12C_OBJS))"
-	$(MAKE) pc PCD=build/r12c/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12C_OPTS)" PCIMG=r12c-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r12c/pc-vga/kctx.o PCEXTRA="$(addprefix build/r12c/pc-vga/,$(R12C_OBJS))"
+	$(MAKE) pc PCD=build/r12c/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12C_OPTS)" PCIMG=r12c.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r12c/pc/kctx_frozen.o PCEXTRA="$(addprefix build/r12c/pc/,$(R12C_OBJS))"
+	$(MAKE) pc PCD=build/r12c/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12C_OPTS)" PCIMG=r12c-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r12c/pc-vga/kctx_frozen.o PCEXTRA="$(addprefix build/r12c/pc-vga/,$(R12C_OBJS))"
 # R13: process-owned display sessions, INDEX8 surfaces, the VGA presenter (mode 13h), the bitmap font
 # (docs/R13-*.md).  QEMU kernel build/r13/pc-vga/r13-vga.img, headless (Tiny386) build/r13/pc/r13.img.
 # R13_FONT=minerva (default: Minerva 1.98's QL fonts, GPL-2.0, third_party/minerva) or R13_FONT=qdos5x9 (the original
@@ -367,13 +377,13 @@ R13_OPTS = $(R12C_OPTS) -DQDOS_SURFACES $(R13_FONT_OPT) $(R13_EXTRA)
 R13_OBJS = $(R12C_OBJS) surface.o gsurf.o font.o $(R13_FONT_OBJ) vgapres.o
 r13-pc:
 	$(MAKE) build/pc-r9/boot2.bin
-	$(MAKE) pc PCD=build/r13/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13_OPTS)" PCIMG=r13.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13/pc/kctx.o PCEXTRA="$(addprefix build/r13/pc/,$(R13_OBJS))"
-	$(MAKE) pc PCD=build/r13/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13_OPTS)" PCIMG=r13-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13/pc-vga/kctx.o PCEXTRA="$(addprefix build/r13/pc-vga/,$(R13_OBJS))"
+	$(MAKE) pc PCD=build/r13/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13_OPTS)" PCIMG=r13.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13/pc/kctx_frozen.o PCEXTRA="$(addprefix build/r13/pc/,$(R13_OBJS))"
+	$(MAKE) pc PCD=build/r13/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13_OPTS)" PCIMG=r13-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13/pc-vga/kctx_frozen.o PCEXTRA="$(addprefix build/r13/pc-vga/,$(R13_OBJS))"
 R13Q5_OPTS = $(R12C_OPTS) -DQDOS_SURFACES -DQDOS_FONT_QDOS5X9 $(R13_EXTRA)
 R13Q5_OBJS = $(R12C_OBJS) surface.o gsurf.o font.o font5x9.o vgapres.o
 r13-pc-qdos5x9:
 	$(MAKE) build/pc-r9/boot2.bin
-	$(MAKE) pc PCD=build/r13/pc-vga-q5 PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13Q5_OPTS)" PCIMG=r13-vga-q5.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13/pc-vga-q5/kctx.o PCEXTRA="$(addprefix build/r13/pc-vga-q5/,$(R13Q5_OBJS))"
+	$(MAKE) pc PCD=build/r13/pc-vga-q5 PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13Q5_OPTS)" PCIMG=r13-vga-q5.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13/pc-vga-q5/kctx_frozen.o PCEXTRA="$(addprefix build/r13/pc-vga-q5/,$(R13Q5_OBJS))"
 # R13A: loadable fonts (QFNT), rendered text consoles (mode 12h), logical surfaces up to 512x256, native key events,
 # transparent blit / copy (docs/R13A-*.md).  No Minerva bytes in these kernels: the built-in fonts are the
 # public-domain / unrestricted X11 fonts in fonts/ (kernel/font_recovery.c, kernel/font_console.c, generated by
@@ -383,16 +393,16 @@ R13A_OPTS = $(R12C_OPTS) -DQDOS_SURFACES -DQDOS_R13A $(R13A_EXTRA)
 R13A_OBJS = $(R12C_OBJS) surface.o gsurf.o fontreg.o font_recovery.o font_console.o kev.o vgapres13a.o
 r13a-pc:
 	$(MAKE) build/pc-r9/boot2.bin
-	$(MAKE) pc PCD=build/r13a/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13A_OPTS)" PCIMG=r13a.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13a/pc/kctx.o PCEXTRA="$(addprefix build/r13a/pc/,$(R13A_OBJS))"
-	$(MAKE) pc PCD=build/r13a/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13A_OPTS)" PCIMG=r13a-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13a/pc-vga/kctx.o PCEXTRA="$(addprefix build/r13a/pc-vga/,$(R13A_OBJS))"
+	$(MAKE) pc PCD=build/r13a/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13A_OPTS)" PCIMG=r13a.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13a/pc/kctx_frozen.o PCEXTRA="$(addprefix build/r13a/pc/,$(R13A_OBJS))"
+	$(MAKE) pc PCD=build/r13a/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13A_OPTS)" PCIMG=r13a-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13a/pc-vga/kctx_frozen.o PCEXTRA="$(addprefix build/r13a/pc-vga/,$(R13A_OBJS))"
 # R13B: the R13A kernel plus focus return to the launching session, SYSTASK F2 (start a program) and the CMOS RTC wall
 # clock (docs/R13B-*.md).  QEMU kernel build/r13b/pc-vga/r13b-vga.img, headless (Tiny386) build/r13b/pc/r13b.img.
 R13B_OPTS = $(R13A_OPTS) -DQDOS_R13B $(R13B_EXTRA)
 R13B_OBJS = $(R13A_OBJS) rtc.o
 r13b-pc:
 	$(MAKE) build/pc-r9/boot2.bin
-	$(MAKE) pc PCD=build/r13b/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13B_OPTS)" PCIMG=r13b.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13b/pc/kctx.o PCEXTRA="$(addprefix build/r13b/pc/,$(R13B_OBJS))"
-	$(MAKE) pc PCD=build/r13b/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13B_OPTS)" PCIMG=r13b-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13b/pc-vga/kctx.o PCEXTRA="$(addprefix build/r13b/pc-vga/,$(R13B_OBJS))"
+	$(MAKE) pc PCD=build/r13b/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13B_OPTS)" PCIMG=r13b.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13b/pc/kctx_frozen.o PCEXTRA="$(addprefix build/r13b/pc/,$(R13B_OBJS))"
+	$(MAKE) pc PCD=build/r13b/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13B_OPTS)" PCIMG=r13b-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13b/pc-vga/kctx_frozen.o PCEXTRA="$(addprefix build/r13b/pc-vga/,$(R13B_OBJS))"
 # R14: the R13B kernel plus the PC UART driver (COM1/COM2, SER1/SER2 channels, QT_SER 0x3C: kernel/uart.c,
 # kernel/uart_s.s; docs/R14-SERIAL-ABI.md).  QEMU kernel build/r14/pc-vga/r14-vga.img, headless build/r14/pc/r14.img.
 R14_OPTS = $(R13B_OPTS) -DQDOS_R14 $(R14_EXTRA)
@@ -402,14 +412,53 @@ $(PCD)/uart_s.o: kernel/uart_s.s
 	$(AS) -o $@ $<
 r14-pc:
 	$(MAKE) build/pc-r9/boot2.bin
-	$(MAKE) pc PCD=build/r14/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R14_OPTS)" PCIMG=r14.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r14/pc/kctx.o PCEXTRA="$(addprefix build/r14/pc/,$(R14_OBJS))"
-	$(MAKE) pc PCD=build/r14/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R14_OPTS)" PCIMG=r14-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r14/pc-vga/kctx.o PCEXTRA="$(addprefix build/r14/pc-vga/,$(R14_OBJS))"
+	$(MAKE) pc PCD=build/r14/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R14_OPTS)" PCIMG=r14.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r14/pc/kctx_frozen.o PCEXTRA="$(addprefix build/r14/pc/,$(R14_OBJS))"
+	$(MAKE) pc PCD=build/r14/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R14_OPTS)" PCIMG=r14-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r14/pc-vga/kctx_frozen.o PCEXTRA="$(addprefix build/r14/pc-vga/,$(R14_OBJS))"
+# CURRENT KERNEL (KCTX-FIX2 mainline, docs/KCTX-FIX2-IMPLEMENTATION.md): the R14 feature set (R13B + serial) with the
+# current context switcher kernel/kctx.s (exact stack pointer on every resume, any ESP residue mod 4).  No special flag:
+# the source default is the corrected path.  QEMU kernel build/qdos386/pc-vga/qdos386-vga.img, headless (Tiny386)
+# build/qdos386/pc/qdos386.img.  `make` (all) builds these.  QDOS386_EXTRA adds options.
+QDOS386_OPTS = $(R14_OPTS) $(QDOS386_EXTRA)
+QDOS386_OBJS = $(R14_OBJS)
+qdos386-pc:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/qdos386/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(QDOS386_OPTS)" PCIMG=qdos386.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/qdos386/pc/kctx.o PCEXTRA="$(addprefix build/qdos386/pc/,$(QDOS386_OBJS))"
+	$(MAKE) pc PCD=build/qdos386/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(QDOS386_OPTS)" PCIMG=qdos386-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/qdos386/pc-vga/kctx.o PCEXTRA="$(addprefix build/qdos386/pc-vga/,$(QDOS386_OBJS))"
+# R15 AMP0 (opt-in, docs/R15-AMP-ARCHITECTURE.md): the current kernel plus the master/worker service - CPU 0 keeps the
+# whole kernel, one application processor runs kernel/amp_ap.c only.  QEMU build/qdos386-amp/pc-vga/qdos386-amp-vga.img,
+# headless build/qdos386-amp/pc/qdos386-amp.img.  The default `make` kernels are unchanged.  Test-only variants:
+#   make qdos386-amp-variant AMPV=<name> AMP_EXTRA=<-D...>   -> build/qdos386-amp-<name>/pc-vga/qdos386-amp-vga.img
+QDOS386_AMP_OPTS = $(QDOS386_OPTS) -DQDOS_AMP $(AMP_EXTRA)
+QDOS386_AMP_OBJS = $(QDOS386_OBJS) amp.o amp_s.o amp_ap.o amp_ap_s.o
+$(PCD)/amp_s.o: kernel/amp_s.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+$(PCD)/amp_ap_s.o: kernel/amp_ap_s.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+qdos386-amp-pc:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/qdos386-amp/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(QDOS386_AMP_OPTS)" PCIMG=qdos386-amp.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/qdos386-amp/pc/kctx.o PCEXTRA="$(addprefix build/qdos386-amp/pc/,$(QDOS386_AMP_OBJS))"
+	$(MAKE) pc PCD=build/qdos386-amp/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(QDOS386_AMP_OPTS)" PCIMG=qdos386-amp-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/qdos386-amp/pc-vga/kctx.o PCEXTRA="$(addprefix build/qdos386-amp/pc-vga/,$(QDOS386_AMP_OBJS))"
+qdos386-amp-variant:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/qdos386-amp-$(AMPV)/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(QDOS386_AMP_OPTS)" PCIMG=qdos386-amp-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/qdos386-amp-$(AMPV)/pc-vga/kctx.o PCEXTRA="$(addprefix build/qdos386-amp-$(AMPV)/pc-vga/,$(QDOS386_AMP_OBJS))"
+# Test-only (never shipped): the current kernel with every resume hand-off checked (jobs.c kx_resume_check, KCTX-FIX2).
+qdos386-check-pc:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/qdos386-check/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(QDOS386_OPTS) -DQDOS_KCTX_CHECK" PCIMG=qdos386-check-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/qdos386-check/pc-vga/kctx.o PCEXTRA="$(addprefix build/qdos386-check/pc-vga/,$(QDOS386_OBJS))"
+# KCTX-FIX1 (delivered corrective release, historical): the same configuration under its own name, kept so that its
+# images (kfix1-vga.img f8e5d5e1..., kfix1.img 7c675978...) stay reproducible; they equal the current kernel's bytes.
+kfix1-pc:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/kfix1/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R14_OPTS)" PCIMG=kfix1.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/kfix1/pc/kctx.o PCEXTRA="$(addprefix build/kfix1/pc/,$(R14_OBJS))"
+	$(MAKE) pc PCD=build/kfix1/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R14_OPTS)" PCIMG=kfix1-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/kfix1/pc-vga/kctx.o PCEXTRA="$(addprefix build/kfix1/pc-vga/,$(R14_OBJS))"
 # R13B test kernels for the R11F calendar boundaries through DATE/TIME/time(): the R13B QEMU kernel with a build-time
 # epoch instead of the RTC (QEMU's RTC cannot hold dates after 2038 reliably: see docs/R13B-CLOCK-ABI.md).
 #   make r13b-epoch EPD=e2100 EPOCH=4107542397    -> build/r13b/e2100/e2100.img
 r13b-epoch:
 	$(MAKE) build/pc-r9/boot2.bin
-	$(MAKE) pc PCD=build/r13b/$(EPD) PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13B_OPTS) -DQDOS_CLOCK_EPOCH=$(EPOCH)UL" PCIMG=$(EPD).img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13b/$(EPD)/kctx.o PCEXTRA="$(addprefix build/r13b/$(EPD)/,$(R13B_OBJS))"
+	$(MAKE) pc PCD=build/r13b/$(EPD) PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13B_OPTS) -DQDOS_CLOCK_EPOCH=$(EPOCH)UL" PCIMG=$(EPD).img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13b/$(EPD)/kctx_frozen.o PCEXTRA="$(addprefix build/r13b/$(EPD)/,$(R13B_OBJS))"
 r13b-epoch-kernels:
 	$(MAKE) r13b-epoch EPD=e2100 EPOCH=4107542397
 	$(MAKE) r13b-epoch EPD=e2101 EPOCH=4133980797

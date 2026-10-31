@@ -1,0 +1,24 @@
+worker objects define: _amp_ap_gdt _amp_ap_idt _amp_ap_stack _amp_ap_stack_top_v _amp_in _amp_mbox _amp_out _amp_trampoline _amp_trampoline_end _ap_cas _ap_cpuid1_ebx _ap_entry32 _ap_exc_table _ap_fault _ap_halt_forever _ap_invalid_op _ap_load _ap_main _ap_pause _ap_rdmsr_lo _ap_read_cr2 _ap_xchg
+PASS 1 worker objects reference only their own symbols (11 external references, all resolved inside)
+PASS 1b no reference to scheduler / resume / trap / file system / console / process symbols
+PASS 3 CPU 0 objects use only the worker's start-up data and mailbox, never its code
+worker code 0x124b3c..0x125050, data 0x126330..0x126534 and 0x14f370..0x159400
+PASS 2a only worker symbols in the worker code range
+disassembly: 440 instructions, 14 zero-padding resynchronisations
+PASS 2b no INT / INTO / far call in 440 worker instructions
+PASS 2c every call / jump target inside the worker code (no indirect transfer)
+PASS 2d every absolute memory operand (3) inside the worker's own data
+PASS 2e no kernel address taken as an immediate outside the worker's own code/data
+AP STATIC CHECK: 8/8 PASS
+worker objects define: _amp_ap_gdt _amp_ap_idt _amp_ap_stack _amp_ap_stack_top_v _amp_in _amp_mbox _amp_out _amp_trampoline _amp_trampoline_end _ap_cas _ap_cpuid1_ebx _ap_entry32 _ap_exc_table _ap_fault _ap_halt_forever _ap_invalid_op _ap_load _ap_main _ap_pause _ap_rdmsr_lo _ap_read_cr2 _ap_xchg
+PASS 1 worker objects reference only their own symbols (11 external references, all resolved inside)
+PASS 1b no reference to scheduler / resume / trap / file system / console / process symbols
+PASS 3 CPU 0 objects use only the worker's start-up data and mailbox, never its code
+worker code 0x123518..0x123a20, data 0x124ce0..0x124ee4 and 0x14b700..0x155790
+PASS 2a only worker symbols in the worker code range
+disassembly: 440 instructions, 14 zero-padding resynchronisations
+PASS 2b no INT / INTO / far call in 440 worker instructions
+PASS 2c every call / jump target inside the worker code (no indirect transfer)
+PASS 2d every absolute memory operand (3) inside the worker's own data
+PASS 2e no kernel address taken as an immediate outside the worker's own code/data
+AP STATIC CHECK: 8/8 PASS

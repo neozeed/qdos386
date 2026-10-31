@@ -13,6 +13,7 @@ extern int errno;
 /* R11L: set by the file functions (fopen, fclose, fwrite, remove, rename, fseek ...) from the
  * kernel's error code; numbering follows the common historical values. */
 #define ENOENT 2
+#define ESRCH  3      /* R14A: named by Hack's (dead, !MULTIUSER_LOCK) veryold(); never set by the library */
 #define EIO    5
 #define EBADF  9
 #define ENOMEM 12

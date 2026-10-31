@@ -1,0 +1,61 @@
+# QDOS/386 (R14A) build of the QDOS/C68 Hack 1.03 port.  Derived from Makefile.qdos, which stays unchanged.
+#   make -f Makefile.qdos386 QDOS386_TOOLS=<GCC 1.40 / GAS 1.38 / i386-ld tree> QDOS386=<the QDOS/386 tree>
+# Differences from Makefile.qdos, all on the build side (docs/R14A-QL-C-ABI.md):
+#   - compiler: the historical i386 GCC 1.40 (C89/K&R, only -O) instead of C68 gcc -O2; -DQDOS is given explicitly
+#     (the C68 compiler predefines it); -DMSDOS as in Makefile.qdos
+#   - headers: the QL compatibility headers (qdos.h, qptr.h, ansicondef.h) and the QDOS/386 SDK and POSIX port headers
+#   - onames.h: copied from onames.z with its CR LF line ends removed (the QL copy keeps them; GCC 1.40 does not accept CR)
+#   - -lvt: the C68/LibVT console shim c68vt.c (ANSI_conwrite, __ANSICONF__, getch, getlogin, kill) and libc68.a (the
+#     QDOS/386 libc's stdio with the C68 console write hook _conwrite), linked before libc.a
+#   - x68k.o is not linked: its two stubs are signal() - the QDOS/386 libc has one, and two definitions do not link -
+#     and kill(), which the shim provides with the same no-op effect
+#   - output: an i386 a.out at the canonical process origin (slot1.ld), with a link map
+Q = $(QDOS386)
+CC = $(QDOS386_TOOLS)/bin/i386-gcc
+AS = $(QDOS386_TOOLS)/bin/as
+LD = $(QDOS386_TOOLS)/bin/i386-ld
+CFLAGS = -DQDOS -DMSDOS -O -I$(Q)/sdk/qlcompat/include -I$(Q)/sdk/include -I$(Q)/port/include
+LIBS = $(Q)/sdk/lib/libc68.a $(Q)/sdk/lib/libm.a $(Q)/sdk/lib/libc.a $(Q)/sdk/lib/libgcc-qd.a $(Q)/sdk/lib/libqdos.a
+
+GAME = HACK.AOU
+
+LIB1 = decl.o apply.o bones.o hack.o cmd.o do.o\
+	do_name.o do_wear.o dog.o eat.o end.o\
+	engrave.o fight.o invent.o pcioctl.o
+
+LIB2 = lev.o makemon.o mhitu.o mklev.o\
+	mkmaze.o mkobj.o mkshop.o mon.o\
+	monst.o o_init.o objnam.o options.o
+
+LIB3 = pager.o potion.o pri.o\
+	read.o rip.o rumors.o save.o\
+	search.o shk.o shknam.o steal.o
+
+LIB4 = termqd.o timeout.o topl.o\
+	track.o trap.o unix.o\
+	u_init.o vault.o wield.o
+
+LIB5 = wizard.o worm.o worn.o zap.o\
+	version.o rnd.o alloc.o pctty.o c68vt.o
+
+OBJ = $(LIB1) $(LIB2) $(LIB3) $(LIB4) $(LIB5)
+
+$(GAME): crt0.o main.o $(OBJ) $(LIBS)
+	$(LD) -N -T $(Q)/sdk/ld/slot1.ld -e _start -M -o $(GAME) crt0.o main.o $(OBJ) $(LIBS) > hack.map
+
+crt0.o: $(Q)/sdk/lib/crt0_libc.s
+	$(AS) -o $@ $(Q)/sdk/lib/crt0_libc.s
+
+c68vt.o: $(Q)/sdk/qlcompat/c68/c68vt.c $(Q)/sdk/qlcompat/include/ansicondef.h
+	$(CC) -c $(CFLAGS) $(Q)/sdk/qlcompat/c68/c68vt.c -o $@
+
+%.o: %.c
+	$(CC) -c $(CFLAGS) $< -o $@
+
+onames.h: onames.z
+	tr -d '\r' < onames.z > onames.h
+
+$(OBJ) main.o: onames.h config.h hack.h
+
+clean:
+	rm -f $(OBJ) main.o crt0.o onames.h $(GAME) hack.map

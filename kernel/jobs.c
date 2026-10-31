@@ -33,6 +33,9 @@
  * option is not implemented.
  */
 #include "jobs.h"
+#ifdef QDOS_AMP
+#include "amp.h"
+#endif
 #include "memory.h"
 #include "channel.h"
 #include "aout.h"
@@ -98,6 +101,56 @@ unsigned int sv_rand = 0;
 /* R12A: the current job's kernel-entry stack, read by every entry stub in kctx.s.  The defaults (whole address space)
  * mean "already on the kernel stack": template jobs never switch. */
 unsigned int kx_lo = 0, kx_hi = 0xFFFFFFFFu, kx_entry = 0;
+#endif
+#ifndef QDOS_KCTX_PTRBITS
+unsigned int kx_resume_fmt = 0;           /* format of the frame resume_dispatch pops (kctx.s, jobs.h KX_RESUME) */
+#endif
+#ifdef QDOS_KCTX_CHECK
+/* KCTX-FIX2 test-only check of every resume hand-off (never in a release kernel): at the moment the format is written,
+ * IF must be clear (so nothing can run before resume_dispatch reads it), and the frame at sp must be of that format -
+ * 1: popal block, then EIP, CS = 0x08, EFLAGS with bit 1 set; 0: EDI, ESI, EBX, EBP, then a return address inside the
+ * kernel image.  Also reports the scheduler's kernel-stack canary count (stack_faults, checked on every switch).
+ * Counts ESP residues mod 4; prints a line for every bad hand-off or new canary fault, a summary every 65536 resumes. */
+extern char bss_start[];
+extern unsigned int irq_save(void);
+extern void con_puts(const char *s);
+extern void con_putdec(unsigned long v);
+extern void irq_restore(unsigned int flags);
+static unsigned long kxc_n = 0, kxc_ifon = 0, kxc_bad = 0, kxc_sf = 0, kxc_mod[4] = { 0, 0, 0, 0 };
+static void kxc_report(const char *what)
+{
+	con_puts(what);
+	con_puts(" resumes="); con_putdec(kxc_n);
+	con_puts(" if_on="); con_putdec(kxc_ifon);
+	con_puts(" format_mismatch="); con_putdec(kxc_bad);
+	con_puts(" esp_mod4="); con_putdec(kxc_mod[0]); con_puts("/"); con_putdec(kxc_mod[1]);
+	con_puts("/"); con_putdec(kxc_mod[2]); con_puts("/"); con_putdec(kxc_mod[3]);
+	con_puts(" stack_faults="); con_putdec(stack_faults); con_puts("\n");
+}
+unsigned int kx_resume_check(unsigned int sp, unsigned int fmt)
+{
+	unsigned int fl = irq_save(), *f = (unsigned int *) sp;
+	int bad;
+
+	irq_restore(fl);
+	kxc_n++;
+	kxc_mod[sp & 3u]++;
+	if (fl & 0x200u)
+		kxc_ifon++;
+	if (fmt == 1u)
+		bad = f[9] != 0x08u || (f[10] & 2u) == 0;
+	else
+		bad = fmt != 0u || f[4] < 0x100000u || f[4] >= (unsigned int) bss_start;
+	if (bad)
+		kxc_bad++;
+	if ((fl & 0x200u) || bad || stack_faults != kxc_sf) {
+		kxc_sf = stack_faults;
+		kxc_report("KCTX-CHECK: BAD");
+	} else if ((kxc_n & 0xFFFFu) == 0)
+		kxc_report("KCTX-CHECK:");
+	kx_resume_fmt = fmt;
+	return sp;
+}
 #endif
 
 static struct qtask *poll_list = 0;     /* SV.PLIST */
@@ -310,7 +363,7 @@ static unsigned int schedule(unsigned int sp, int fmt, int from_irq)
 	kx_hi = jobs[job_current].kx_hi;
 	kx_entry = jobs[job_current].kx_entry;
 #endif
-	return jobs[job_current].saved_sp | (unsigned int) jobs[job_current].saved_fmt;
+	return KX_RESUME(jobs[job_current].saved_sp, jobs[job_current].saved_fmt);
 }
 
 /* IRQ0 path (l00900): poll list, then scheduler. */
@@ -550,6 +603,9 @@ void job_mark_dead_other(int slot)
 	j->prio_inc = 0;
 	j->status = -1;
 	j->dead = 1;
+#ifdef QDOS_AMP
+	amp_job_ended(j->id);              /* R15: cancel its worker request at once (reclaimed after the acknowledgement) */
+#endif
 	dead_mask |= 1u << slot;
 }
 #endif
@@ -609,6 +665,9 @@ void job_exit(void)
 	j->prio_inc = 0;                  /* no longer active */
 	j->status = -1;
 	j->dead = 1;
+#ifdef QDOS_AMP
+	amp_job_ended(j->id);              /* R15: cancel its worker request at once (reclaimed after the acknowledgement) */
+#endif
 	yield_asm();
 	for (;;)
 		;
@@ -640,13 +699,13 @@ unsigned int trap_dispatch(unsigned int sp)
 	 * the kernel call code or keep task nodes at a process address, which other directories do not map. */
 	if (pg_slot_paged(job_current) && (fn == QT_CREATE || fn == QT_POLL_ADD || fn == QT_SCHED_ADD)) {
 		f[7] = (unsigned int) PG_ERR_REFUSED;
-		return sp | 1u;
+		return KX_RESUME(sp, 1);
 	}
 	if (pg_slot_paged(job_current) && (fn == QT_MEM_ALLOC || fn == QT_MEM_FREE || fn == QT_MEM_VALIDATE)) {
 		/* R12A: the calling process's private heap (pheap.c), in its own directory. */
 		f[7] = (unsigned int) (fn == QT_MEM_ALLOC ? proc_mem_alloc(a) : fn == QT_MEM_FREE ? proc_mem_free(a) :
 		                       proc_mem_validate());
-		return sp | 1u;
+		return KX_RESUME(sp, 1);
 	}
 #elif defined(QDOS_PAGING)
 	/* R11J: services whose pointers the kernel uses later, in other contexts, or that
@@ -658,7 +717,7 @@ unsigned int trap_dispatch(unsigned int sp)
 #endif
 	     fn == QT_IMG_LOAD || fn == QT_IMG_START || fn == QT_PG_START || fn == QT_PG_CANCEL)) {
 		f[7] = (unsigned int) PG_ERR_REFUSED;
-		return sp | 1u;
+		return KX_RESUME(sp, 1);
 	}
 #endif
 
@@ -1003,10 +1062,15 @@ unsigned int trap_dispatch(unsigned int sp)
 		break;
 #endif
 #ifdef QDOS_R14
+#ifdef QDOS_AMP
+	case QT_AMP:                              /* R15 AMP0: worker CPU service (kernel/amp.c) */
+		result = amp_trap(a, b, c);
+		break;
+#endif
 	case QT_SER:                              /* R14: serial ports (kernel/uart.c) */
 		if (ser_trap(a, b, c, &f[7]))
 			return schedule(sp, 1, 0);
-		return sp | 1u;
+		return KX_RESUME(sp, 1);
 #endif
 
 	case QT_ENV_SET:
@@ -1045,7 +1109,7 @@ unsigned int trap_dispatch(unsigned int sp)
 		break;
 	}
 	f[7] = (unsigned int) result;
-	return sp | 1u;                       /* same frame, no scheduling */
+	return KX_RESUME(sp, 1);                       /* same frame, no scheduling */
 }
 
 #ifdef QDOS_DYNPROC
@@ -1065,6 +1129,9 @@ unsigned int job_kill_current(unsigned int sp)
 	j->prio_inc = 0;
 	j->status = -1;
 	j->dead = 1;
+#ifdef QDOS_AMP
+	amp_job_ended(j->id);              /* R15: cancel its worker request at once (reclaimed after the acknowledgement) */
+#endif
 	return schedule(sp, 1, 0);
 }
 #endif

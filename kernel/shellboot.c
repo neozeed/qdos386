@@ -2,6 +2,9 @@
  * QDOS/386 R7 - shell boot.  See shellboot.h.  Compiled into every image, but
  * entered only from main() when R7_SHELL_MODE is defined.
  */
+#ifdef QDOS_AMP
+#include "amp.h"
+#endif
 #include "shellboot.h"
 #include "jobs.h"
 #include "fpu.h"
@@ -85,6 +88,9 @@ int shell_boot(void)
 	arena = ((unsigned int) bss_end + MEM_ALIGN - 1) & ~(MEM_ALIGN - 1);
 	if (mem_init(arena, MEM_ARENA_END) != MEM_OK)
 		boot_fail("heap arena rejected");
+#ifdef QDOS_AMP
+	amp_boot();                    /* R15: worker CPU start-up, BEFORE paging: LAPIC and firmware tables are physical */
+#endif
 #ifdef QDOS_PAGING
 	pg_init();                     /* R11J: identity paging before the volume and shell */
 #ifdef QDOS_TEST_PG_TASKS

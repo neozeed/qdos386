@@ -1,6 +1,20 @@
 /*
- * QDOS/386 R12A - architecture assembly for QDOS_DYNPROC kernels.  Derived from context.s (unchanged, still used by
- * every other image) and paging.s; see docs/R12A-INTERRUPT-STACKS.md.
+ * QDOS/386 - architecture assembly for the DYNPROC kernels (R12A onward), the CURRENT context switcher (KCTX-FIX2).
+ *
+ * RESUME CONVENTION (exact stack pointer).  Every C function that returns to resume_dispatch returns the FULL saved
+ * stack pointer and stores the frame format in kx_resume_fmt (jobs.h KX_RESUME: 0 = cooperative frame from yield_asm /
+ * init_frame, popped by resume_ctx; 1 = interrupt frame, popal + iret).  No bit of ESP carries the format, so a job
+ * interrupted with ESP at any residue mod 4 (legal on i386: CR0.AM is clear and the application ABI does not require
+ * alignment) resumes exactly where it was.  kx_resume_fmt is a single kernel variable, safe because this kernel runs
+ * on ONE CPU and the window between its write (the C function's return expression) and its read (the second
+ * instruction of resume_dispatch) runs with IF clear: every entry that reaches resume_dispatch is an interrupt gate
+ * (descriptors.c, type 0x8E), yield_asm's cli, or the #DF return to kx_df_kill (EFLAGS 0x2); no handler enables
+ * interrupts; an exception or NMI in kernel code halts (pg_exception, proc_double_fault).  docs/KCTX-FIX2-AUDIT.md.
+ *
+ * The frozen R12A..R14 kernels link kernel/frozen/kctx-r12a-r14.s instead (format in bit 0 of the returned pointer,
+ * decoded with andl $-4: wrong for a misaligned ESP; kept only so those releases rebuild byte-identical).  The Makefile
+ * compiles the C side with -DQDOS_KCTX_PTRBITS whenever a target links anything but this file, so the two halves of
+ * the convention always match.
  *
  * KERNEL ENTRY RULE.  Every entry stub (IRQ0, IRQ1, IRQ7, IRQ15, the service trap, exceptions 0..19 except #DF) pushes
  * the CPU frame and pushal on whatever stack is current - for a process running its own code, its PRIVATE user stack -
@@ -36,16 +50,14 @@ _read_cr0:
 	ret
 
 /*
- * Common resume path.  EAX = saved_sp | fmt.
+ * Common resume path.  EAX = the saved stack pointer, complete (any value mod 4); _kx_resume_fmt = its frame format
+ * (0 cooperative, 1 interrupt), set by the C function that returned EAX.
  * Interrupts are off on entry from an interrupt stub.  A cooperative frame
  * is resumed with IF set, since that job expects it.
  */
 resume_dispatch:
-	movl %eax,%ecx
-	andl $1,%ecx
-	andl $-4,%eax
 	movl %eax,%esp
-	cmpl $0,%ecx
+	cmpl $0,_kx_resume_fmt
 	je resume_ctx
 	popal
 	iret

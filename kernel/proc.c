@@ -945,7 +945,7 @@ unsigned int pg_exception(unsigned int sp)
 	}
 	con_puts("PGFAULT: halt\n");
 	halt_with(0x7e);
-	return sp | 1u;
+	return KX_RESUME(sp, 1);
 }
 
 /*

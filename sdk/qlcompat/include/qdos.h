@@ -20,7 +20,7 @@ typedef struct {                /* sd_wdef / sd_chenq rectangle: width, height, 
 	short q_width, q_height, q_x, q_y;
 } QLRECT_t;
 
-typedef struct {                /* a window definition as QLTerm builds it (pixels) */
+typedef struct WINDOWDEF {      /* a window definition (pixels); R14A: the C68 tag, for Hack's _condetails */
 	unsigned char border_colour, border_width, paper, ink;
 	short width, height, x_origin, y_origin;
 } WINDOWDEF_t;

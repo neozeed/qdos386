@@ -174,6 +174,11 @@ int creat(const char *name, int mode)
 	return open(name, O_WRONLY | O_CREAT | O_TRUNC, 0);
 }
 
+#ifdef QDOS_C68_POSIX
+static int c68_npend;
+static void c68_retry_unlinks(void);
+#endif
+
 int close(int fd)
 {
 	struct fdent *e = fd_get(fd);
@@ -190,6 +195,10 @@ int close(int fd)
 			qd_set_errno(r);
 			return -1;
 		}
+#ifdef QDOS_C68_POSIX
+		if (c68_npend > 0)
+			c68_retry_unlinks();
+#endif
 		return 0;
 	}
 	/* The console descriptors stay (closing them is a no-op). */
@@ -214,6 +223,28 @@ int read(int fd, void *buf, unsigned int n)
 		errno = EIO;
 		return -1;
 	}
+#ifdef QDOS_C68_POSIX
+	/* R14A, C68 libc variant only (libc68.a; docs/R14A-QL-C-ABI.md): C68's read() on a QDOS file fetches the whole
+	 * count unless the file ends (io_fstrg), and QL programs rely on it - Hack's mread() treats a short read of a
+	 * level or save file as corruption.  The QDOS/386 channel read returns at most QD_READ_MAX bytes per call, so a
+	 * file read is repeated until n bytes, the end of the file or an error.  libc.a keeps the single call. */
+	if (e->kind == FD_FILE) {
+		unsigned int got = 0;
+		while (got < n) {
+			r = qd_read(ch, (char *) buf + got, n - got);
+			if (r < 0) {
+				if (got > 0)
+					break;
+				qd_set_errno(r);
+				return -1;
+			}
+			if (r == 0)
+				break;
+			got += (unsigned int) r;
+		}
+		return (int) got;
+	}
+#endif
 	r = qd_read(ch, buf, n);
 	if (r < 0) {
 		qd_set_errno(r);
@@ -299,10 +330,58 @@ long lseek(int fd, long off, int whence)
 
 /* ---- file system ------------------------------------------------------------------------------- */
 
+#ifdef QDOS_C68_POSIX
+/* R14A, C68 libc variant only: Unix and C68 programs delete a file they still have open (Hack: mread() unlinks the
+ * save file it is reading, then exits).  QDOS/386 refuses to delete an open file (EBUSY), so such a name is kept and
+ * deleted when a file descriptor is closed and at exit (after closing this process's file descriptors).  The
+ * descriptor stays readable until then, as on Unix.  At most C68_PEND names; beyond that unlink fails with EBUSY. */
+#define C68_PEND 4
+static char c68_pend[C68_PEND][FILENAME_MAX];
+static int c68_armed;
+
+static void c68_retry_unlinks(void)
+{
+	int i = 0;
+	while (i < c68_npend) {
+		if (remove(c68_pend[i]) == 0 || errno == ENOENT) {
+			if (i != c68_npend - 1)
+				memcpy(c68_pend[i], c68_pend[c68_npend - 1], sizeof c68_pend[i]);
+			c68_npend--;
+		} else
+			i++;
+	}
+}
+
+static void c68_exit_unlinks(void)
+{
+	int fd;
+	if (c68_npend == 0)
+		return;
+	for (fd = 0; fd < NFD; fd++)
+		if (fdt[fd].kind == FD_FILE)
+			(void) close(fd);
+	c68_retry_unlinks();
+}
+
+int unlink(const char *name)
+{
+	if (remove(name) == 0)
+		return 0;
+	if (errno != EBUSY || name == NULL || strlen(name) >= FILENAME_MAX || c68_npend >= C68_PEND)
+		return -1;
+	strcpy(c68_pend[c68_npend++], name);
+	if (!c68_armed) {
+		c68_armed = 1;
+		(void) atexit(c68_exit_unlinks);
+	}
+	return 0;
+}
+#else
 int unlink(const char *name)
 {
 	return remove(name) == 0 ? 0 : -1;
 }
+#endif
 
 int fstat(int fd, struct stat *st)
 {
