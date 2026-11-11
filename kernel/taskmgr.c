@@ -60,6 +60,10 @@ struct tm_row {
 	int slot, con, users;
 	unsigned int flags;
 	unsigned char state;
+#ifdef QDOS_R16
+	signed char cpu_run;               /* R16A: running_on (-1 not running, else CPU) */
+	signed char cpu_last;              /* R16A: last CPU it ran on, or -1 if never dispatched */
+#endif
 #ifdef QDOS_SURFACES
 	unsigned int gw, gh;               /* R13: its session's INDEX8 size, 0 for a text session */
 #endif
@@ -249,6 +253,10 @@ static void snapshot(void)
 		r->start = jobctl_start_tick(s);
 		r->state = jobctl_state(s);
 		r->flags = jobctl_flags(s);
+#ifdef QDOS_R16
+		r->cpu_run = jobs[s].running_on;    /* read under the snapshot's interrupts-off guard */
+		r->cpu_last = jobs[s].last_cpu;
+#endif
 		r->con = vcon_job_con(s);
 #ifdef QDOS_SURFACES
 		{
@@ -396,6 +404,27 @@ static void diag_dump(void)
 
 /* Snapshot, keep the selection by id, compose the screen and show it - all with interrupts off, and only while the
  * selector is still open (an Alt+Fn in the keyboard IRQ may have closed it). */
+#ifdef QDOS_R16
+/* R16A: the CPU cell.  A running job shows its confirmed CPU (0/1); a job not currently running shows the CPU it last
+ * ran on as ~0/~1; a job never dispatched shows -.  ~ means "last ran on", not "running now". */
+static const char *cpu_cell(const struct tm_row *x)
+{
+#ifdef QDOS_R17
+	/* R17: CPUs 0..7, same notation */
+	static const char *const run[8] = { "0", "1", "2", "3", "4", "5", "6", "7" };
+	static const char *const last[8] = { "~0", "~1", "~2", "~3", "~4", "~5", "~6", "~7" };
+	if (x->cpu_run >= 0 && x->cpu_run < 8) return run[(int) x->cpu_run];
+	if (x->cpu_last >= 0 && x->cpu_last < 8) return last[(int) x->cpu_last];
+	return "-";
+#endif
+	if (x->cpu_run == 0) return "0";
+	if (x->cpu_run == 1) return "1";
+	if (x->cpu_last == 0) return "~0";
+	if (x->cpu_last == 1) return "~1";
+	return "-";
+}
+#endif
+
 static void draw(void)
 {
 	char b[TM_COLS + 1], n[12];
@@ -431,7 +460,12 @@ static void draw(void)
 	fill(1, A_LIST);
 	fill(2, A_HEAD);
 	put(2, 1, "ID", 8, A_HEAD);
+#ifdef QDOS_R16
+	put(2, 10, "TITLE", 24, A_HEAD);
+	put(2, 35, "CPU", 3, A_HEAD);
+#else
 	put(2, 10, "TITLE", 28, A_HEAD);
+#endif
 	put(2, 39, "PROGRAM", 14, A_HEAD);
 	put(2, 54, "STATE", 7, A_HEAD);
 	put(2, 62, "CON", 4, A_HEAD);
@@ -450,7 +484,12 @@ static void draw(void)
 		a = k == sel ? A_SEL : A_LIST;
 		fill(row, a);
 		put(row, 1, num(n, x->id), 8, a);
+#ifdef QDOS_R16
+		put(row, 10, x->title[0] ? x->title : "(no title)", 24, a);
+		put(row, 35, cpu_cell(x), 3, a);
+#else
 		put(row, 10, x->title[0] ? x->title : "(no title)", 28, a);
+#endif
 		put(row, 39, x->exe, 14, a);
 		put(row, 54, state_name(x->state), 7, a);
 		b[0] = 0;

@@ -10,6 +10,7 @@ disk/
 evidence/
 external/
 emulator/
+examples/
 guest-programs/
 guest-programs-r12a/
 guest-programs-r12b/
@@ -35,3 +36,4 @@ sdk/examples/*.aout
 sdk/lib/*.o
 sdk/lib/*.a
 sdk/compiler/*.o
+SHA256SUMS

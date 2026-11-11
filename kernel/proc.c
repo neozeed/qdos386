@@ -31,12 +31,42 @@ extern unsigned int inb(unsigned int port);
 unsigned int job_kill_current(unsigned int sp);          /* jobs.c */
 void kx_call_user(unsigned int entry, unsigned int user_top, unsigned int *kx_entry_slot);   /* kctx.s */
 
+#ifdef QDOS_R17
+/* R17 Apollo 13 (docs/APOLLO13-MEMORY-MAP.md): the identity map grows with the firmware memory map, up to
+ * MM_CEILING = 256 MiB (directory entries 0..63; the user heap window starts at 0x10000000).  Tables 0..3 stay in
+ * kernel BSS; the tables for the spans above 16 MiB, and the application processors' kernel stacks, come from the R17
+ * kernel area 0x680000..0x6FFFFF, which is therefore no longer frame pool. */
+#include "memmap.h"
+#include "smp.h"
+#define TPL_DIRS     (MM_CEILING / VAS_SPAN)            /* at most 64 */
+#define TPL_LOW      4u                                 /* in kernel BSS, as in R12A */
+#define R17_KAREA_LO 0x00680000u
+#define R17_KAREA_HI 0x00700000u
+static unsigned char tpl_mem[(1 + TPL_LOW + 1) * VAS_PAGE];
+static unsigned int tpl_dir;
+static unsigned int tpl_tab[TPL_DIRS];
+static unsigned int tpl_ndirs = TPL_LOW;
+static unsigned int karea_next = R17_KAREA_LO;
+#define TPL_NDIRS    tpl_ndirs
+/* bump allocator for the kernel area (boot only, page aligned); 0 when exhausted */
+unsigned int r17_karea_alloc(unsigned int bytes)
+{
+	unsigned int a = karea_next;
+	bytes = (bytes + VAS_PAGE - 1u) & ~(VAS_PAGE - 1u);
+	if (bytes == 0 || a + bytes > R17_KAREA_HI || a + bytes < a)
+		return 0;
+	karea_next = a + bytes;
+	return a;
+}
+#else
 #define TPL_DIRS   4u                                   /* identity map 0 .. 16 MiB */
+#define TPL_NDIRS  TPL_DIRS
 
 /* Template directory and tables: kernel BSS, identity-mapped everywhere. */
 static unsigned char tpl_mem[(1 + TPL_DIRS + 1) * VAS_PAGE];
 static unsigned int tpl_dir;
 static unsigned int tpl_tab[TPL_DIRS];
+#endif
 
 static struct fr_pool pool;
 static unsigned int ram_top;
@@ -66,7 +96,11 @@ struct proc {
 };
 
 static struct proc procs[JOB_MAX];
-#ifdef QDOS_R16
+#ifdef QDOS_R17
+int kx_this_cpu(void);
+static unsigned int g_curcr3[KX_NCPU];
+#define cur_cr3 (g_curcr3[kx_this_cpu()])
+#elif defined(QDOS_R16)
 int kx_this_cpu(void);
 static unsigned int g_curcr3[2];
 #define cur_cr3 (g_curcr3[kx_this_cpu()])
@@ -75,7 +109,10 @@ static unsigned int cur_cr3;
 #endif
 static unsigned int cr3_loads;
 static unsigned int holds_deferred;
-#ifdef QDOS_R16
+#ifdef QDOS_R17
+static int g_excdepth[KX_NCPU];
+#define exc_depth (g_excdepth[kx_this_cpu()])
+#elif defined(QDOS_R16)
 static int g_excdepth[2];
 #define exc_depth (g_excdepth[kx_this_cpu()])
 #else
@@ -158,19 +195,96 @@ static void pool_add_tested(unsigned int lo, unsigned int hi)
 
 static int shell_is_process = 0;
 
+#ifdef QDOS_R17
+/* R17: add [lo, hi) but only the pages the firmware map calls usable (every frame still presence-tested). */
+static void pool_add_mapped(unsigned int lo, unsigned int hi)
+{
+	unsigned int a, run;
+
+	if (memmap_source() != MM_SRC_E820) {
+		pool_add_tested(lo, hi);
+		return;
+	}
+	run = 0;
+	for (a = lo; a < hi; a += VAS_PAGE) {
+		if (memmap_page_usable(a)) {
+			if (!run)
+				run = a;
+		} else if (run) {
+			pool_add_tested(run, a);
+			run = 0;
+		}
+	}
+	if (run)
+		pool_add_tested(run, hi);
+}
+
+static unsigned long pool_high_frames(void)            /* pool frames at or above 16 MiB */
+{
+	unsigned int a;
+	unsigned long n = 0;
+	for (a = 0x01000000u; a < MM_CEILING; a += VAS_PAGE)
+		if (fr_in_pool(&pool, a))
+			n++;
+	return n;
+}
+#endif
+
 void proc_boot(void)
 {
 	unsigned int i, ext;
 
 	tpl_dir = ((unsigned int) tpl_mem + VAS_PAGE - 1u) & ~(VAS_PAGE - 1u);
+#ifdef QDOS_R17
+	/* RAM: the E820 map when the QBOOT3 loader supplied a valid one (top of usable RAM below the 256 MiB ceiling),
+	 * else the R16B rule (CMOS 0x30/0x31, at most 16 MiB). */
+	if (memmap_build() == MM_SRC_E820) {
+		ram_top = memmap_top();
+	} else {
+		ext = cmos_read(0x30) | (cmos_read(0x31) << 8);
+		ram_top = 0x00100000u + ext * 1024u;
+		if (ext == 0 || ram_top > 0x01000000u)
+			ram_top = (ext == 0) ? 0x00800000u : 0x01000000u;
+	}
+	tpl_ndirs = (ram_top + VAS_SPAN - 1u) / VAS_SPAN;
+	if (tpl_ndirs < TPL_LOW)
+		tpl_ndirs = TPL_LOW;
+	if (tpl_ndirs > TPL_DIRS)
+		tpl_ndirs = TPL_DIRS;
+	for (i = 0; i < tpl_ndirs; i++) {
+		tpl_tab[i] = i < TPL_LOW ? tpl_dir + (1u + i) * VAS_PAGE : r17_karea_alloc(VAS_PAGE);
+		if (tpl_tab[i] == 0) {                          /* cannot happen: 60 tables fit the area */
+			tpl_ndirs = i;
+			if (ram_top > tpl_ndirs * VAS_SPAN)
+				ram_top = tpl_ndirs * VAS_SPAN;
+			break;
+		}
+	}
+	vas_template_build(tpl_dir, tpl_tab, tpl_ndirs);   /* paging is still off: the tables are written physically */
+#else
 	for (i = 0; i < TPL_DIRS; i++)
 		tpl_tab[i] = tpl_dir + (1u + i) * VAS_PAGE;
 	vas_template_build(tpl_dir, tpl_tab, TPL_DIRS);
+#endif
 	for (i = 0; i < (unsigned int) JOB_MAX; i++)
 		procs[i].state = P_FREE;
 	pg_load_cr3(tpl_dir);
 	cur_cr3 = tpl_dir;
 	pg_enable();
+#ifdef QDOS_R17
+	fr_init(&pool);
+#ifdef QDOS_DYNPROC_SHELL
+	shell_is_process = 1;
+#endif
+	if (shell_is_process)
+		pool_add_mapped(APP_SLOT0_BASE, APP_SLOT1_BASE);
+	pool_add_mapped(APP_SLOT1_BASE, APP_SLOT1_BASE + APP_SLOT1_SIZE);
+	pool_add_mapped(APP_PROFILE2_BASE, R17_KAREA_LO);       /* up to the R17 kernel area (was 0x700000) */
+	pool_add_mapped(0x00800000u, ram_top);                  /* above the boot stack, as far as usable RAM goes */
+#ifdef QDOS_R17_TEST_RESERVE
+	memmap_poison_write();                                  /* TEST ONLY: the injected reserved region */
+#endif
+#else
 	/* RAM: 1 MiB + CMOS 0x30/0x31 KiB (QEMU/SeaBIOS and Tiny386 both fill it), capped at the 16 MiB identity map. */
 	ext = cmos_read(0x30) | (cmos_read(0x31) << 8);
 	ram_top = 0x00100000u + ext * 1024u;
@@ -185,15 +299,30 @@ void proc_boot(void)
 	pool_add_tested(APP_SLOT1_BASE, APP_SLOT1_BASE + APP_SLOT1_SIZE);   /* former slot 1 */
 	pool_add_tested(APP_PROFILE2_BASE, 0x00700000u);        /* former profiles 2/3, up to the boot stack area */
 	pool_add_tested(0x00800000u, FR_LIMIT);                 /* above the boot stack, as far as RAM goes */
+#endif
 	{
 		extern void kx_tss_init(unsigned int template_cr3);   /* descriptors.c */
 		kx_tss_init(tpl_dir);
 	}
+#ifdef QDOS_R17
+	memmap_print();
+	con_puts("PAGING: R17 dynamic processes, ram ");
+	con_putdec((unsigned long) (ram_top / 1024u));
+	con_puts(memmap_source() == MM_SRC_E820 ? " KiB (E820)" : " KiB (CMOS)");
+	con_puts(", identity 0..");
+	con_putdec((unsigned long) (tpl_ndirs * 4u));
+	con_puts(" MiB, pool ");
+	con_putdec((unsigned long) pool.pool);
+	con_puts(" frames (");
+	con_putdec(pool_high_frames());
+	con_puts(" above 16 MiB)");
+#else
 	con_puts("PAGING: R12A dynamic processes, ram ");
 	con_putdec((unsigned long) (ram_top / 1024u));
 	con_puts(" KiB, pool ");
 	con_putdec((unsigned long) pool.pool);
 	con_puts(" frames");
+#endif
 	if (pool_bad != 0) {
 		con_puts(" (");
 		con_putdec((unsigned long) pool_bad);
@@ -356,7 +485,7 @@ static int build_space(struct proc *p, app_rd_fn rd, void *ctx, const struct app
 	unsigned int va, off, rem, n, i, k, p0;
 	int rc;
 
-	rc = vas_create(&p->vas, &pool, tpl_dir, TPL_DIRS);
+	rc = vas_create(&p->vas, &pool, tpl_dir, TPL_NDIRS);
 	if (rc != VAS_OK)
 		return rc;
 	if ((rc = vas_hide(&p->vas, 0)) != VAS_OK)          /* page 0 not present: a NULL dereference faults */
@@ -499,6 +628,10 @@ int proc_load(app_rd_fn rd, void *ctx, unsigned int len, int want_slot, const un
 	p->hold_pending = 0;
 #ifdef QDOS_R16
 	p->prot = (unsigned char) (((flags & PROC_LOAD_PROT) != 0) || info.prot != 0);
+#ifdef QDOS_R16B
+	if (!p->prot)
+		jobs[js].aff = 0;      /* R16B: a legacy ring-0 process runs on CPU 0 only, even if a CPU-1 job created it */
+#endif
 #endif
 	p->faults = 0;
 	p->vas.dir = 0;
@@ -540,11 +673,27 @@ int pg_release_owner(unsigned int job_id, int slot)
 	p = &procs[slot];
 	if (p->state != P_LIVE || p->id != job_id)
 		return 0;
+#ifdef QDOS_R17
+	{
+		int c, active = 0;
+		for (c = 0; c < KX_NCPU; c++)
+			if (p->vas.dir == g_curcr3[c])
+				active = 1;                    /* active on some CPU: not until that CPU has loaded another CR3 */
+		if (p->vas.dir == pg_read_cr3())
+			active = 1;
+		if (active) {
+			con_puts("PAGING: release deferred\n");
+			return PG_ERR_ACTIVE;
+		}
+	}
+	if (0) {
+#else
 	if (p->vas.dir == cur_cr3 || p->vas.dir == pg_read_cr3()
 #ifdef QDOS_R16
 	    || p->vas.dir == g_curcr3[0] || p->vas.dir == g_curcr3[1]   /* active on either CPU: a CR3 load flushed the TLB */
 #endif
 	   ) {
+#endif
 		con_puts("PAGING: release deferred\n");
 		return PG_ERR_ACTIVE;
 	}
@@ -880,6 +1029,69 @@ static unsigned int kstack_hwm(const struct job *j)
 			return j->stack_top - a;
 	return 0;
 }
+
+#ifdef QDOS_R17
+/* R17: QT_SMP SMP_OP_MEMINFO (docs/APOLLO13-MEMORY-MAP.md §ABI): the firmware map, the pool and the checks. */
+int proc_meminfo(unsigned int words, unsigned int buf)
+{
+	unsigned int w[SMP_MEMINFO_WORDS], i, n, a, was;
+	struct mm_summary ms;
+	const struct mm_rec *r;
+	int nr, k;
+
+	if (words < 32u)
+		return -1;
+	n = words < SMP_MEMINFO_WORDS ? words : SMP_MEMINFO_WORDS;
+	if (!chan_user_range_ok(buf, n * 4u))
+		return CHAN_ERR_RANGE;
+	for (i = 0; i < SMP_MEMINFO_WORDS; i++)
+		w[i] = 0;
+	memmap_summary(&ms);
+	w[0] = 1u;
+	w[1] = (unsigned int) memmap_source();
+	w[2] = ms.nraw;
+	w[3] = ms.usable_kib;
+	w[4] = ms.reserved_kib;
+	w[5] = ms.above_ceiling_kib;
+	w[6] = ms.top;
+	w[7] = ram_top;
+	w[8] = tpl_ndirs;
+	w[9] = pool.pool;
+	w[10] = fr_free_count(&pool);
+	w[11] = pool.nused;
+	w[12] = pool.low_water;
+	w[13] = (unsigned int) pool.refusals;
+	was = tpl_enter();
+	for (a = 0x01000000u; a < MM_CEILING; a += VAS_PAGE) {
+		if (fr_in_pool(&pool, a))
+			w[14]++;
+		if (fr_is_used(&pool, a))
+			w[15]++;
+	}
+	w[16] = (unsigned int) fr_check(&pool);
+	tpl_leave(was);
+	w[17] = karea_next;
+	w[22] = pool_bad;
+#ifdef QDOS_R17_TEST_RESERVE
+	w[18] = MM_TEST_BASE;
+	w[19] = MM_TEST_LEN;
+	for (a = MM_TEST_BASE; a < MM_TEST_BASE + MM_TEST_LEN; a += VAS_PAGE)
+		if (fr_in_pool(&pool, a))
+			w[20]++;
+	w[21] = memmap_poison_check();
+#endif
+	r = memmap_raw(&nr);
+	for (k = 0; k < nr && 32 + 5 * k + 4 < SMP_MEMINFO_WORDS; k++) {
+		w[32 + 5 * k] = r[k].base_lo;
+		w[33 + 5 * k] = r[k].base_hi;
+		w[34 + 5 * k] = r[k].len_lo;
+		w[35 + 5 * k] = r[k].len_hi;
+		w[36 + 5 * k] = r[k].type;
+	}
+	{ unsigned int *u = (unsigned int *) buf; for (i = 0; i < n; i++) u[i] = w[i]; }
+	return (int) n;
+}
+#endif
 
 int proc_info(unsigned int id, unsigned int user_addr)
 {

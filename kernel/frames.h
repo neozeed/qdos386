@@ -11,8 +11,12 @@
 #define QDOS386_FRAMES_H
 
 #define FR_PAGE      4096u
+#ifdef QDOS_R17
+#define FR_LIMIT     0x10000000u                 /* R17: 256 MiB, the identity-mapped ceiling (memmap.h MM_CEILING) */
+#else
 #define FR_LIMIT     0x01000000u                 /* 16 MiB: the identity-mapped physical range */
-#define FR_NFRAMES   (FR_LIMIT / FR_PAGE)        /* 4096 */
+#endif
+#define FR_NFRAMES   (FR_LIMIT / FR_PAGE)        /* 4096 (R17: 65,536) */
 
 #define FR_OK         0
 #define FR_ERR_ARG   (-1)    /* unaligned, out of range or empty range */

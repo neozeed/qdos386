@@ -23,7 +23,11 @@
 #define VAS_RW          0x002u
 #define VAS_US          0x004u
 #define VAS_OWN         0x200u               /* AVL bit 9: frame owned by this space (freed with it) */
+#ifdef QDOS_R17
+#define VAS_MAX_TABLES  32                   /* R17: 64 MiB heap (16 tables) + stack + partly-pool spans of a holed map */
+#else
 #define VAS_MAX_TABLES  16                   /* private page tables per space, directory not counted */
+#endif
 
 #define VAS_OK            0
 #define VAS_ERR_NOFRAMES (-60)               /* same value as the R11J/R11K PG_ERR_NOFRAMES */

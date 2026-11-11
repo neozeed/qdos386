@@ -77,6 +77,12 @@ int shell_boot(void)
 	extern void irq_restore(unsigned int flags);
 #endif
 
+#ifdef QDOS_R17
+	{
+		extern void memmap_capture(void);
+		memmap_capture();      /* R17: copy the QBOOT3 E820 records at 0x500 before anything can reuse low memory */
+	}
+#endif
 	con_puts("QDOS/386 R7\n");
 	con_puts("Native i386 kernel\n\n");
 #ifdef QDOS_TEST_BIGK

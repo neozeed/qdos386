@@ -1,84 +1,112 @@
-# R16 — BKL / Ring 3 / two-CPU SMP experiment — HANDOVER
+# QDOS/386 Apollo 13 (R17) — memory expansion and multicore topology: handover
 
-## What this is
+**Package**: `qdos386-APOLLO13-R17-MEM-MULTICORE.tar.gz`. Public-safe: no SuperBASIC, no Infocom, no Elite.
 
-The largest defensible step from R15 AMP0 toward true SMP: **two ordinary native QDOS/386 applications running
-concurrently on two x86 processors, at CPL 3, in private address spaces, over one shared kernel serialized by a Big
-Kernel Lock.** It is additive and opt-in — an R16 kernel runs every existing program unchanged, and an ordinary
-`make` still produces the byte-identical KCTX-FIX2 kernels.
+**Source**: branch `r17-apollo13-mem-multicore`, on top of `r16b-foreground-smp` (479951d) plus the verification
+commit bf7d350. Each gate is tagged:
 
-## Result against the mandate
-
-| Required | Status |
+| Tag | Content |
 | --- | --- |
-| CPL 3 user mode (CS.RPL=3, SS.RPL=3, supervisor pages inaccessible), safe syscall + timer on one CPU | **met** — Gate 1, 24/24 |
-| One serialized shared kernel under a BKL covering all shared state | **met** — Gate 2; BKL on every entry, held IF-off, never across `iret` |
-| Ultimate: two existing CPL3 processes on two CPUs | **met** — Gate 3; two CPL3 apps interleaved on CPU 0 and CPU 1, both exit cleanly |
-| Per-CPU current job / kernel stack / TSS.ESP0 / resume_fmt (no shared `kx_resume_fmt`) | **met** — §2 of R16-ARCHITECTURE |
-| Kernel supervisor-only in every CR3; private address spaces | **met** — inherited R12A paging, audited |
-| No deadlocks; no double-running jobs; safe memory lifetime/TLBs | **met** — CAS lock, atomic `running_on` ownership, deferred reclaim (KILLW) |
-| Regression: frozen builds reproducible, default kernel unchanged silently | **met** — default + 25 frozen + AMP0 all byte-identical |
+| `a13-gate0` | audit |
+| `a13-gate1` | memory |
+| `a13-gate2` | N CPUs |
+| `a13-gate3` | topology/HT |
+| `a13-gate4` | stress |
+| `a13-r17` | release |
+
+## What R17 is
+
+An **opt-in** kernel target, `make qdos386-r17-pc`, which builds `qdos386-r17-vga.img` (SHA-256 prefix `40968de4`)
+and `qdos386-r17.img` (`f53bd88a`).
+
+The frozen targets are byte-identical to their previous releases (rechecked after every phase):
+
+| Target | Image | SHA-256 prefix | Release |
+| --- | --- | --- | --- |
+| `qdos386-pc` | `qdos386-vga.img` | `f8e5d5e1` | KCTX-FIX2 |
+| `qdos386-pc` | `qdos386.img` | `7c675978` | KCTX-FIX2 |
+| `qdos386-smp-pc` | `qdos386-smp-vga.img` | `b9ecb69a` | R16A |
+| `qdos386-r16b-pc` | `qdos386-r16b-vga.img` | `d073fbea` | R16B |
+
+1. **Memory: up to 256 MiB from a validated E820 map**
+   * The new QBOOT3 boot sector collects INT 15h E820. The kernel validates the map: reserved wins, page-aligned
+     inwards, nothing below 1 MiB, nothing at or above 256 MiB.
+   * It extends the supervisor-only identity map and the frame pool. Without a map it falls back to the R16B CMOS
+     16 MiB rule.
+   * Ring 3 protection is unchanged. User pages are U/S user, kernel mappings are supervisor-only, and pool spans are
+     not present in process directories.
+   * See `docs/APOLLO13-MEMORY-MAP.md`.
+2. **Up to 8 logical CPUs, one BKL**
+   * APs start sequentially with a barrier. Each AP has its own TSS, stack, halting idle job, LAPIC timer and
+     accounting.
+   * An AP that does not start is held with INIT and never scheduled.
+   * CPU 0 keeps every device IRQ.
+3. **Topology and the HT policy**
+   * Each CPU probes itself with CPUID leaf 0xB, or leaf 1 + 4. The results are cross-checked against the LAPIC and
+     MADT. Without proof the topology is `unknown`, the policy is flat, and no sibling is invented.
+   * Foreground first: the foreground session's job runs on CPU 0. Background jobs go to the least-loaded allowed CPU.
+   * HT modes `AUTO` (distinct cores first, CPU 0's sibling last), `PHYSICAL` (siblings parked) and `ALL`.
+   * See `docs/APOLLO13-TOPOLOGY.md`.
 
 ## Build and run
 
-```
-. scratchpad/env-r11c.sh ; export QDOS386_TOOLS        # historical toolchain (GCC 1.40 / GAS 1.38 / i386-ld)
-make qdos386-smp-pc                                    # R16 kernel -> build/qdos386-smp/pc-vga/qdos386-smp-vga.img
-sh scripts/r16-build-guest.sh                          # CPL3 test program -> build/r16/R16T.aout (+ R16TP.aout, marked protected)
-sh tests/r16/run-gate1.sh logs/g1                      # Gate 1 (CPL3), QEMU -smp 1, expect 24/24
-
-make qdos386-pc                                        # ordinary kernels, still f8e5d5e1… / 7c675978…
-```
-
-Two-CPU run (QEMU multi-threaded TCG for real parallelism):
-
-```
-QEMU_MEM=32 QEMU_EXTRA="-smp 2 -accel tcg,thread=multi" \
-  R12_QKERNEL=build/qdos386-smp/pc-vga/qdos386-smp-vga.img \
-  sh scripts/r12-run-qemu.sh VOL.img SEQ OUTDIR tag 300
+```sh
+export QDOS386_TOOLS=/path/to/i386vm-tree   # the GCC 1.40 / GAS 1.38 / i386-ld toolchain (see README.md)
+make qdos386-r17-pc
+sh scripts/a13-build-guest.sh                  # MEMINFO RAMCHK SMPT TOP17 CPUSET17 (+ R16T, BOUNCEP)
+sh scripts/a13-sysvol.sh vol.img               # public-safe volume with the tools in /BIN
+qemu-system-i386 -drive file=build/qdos386-r17/pc-vga/qdos386-r17-vga.img,format=raw,if=ide,index=0 \
+                 -drive file=vol.img,format=raw,if=ide,index=1 -m 128 \
+                 -cpu Nehalem -smp 8,sockets=1,cores=4,threads=2 -accel tcg,thread=multi
 ```
 
-where `VOL.img` is an R14A system volume built with `R16T.AOU` = the protected binary (`build/r16/R16TP.aout`), and
-`SEQ` is a sequence file of shell commands — e.g. `R16T RACE` (two CPL3 apps on two CPUs), `R16T INFO` (live BKL and
-per-CPU counters), `R16T STRESS 1000`, `R16T KILLW`, `R16T RACEPRIV`.
+The packaged kernels are in `kernels/`. The example volumes `examples/system-r17-{superfloppy,mbr}.img` already
+contain the tools.
 
-## Opt-in launch (how a job becomes CPL3)
+Shell commands for R17:
 
-Per launch, versioned, never by reinterpreting old binaries (full ABI in docs/R16-CPL3-ABI.md):
+| Command | What it does |
+| --- | --- |
+| `MEMINFO` | E820 records, pool and high-memory counters |
+| `RAMCHK n [passes]` | CPL3 RAM pattern test of n MiB |
+| `TOP [n] [s]` | per-CPU line with package/core/thread, cpl3/cpl0/idle %, load, PARKED |
+| `CPUSET HT [AUTO\|PHYSICAL\|ALL]` | set or show the HT mode |
+| `CPUSET POLICY FG\|OFF` | set the scheduling policy |
+| `CPUSET <jobid> <0..7\|AUTO>` | pin a job to a CPU, or return it to the policy |
+| `SMPT INFO\|WORK\|MIG\|FAULT\|KILL\|SPAWN\|HTCHK\|BUSY` | SMP tests |
 
-* **Executable mark**: bit 24 of the a.out magic (`0x01000107`). `tools/r16-protect-mark.py FILE [OUT]` sets/clears it.
-  Frozen kernels reject such a file; the R16 loader accepts both and records the bit.
-* **Spawn flag**: `qd_spawn(..., QD_SPAWN_PROT, ...)`.
+## Evidence
 
-Placement on CPU 1 is by the `QT_SMP` trap (`SMP_OP_SETAFF`), protected jobs only.
+The `evidence/` summaries are produced by the scripts in `tests/a13`. Development logs are not shipped. The detailed
+results are in `docs/APOLLO13-RUNTIME-REPORT.md`. Package verification is `scripts/a13-verify-package.sh` (fresh
+extraction: manifest, clean rebuild bit-for-bit, frozen rebuilds, guest tools, volume audit, QEMU smoke).
 
-## The three frozen gates (git tags)
+## Files
 
-* `r16-cpl3-proof` — single-CPU CPL3 protection, 24/24.
-* `r16-bkl-up` — the same under BKL instrumentation, balanced, no leaked owners.
-* `r16-smp2-proof` — two CPL3 apps concurrent on two CPUs.
+| Area | Files |
+| --- | --- |
+| Boot / memory | `platform/pc/boot3.s`, `platform/pc/make-image3.py`, `kernel/memmap.[ch]`, `kernel/proc.c` (R17 blocks), `kernel/frames.h`, `kernel/vas.h`, `kernel/proc.h` |
+| SMP | `kernel/smp17.c` (replaces `smp.c` in R17), `kernel/kctx17.s`, `kernel/smp_s17.s`, `kernel/uart_s17.s`, `kernel/descriptors.c` (per-AP TSS), `kernel/jobs.[ch]`, `kernel/bkl.[ch]` (`KX_NCPU`), `kernel/taskmgr.c` (CPU 0…7) |
+| Tests | `tests/a13/*.c`, `*.seq`, `run-soak.sh`, `joinlines.py`; `scripts/a13-*.sh` |
+| Docs | `docs/APOLLO13-AUDIT.md`, `APOLLO13-MEMORY-MAP.md`, `APOLLO13-TOPOLOGY.md`, `APOLLO13-RUNTIME-REPORT.md`, `APOLLO13-KNOWN-LIMITATIONS.md` |
 
-## Source map
+The patch against R16B is in `patches/r17-against-r16b.patch`.
 
-New: `kernel/bkl.{h,c}`, `kernel/bkl_s.s` (the BKL + CAS primitive); `kernel/smp.{h,c}`, `kernel/smp_s.s` (CPU
-discovery, bring-up, AP trampoline/timer, `QT_SMP`); `kernel/kctx3.s` (R16 entry/resume with per-CPU `str` indexing
-and the CPL3 transitions); `kernel/uart_s3.s` (R16 serial IRQ stubs); `tools/r16-protect-mark.py`;
-`scripts/r16-build-guest.sh`; `tests/r16/*`. Changed only under `-DQDOS_R16`: `descriptors.c` (user GDT selectors,
-DPL3 gate, per-CPU + AP TSS), `proc.c` (per-CPU CR3/exc-depth, protected `prot` bit, exit stub, LAPIC map), `jobs.{c,h}`
-(per-CPU current/idle, `kx_pc[2][4]`, affinity/`running_on`, schedule), `aout.c` (magic bit 24), `channel.c`/`uart.c`
-(R16 `job_current` macro), `shellboot.c` (bring-up + IF-off SYSTEM poll), `Makefile` (`qdos386-smp-pc`).
+## Constraints kept
 
-## Documents in this package
+* No source changes to GCC, QLTerm, Hack, Elite or GW-BASIC.
+* No private SuperBASIC, Infocom or Elite assets in the package. The packaging script refuses them.
+* The BKL is kept; no unrelated subsystem was fixed.
+* CPU 0 owns external IRQs, with no IOAPIC redistribution.
+* No MMIO or reserved frame is ever allocated, and no 4 GiB claim is made.
+* Firmware settings are untouched.
+* No job is double-run. Each job is dispatched only by the CPU named in its affinity, under the BKL, and the R16B
+  `running_on` handshake is unchanged.
 
-1. **R16-ARCHITECTURE.md** — the two-CPU design: per-CPU state, the BKL, bring-up, scheduling/affinity, lifetime.
-2. **R16-CPL3-ABI.md** — the CPL3 (protected-process) ABI: opt-in, what changes at ring 3, fault containment.
-3. **R16-AUDIT.md** — the pre-existing protection foundations (U/S paging, supervisor-only kernel, buffer validation).
-4. **R16-SMP-RUNTIME-REPORT.md** — the measured runs (bring-up, the three gates, the stress/fault/kill matrix, identity).
-5. **R16-KNOWN-LIMITATIONS.md** — the boundaries, the one bring-up bug (the BKL acquire), and the BKL diagnostics.
+## Next steps (not started, as instructed)
 
-## Next steps for a future builder
-
-Finer-grained locking (split the BKL by subsystem, starting with the console and the heap), per-CPU run queues with
-balancing, N > 2 CPUs (the per-CPU state is sized `[2]`; widen the arrays and the `str`→index map), and device
-interrupts on CPU 1 (needs an IOAPIC routing path). None of these are attempted here; R16 stops at the first correct,
-demonstrable two-CPU CPL3 result.
+* Splitting the BKL.
+* A kernel mapping window or PAE for more than 256 MiB.
+* IOAPIC routing.
+* AMD topology (leaf 0x8000001E).
+* Testing on real hardware.

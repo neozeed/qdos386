@@ -36,6 +36,9 @@
 #ifdef QDOS_R16
 #include "smp.h"
 #endif
+#ifdef QDOS_R16B
+#include "bkl.h"
+#endif
 #ifdef QDOS_AMP
 #include "amp.h"
 #endif
@@ -88,7 +91,10 @@
 #endif
 
 struct job jobs[JOB_MAX];
-#ifdef QDOS_R16
+#ifdef QDOS_R17
+int g_jobcur[KX_NCPU] = { JOB_SYSTEM, JOB_SYSTEM, JOB_SYSTEM, JOB_SYSTEM, JOB_SYSTEM, JOB_SYSTEM, JOB_SYSTEM, JOB_SYSTEM };
+int g_jobidle[KX_NCPU] = { 3, 3, 3, 3, 3, 3, 3, 3 };   /* R17: an AP's slot is set before it is ever scheduled */
+#elif defined(QDOS_R16)
 int g_jobcur[2] = { JOB_SYSTEM, JOB_SYSTEM };   /* per-CPU current slot (indexed by kx_this_cpu) */
 int g_jobidle[2] = { 3, 3 };                    /* per-CPU idle slot */
 #else
@@ -105,7 +111,11 @@ volatile unsigned long stack_faults = 0;
 unsigned long jobs_reclaimed = 0;
 unsigned long bytes_reclaimed = 0;
 unsigned int sv_rand = 0;
-#ifdef QDOS_R16
+#ifdef QDOS_R17
+unsigned int kx_pc[KX_NCPU][4] = { { 0, 0xFFFFFFFFu, 0, 0 }, { 0, 0xFFFFFFFFu, 0, 0 }, { 0, 0xFFFFFFFFu, 0, 0 },
+	{ 0, 0xFFFFFFFFu, 0, 0 }, { 0, 0xFFFFFFFFu, 0, 0 }, { 0, 0xFFFFFFFFu, 0, 0 }, { 0, 0xFFFFFFFFu, 0, 0 },
+	{ 0, 0xFFFFFFFFu, 0, 0 } };   /* R17: kctx17.s selects row TR -> cpu (docs/APOLLO13-AUDIT.md) */
+#elif defined(QDOS_R16)
 /* R16: per-CPU {kx_lo, kx_hi, kx_entry, resume_fmt}, one row per CPU; kctx3.s selects the row by the task register.
  * Row defaults (whole address space, fmt 0) mean "already on the kernel stack": template jobs never switch. */
 unsigned int kx_pc[2][4] = { { 0, 0xFFFFFFFFu, 0, 0 }, { 0, 0xFFFFFFFFu, 0, 0 } };
@@ -323,6 +333,20 @@ static int pick_next(unsigned int pollm)
 		/* R16: pinned affinity, no migration; never select a job already running on the other CPU. */
 		if (j->aff != (signed char) cpu || (j->running_on != -1 && i != job_current))
 			continue;
+#ifdef QDOS_R16B
+		/* R16B: the idle job is the fallback only (best = job_idle below), never a competitor.  As an ordinary
+		 * priority-1 candidate its accumulator out-bid CPU-bound priority-2 jobs about half the time. */
+		if (i == g_jobidle[cpu])
+			continue;
+#ifdef QDOS_R17
+		if (r17_cpu_parked(cpu))
+			continue;                   /* R17: a parked HT sibling runs only its idle job (docs/APOLLO13-TOPOLOGY.md) */
+#endif
+		/* R16B: a job lent to an otherwise idle CPU 0 is left there for R16B_LEND_RES ticks after CPU 0 last
+		 * dispatched it, so the two CPUs do not ping-pong it (CPU 1 still takes it back if it would idle). */
+		if (cpu == 1 && j->lent_tick != 0 && sched_ticks - j->lent_tick < R16B_LEND_RES)
+			continue;
+#endif
 #endif
 		if (j->acc_prio == 0) {
 			j->acc_prio = 1;
@@ -335,6 +359,12 @@ static int pick_next(unsigned int pollm)
 			best = i;
 		}
 	}
+#ifdef QDOS_R16B
+	if (best == JOB_NONE)
+		best = smp_steal(cpu);          /* otherwise idle CPU 0 may borrow a READY background job */
+	if (best < 0)
+		best = JOB_NONE;
+#endif
 	if (best == JOB_NONE)
 		best = job_idle;
 	return best;
@@ -382,6 +412,10 @@ static unsigned int schedule(unsigned int sp, int fmt, int from_irq)
 		job_current = next;
 #ifdef QDOS_R16
 		jobs[job_current].running_on = (signed char) kx_this_cpu();
+#ifdef QDOS_R16B
+		smp_note_dispatch(job_current, kx_this_cpu());   /* context switch; a migration if last_cpu differs */
+#endif
+		jobs[job_current].last_cpu = jobs[job_current].running_on;   /* R16A: read-only annotation for the Task Manager */
 #endif
 		fpu_restore(jobs[job_current].fpu);
 #ifdef QDOS_PAGING
@@ -423,6 +457,10 @@ unsigned int schedule_entry(unsigned int sp)
 unsigned int sched_irq_tick(unsigned int sp)
 {
 	sched_ticks++;
+#ifdef QDOS_R16B
+	smp_acct_tick(sp);                     /* R16B: sample CPU 0 (BKL held) */
+	smp_policy_tick();                     /* R16B: foreground policy at a safe point */
+#endif
 	clock_tick();                          /* R11F: wall clock */
 	timer_ack();
 	sv_pollm++;
@@ -599,6 +637,12 @@ int job_alloc_sized(const char *name, void (*entry)(void), unsigned char inc, un
 #ifdef QDOS_R16
 	j->aff = (signed char) kx_this_cpu();   /* inherit the creator's CPU; QT_SMP SETAFF may move it before it runs */
 	j->running_on = -1;
+	j->last_cpu = -1;                       /* R16A: not yet dispatched */
+#ifdef QDOS_R16B
+	j->pin = -1;                            /* R16B: AUTO until QT_SMP SETAFF pins it */
+	j->moved_tick = sched_ticks;
+	j->lent_tick = 0;
+#endif
 #endif
 	j->kx_lo = 0;                      /* a template job until proc_load gives it a private user stack */
 	j->kx_hi = 0xFFFFFFFFu;
@@ -689,6 +733,12 @@ void sched_init(void)
 #ifdef QDOS_R16
 		jobs[i].aff = 0;
 		jobs[i].running_on = -1;
+		jobs[i].last_cpu = -1;
+#ifdef QDOS_R16B
+		jobs[i].pin = -1;
+		jobs[i].moved_tick = 0;
+		jobs[i].lent_tick = 0;
+#endif
 #endif
 		jobs[i].name = 0;
 		jobs[i].entry = 0;
@@ -714,6 +764,7 @@ void sched_init(void)
 #ifdef QDOS_R16
 	jobs[JOB_SYSTEM].aff = 0;
 	jobs[JOB_SYSTEM].running_on = 0;   /* SYSTEM is running on CPU 0 from boot */
+	jobs[JOB_SYSTEM].last_cpu = 0;
 #endif
 	dead_mask = 0;
 }
@@ -727,6 +778,13 @@ void job_exit(void)
 {
 	struct job *j = &jobs[job_current];
 	(void) irq_save();
+#ifdef QDOS_R16B
+	/* R16B: a legacy ring-0 process ends here, in job context, NOT inside an entry stub - so nothing holds the BKL.
+	 * R16/R16A then ran schedule() (via yield_asm) unlocked, concurrently with the other CPU, and resume_dispatch's
+	 * bkl_leave counted a non-owner release (bkl_badrel).  Take the lock here; the frame is never resumed, so
+	 * resume_dispatch releases it exactly once. */
+	bkl_enter();
+#endif
 	j->prio_inc = 0;                  /* no longer active */
 	j->status = -1;
 	j->dead = 1;

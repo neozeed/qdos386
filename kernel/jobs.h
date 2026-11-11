@@ -20,11 +20,22 @@
 #ifdef QDOS_PAGING_POC
 #error "R11K: the paging feature macro is now QDOS_PAGING (ABI 2); QDOS_PAGING_POC was the R11J name"
 #endif
-#ifdef QDOS_DYNPROC
+#if defined(QDOS_DYNPROC) && defined(QDOS_R17)
+#ifndef R17_JOB_MAX
+#define R17_JOB_MAX 24
+#endif
+#define JOB_MAX R17_JOB_MAX       /* R17: room for up to seven AP idle jobs beside 16 ordinary slots (dead_mask < 32) */
+#elif defined(QDOS_DYNPROC)
 #define JOB_MAX 16                /* R12A: a bounded table; job memory (frames, kernel stacks) is dynamic */
 #else
 #define JOB_MAX 6                 /* R10: slot 0 SYSTEM, IDLE, shell, and room for two
                                   * floating-point application jobs beside them */
+#endif
+/* R16/R17: number of per-CPU slots (CPU index = kx_this_cpu(), from the task register) */
+#ifdef QDOS_R17
+#define KX_NCPU 8
+#else
+#define KX_NCPU 2
 #endif
 #define JOB_STACK_BYTES 4096      /* heap-allocated, 16-byte aligned */
 #define JOB_STACK_CANARY 0xc0dec0deu
@@ -80,7 +91,7 @@
 #define QT_PROC_KILL  0x33        /* a = child id -> 0 */
 #define QT_PROC_VA    0x34        /* a = virtual address -> its PTE in the caller's space (diagnostic) */
 #ifdef QDOS_R16
-extern unsigned int kx_pc[2][4];                   /* per-CPU {lo,hi,entry,resume_fmt}; kctx3.s reads it by str->ebp */
+extern unsigned int kx_pc[KX_NCPU][4];                   /* per-CPU {lo,hi,entry,resume_fmt}; kctx3.s reads it by str->ebp */
 int kx_this_cpu(void);                             /* kctx3.s */
 void kx_set_esp0(unsigned int esp);                /* descriptors.c: TSS.ESP0 for CPL3 entries */
 void kx_user_enter(unsigned int entry, unsigned int user_esp);   /* kctx3.s: one-way iret to CPL3 */
@@ -139,6 +150,12 @@ struct job {
 #ifdef QDOS_R16
 	signed char aff;              /* R16: CPU this job runs on (0/1); default 0 */
 	signed char running_on;       /* R16: -1 not running, else the CPU currently running it */
+	signed char last_cpu;         /* R16A: -1 never dispatched, else the CPU it last ran on (read-only annotation for the Task Manager; set beside running_on in schedule, changes no scheduling decision) */
+#ifdef QDOS_R16B
+	signed char pin;              /* R16B: -1 AUTO (policy decides), else a manual CPU pin from QT_SMP SETAFF */
+	unsigned long moved_tick;     /* R16B: sched_ticks when aff last changed (policy hysteresis) */
+	unsigned long lent_tick;      /* R16B: last tick CPU 0 dispatched it on loan (aff stays 1); 0 = not lent */
+#endif
 #endif
 };
 
@@ -152,7 +169,7 @@ struct job_exit_rec {
 
 extern struct job jobs[JOB_MAX];
 #ifdef QDOS_R16
-extern int g_jobcur[2], g_jobidle[2];
+extern int g_jobcur[KX_NCPU], g_jobidle[KX_NCPU];
 #define job_current (g_jobcur[kx_this_cpu()])
 #define job_idle    (g_jobidle[kx_this_cpu()])
 #else
@@ -205,7 +222,7 @@ int qtrap(unsigned int fn, unsigned int a, unsigned int b, unsigned int c);
 #define KX_RESUME(sp, fmt) ((sp) | (unsigned int) (fmt))
 #elif defined(QDOS_R16)
 /* R16: per-CPU resume format in kx_pc[cpu][3] (kctx3.s reads kx_pc+12(%ebp)); full stack pointer returned. */
-extern unsigned int kx_pc[2][4];
+extern unsigned int kx_pc[KX_NCPU][4];
 int kx_this_cpu(void);
 #define KX_RESUME(sp, fmt) (kx_pc[kx_this_cpu()][3] = (unsigned int) (fmt), (unsigned int) (sp))
 #elif defined(QDOS_KCTX_CHECK)

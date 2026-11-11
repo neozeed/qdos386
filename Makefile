@@ -203,7 +203,7 @@ PCCTX ?= $(PCD)/context.o
 # that links kernel/kctx.s (every current kernel) gets the default: the exact stack pointer, format in kx_resume_fmt.
 # Any other context object (context.s, paging.s: R6..R12; kernel/frozen/kctx-r12a-r14.s: the frozen R12A..R14 targets)
 # keeps the historical saved_sp | fmt encoding (-DQDOS_KCTX_PTRBITS), which only those frozen images use.
-PCKCTX = $(if $(filter %/kctx.o %/kctx3.o,$(PCCTX)),,-DQDOS_KCTX_PTRBITS)
+PCKCTX = $(if $(filter %/kctx.o %/kctx3.o %/kctx17.o,$(PCCTX)),,-DQDOS_KCTX_PTRBITS)
 # R11J/R11K: PCEXTRA adds the paging objects (empty for every default image).
 PCEXTRA ?=
 PC_OBJS += $(PCEXTRA)
@@ -245,6 +245,15 @@ $(PCD)/kctx_frozen.o: kernel/frozen/kctx-r12a-r14.s
 $(PCD)/kctx3.o: kernel/kctx3.s
 	mkdir -p $(PCD)
 	$(AS) -o $@ $<
+$(PCD)/kctx17.o: kernel/kctx17.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+$(PCD)/uart_s17.o: kernel/uart_s17.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+$(PCD)/smp_s17.o: kernel/smp_s17.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
 $(PCD)/uart_s3.o: kernel/uart_s3.s
 	mkdir -p $(PCD)
 	$(AS) -o $@ $<
@@ -252,6 +261,9 @@ $(PCD)/smp_s.o: kernel/smp_s.s
 	mkdir -p $(PCD)
 	$(AS) -o $@ $<
 $(PCD)/bkl_s.o: kernel/bkl_s.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+$(PCD)/r16b_s.o: kernel/r16b_s.s
 	mkdir -p $(PCD)
 	$(AS) -o $@ $<
 $(PCD)/entry.o: platform/pc/entry.s
@@ -440,11 +452,32 @@ qdos386-pc:
 # processes, per-CPU kernel state, big kernel lock and two-CPU scheduling.  QEMU build/qdos386-smp/pc-vga/
 # qdos386-smp-vga.img, headless build/qdos386-smp/pc/qdos386-smp.img.  The default `make` kernels are unchanged.
 R16_OPTS = $(QDOS386_OPTS) -DQDOS_R16 $(R16_EXTRA)
-R16_OBJS = $(R13B_OBJS) uart.o uart_s3.o bkl.o bkl_s.o smp.o smp_s.o
+R16_OBJS = $(R13B_OBJS) uart.o uart_s3.o bkl.o bkl_s.o smp.o smp_s.o mbr.o
 qdos386-smp-pc:
 	$(MAKE) build/pc-r9/boot2.bin
 	$(MAKE) pc PCD=build/qdos386-smp/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R16_OPTS)" PCIMG=qdos386-smp.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/qdos386-smp/pc/kctx3.o PCEXTRA="$(addprefix build/qdos386-smp/pc/,$(R16_OBJS))"
 	$(MAKE) pc PCD=build/qdos386-smp/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R16_OPTS)" PCIMG=qdos386-smp-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/qdos386-smp/pc-vga/kctx3.o PCEXTRA="$(addprefix build/qdos386-smp/pc-vga/,$(R16_OBJS))"
+# R16B (opt-in, EXPERIMENTAL; docs/R16B-SCHEDULER-POLICY.md, docs/R16B-MIGRATION-ABI.md): the R16A kernel plus per-CPU
+# accounting, safe affinity migration of CPL3 jobs and the foreground-first policy, all under -DQDOS_R16B.  QEMU
+# build/qdos386-r16b/pc-vga/qdos386-r16b-vga.img.  qdos386-smp-pc (R16A) and the default `make` kernels are unchanged.
+R16B_OPTS = $(R16_OPTS) -DQDOS_R16B $(R16B_EXTRA)
+R16B_OBJS = $(R16_OBJS) r16b_s.o
+qdos386-r16b-pc:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/qdos386-r16b/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R16B_OPTS)" PCIMG=qdos386-r16b.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/qdos386-r16b/pc/kctx3.o PCEXTRA="$(addprefix build/qdos386-r16b/pc/,$(R16B_OBJS))"
+	$(MAKE) pc PCD=build/qdos386-r16b/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R16B_OPTS)" PCIMG=qdos386-r16b-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/qdos386-r16b/pc-vga/kctx3.o PCEXTRA="$(addprefix build/qdos386-r16b/pc-vga/,$(R16B_OBJS))"
+# R17 Apollo 13 (opt-in, EXPERIMENTAL; docs/APOLLO13-*.md): the R16B kernel plus the E820 memory map (QBOOT3 boot
+# sector, up to 256 MiB of RAM), up to 8 CPUs and topology-aware foreground-first placement, all under -DQDOS_R17.
+# QEMU build/qdos386-r17/pc-vga/qdos386-r17-vga.img.  The R16B, R16A and default `make` kernels are unchanged.
+R17_OPTS = $(R16B_OPTS) -DQDOS_R17 $(R17_EXTRA)
+R17CTX ?= kctx17.o
+R17UART ?= uart_s17.o
+R17_OBJS = $(R13B_OBJS) uart.o $(R17UART) bkl.o bkl_s.o smp17.o smp_s17.o mbr.o r16b_s.o memmap.o
+R17D ?= qdos386-r17
+qdos386-r17-pc:
+	$(MAKE) build/pc-r17/boot3.bin
+	$(MAKE) pc PCD=build/$(R17D)/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R17_OPTS)" PCIMG=qdos386-r17.img PCBOOT=build/pc-r17/boot3.bin PCMKIMG=platform/pc/make-image3.py PCCTX=build/$(R17D)/pc/$(R17CTX) PCEXTRA="$(addprefix build/$(R17D)/pc/,$(R17_OBJS))"
+	$(MAKE) pc PCD=build/$(R17D)/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R17_OPTS)" PCIMG=qdos386-r17-vga.img PCBOOT=build/pc-r17/boot3.bin PCMKIMG=platform/pc/make-image3.py PCCTX=build/$(R17D)/pc-vga/$(R17CTX) PCEXTRA="$(addprefix build/$(R17D)/pc-vga/,$(R17_OBJS))"
 # R15 AMP0 (opt-in, docs/R15-AMP-ARCHITECTURE.md): the current kernel plus the master/worker service - CPU 0 keeps the
 # whole kernel, one application processor runs kernel/amp_ap.c only.  QEMU build/qdos386-amp/pc-vga/qdos386-amp-vga.img,
 # headless build/qdos386-amp/pc/qdos386-amp.img.  The default `make` kernels are unchanged.  Test-only variants:
@@ -591,6 +624,14 @@ build/pc-r9/boot2.bin: platform/pc/boot2.s
 	$(AS) -o build/pc-r9/boot2.o build/pc-r9/boot2.s
 	$(LD) -N -T platform/pc/boot.ld -e start -o build/pc-r9/boot2.aout build/pc-r9/boot2.o
 	python3 $(I386VM)/tools/aout-to-raw.py build/pc-r9/boot2.aout build/pc-r9/boot2.bin
+
+# R17 Apollo 13: the QBOOT3 boot sector (boot2 + INT 15h E820 map at 0x500), R9 transfer address, for make-image3.py.
+build/pc-r17/boot3.bin: platform/pc/boot3.s
+	mkdir -p build/pc-r17
+	sed 's/movl $$0x280000,%edi/movl $$0x340000,%edi/' platform/pc/boot3.s > build/pc-r17/boot3.s
+	$(AS) -o build/pc-r17/boot3.o build/pc-r17/boot3.s
+	$(LD) -N -T platform/pc/boot.ld -e start -o build/pc-r17/boot3.aout build/pc-r17/boot3.o
+	python3 $(I386VM)/tools/aout-to-raw.py build/pc-r17/boot3.aout build/pc-r17/boot3.bin
 
 r9-pc-shell: build/pc-r9/boot.bin build/fat16/win1-r9.img
 	$(MAKE) pc PCD=build/pc-r9 PCFLAGS="$(R9_FLAGS)" PCIMG=r9shell.img PCBOOT=build/pc-r9/boot.bin PCWIN=build/fat16/win1-r9.img

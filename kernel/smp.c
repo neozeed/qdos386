@@ -192,8 +192,11 @@ void smp_start_ap(void)
 	/* an idle job pinned to CPU 1 */
 	ap_idle = job_alloc("IDL1", smp_ap_idle_entry, 1);
 	if (ap_idle < 0) { state = SMP_S_FAILED; reason = 5; return; }
+	ap_idle &= 0xffff;                    /* R16A: job_alloc returns the id (tag<<16 | slot); index jobs[] by slot.
+	                                         The old code wrote jobs[<id>].aff, an out-of-bounds write that also left
+	                                         the real IDL1 slot at aff=0, so CPU 0 could run the CPU-1 idle job. */
 	jobs[ap_idle].aff = 1;
-	g_jobidle[1] = ap_idle & 0xffff;
+	g_jobidle[1] = ap_idle;
 
 	calib = lapic_calibrate();
 	if (calib == 0) { state = SMP_S_FAILED; reason = 9; return; }
@@ -252,9 +255,226 @@ unsigned int smp_ap_timer_resume(unsigned int sp)
 {
 	ap_ticks++;
 	lw(LAPIC_EOI, 0);
+#ifdef QDOS_R16B
+	smp_acct_tick(sp);                 /* R16B: sample CPU 1 (BKL held) */
+#endif
 	ap_dispatch++;
 	return schedule_entry(sp);
 }
+
+#ifdef QDOS_R16B
+/* ---- R16B accounting (docs/R16B-SCHEDULER-POLICY.md §Accounting).  All counters change under the BKL. ----
+ * Utilisation is SAMPLED: each CPU's own timer tick classifies what it interrupted (idle job / CPL3 code / anything
+ * else at CPL0, i.e. kernel or a legacy ring-0 job).  It is a tick-granular estimate, not exact time. */
+extern volatile unsigned long sched_ticks;
+extern unsigned long bkl_wait_kc[2], bkl_contended[2];
+int vcon_fg(void);
+int vcon_job_con(int slot);
+static unsigned long st_ticks[2], st_cpl3[2], st_cpl0[2], st_idle[2], st_ctxsw[2], st_migr[2];
+static unsigned long st_req = 0, st_polmoves = 0;
+#ifndef R16B_POLICY_DEFAULT
+#define R16B_POLICY_DEFAULT SMP_POL_FG     /* the R16B kernel boots foreground-first; CPUSET POLICY OFF = R16A placement */
+#endif
+static unsigned int policy = R16B_POLICY_DEFAULT;
+volatile unsigned long smp_focus_gen = 0;
+
+void smp_acct_tick(unsigned int sp)
+{
+	int c = kx_this_cpu();
+	unsigned int *f = (unsigned int *) sp;
+
+	st_ticks[c]++;
+	if (g_jobcur[c] == g_jobidle[c])
+		st_idle[c]++;
+	else if ((f[9] & 3u) == 3u)
+		st_cpl3[c]++;
+	else
+		st_cpl0[c]++;
+}
+
+void smp_note_dispatch(int slot, int cpu)
+{
+	st_ctxsw[cpu]++;
+	if (cpu == 1)
+		jobs[slot].lent_tick = 0;           /* back on its own CPU: no longer on loan */
+	if (jobs[slot].last_cpu >= 0 && jobs[slot].last_cpu != cpu)
+		st_migr[cpu]++;                    /* the job last ran on the other CPU: a completed migration */
+}
+
+/* the CPU a job should prefer: its manual pin, else the policy's choice, else CPU 0 */
+static int r16b_effective(int slot)
+{
+	if (jobs[slot].pin >= 0)
+		return jobs[slot].pin;
+	if (state != SMP_S_UP)
+		return 0;
+	if (policy == SMP_POL_FG || policy == SMP_POL_LEND)
+		return vcon_job_con(slot) == vcon_fg() ? 0 : 1;
+	return 0;
+}
+
+/* request a migration: only writes aff under the BKL.  The owning CPU keeps running the job until its next
+ * schedule() pass, where pick_next no longer selects it and running_on becomes -1 after the frame and x87 state are
+ * saved; only then can the other CPU's pick_next take it (docs/R16B-AUDIT.md §State transitions). */
+static int r16b_set_aff(int slot, int cpu)
+{
+	if (jobs[slot].aff == (signed char) cpu)
+		return 0;
+	jobs[slot].aff = (signed char) cpu;
+	jobs[slot].moved_tick = sched_ticks;
+	jobs[slot].lent_tick = 0;
+	st_req++;
+	return 1;
+}
+
+/* Foreground-first policy (docs/R16B-SCHEDULER-POLICY.md).  Runs on CPU 0's timer tick with the BKL held, which is a
+ * safe point: it only rewrites aff, and every move is then honoured by the owning CPU's own schedule() pass.
+ *   - event driven: a pass runs when the focus generation changed (vcon_switch) or every R16B_POL_SWEEP ticks (to
+ *     pick up newly started jobs and session changes); otherwise it returns at once;
+ *   - only live protected (CPL3) jobs with no manual pin are considered; kernel, idle and ring-0 jobs never move;
+ *   - hysteresis: a job is not moved again until it has stayed R16B_POL_RESIDENCY ticks where it is; a move that is
+ *     due but too soon is retried by a later pass. */
+#ifndef R16B_POL_SWEEP
+#define R16B_POL_SWEEP     50u
+#endif
+#ifndef R16B_POL_RESIDENCY
+#define R16B_POL_RESIDENCY 25u
+#endif
+static unsigned long pol_gen = 0, pol_last = 0;
+static int pol_deferred = 0;
+unsigned long st_poldefer = 0;
+
+void smp_policy_tick(void)
+{
+	int s, want;
+
+	if ((policy != SMP_POL_FG && policy != SMP_POL_LEND) || state != SMP_S_UP)
+		return;
+	if (smp_focus_gen == pol_gen && !pol_deferred && sched_ticks - pol_last < R16B_POL_SWEEP)
+		return;
+	if (smp_focus_gen == pol_gen && pol_deferred && sched_ticks - pol_last < R16B_POL_RESIDENCY / 2u)
+		return;                                    /* retry deferred moves at a modest rate, not every tick */
+	pol_gen = smp_focus_gen;
+	pol_last = sched_ticks;
+	pol_deferred = 0;
+	for (s = 1; s < JOB_MAX; s++) {
+		if (!jobs[s].in_use || jobs[s].dead || jobs[s].pin >= 0 || !pg_slot_prot(s))
+			continue;
+		want = r16b_effective(s);
+		if (jobs[s].aff == (signed char) want)
+			continue;
+		if (sched_ticks - jobs[s].moved_tick < R16B_POL_RESIDENCY) {
+			pol_deferred = 1;                      /* moved too recently: hold it here a little longer */
+			st_poldefer++;
+			continue;
+		}
+		if (r16b_set_aff(s, want))
+			st_polmoves++;
+	}
+}
+
+/* Idle CPU 0 lending (docs/R16B-SCHEDULER-POLICY.md §Idle CPU 0).  Called by pick_next, BKL held, only when that
+ * CPU has no candidate of its own.
+ *   CPU 0: may borrow a READY background job (aff 1, AUTO, protected, runnable, not running) while CPU 1 is busy with
+ *   another job.  The job keeps aff = 1 and is marked lent; CPU 0 prefers its current borrowed job, then one already
+ *   on loan, so a borrowed job stays rather than bouncing.  Each CPU-0 dispatch refreshes lent_tick, and CPU 1's
+ *   pick_next leaves a lent job alone for R16B_LEND_RES ticks after that.
+ *   CPU 1: when it would otherwise idle, it takes back a READY job of its own that is on loan.
+ * Either way the dispatch is the ordinary one: the frame and x87 state were saved by the job's last schedule() pass
+ * (running_on == -1).  Returns a slot, or -1. */
+static unsigned long st_steal = 0;
+int smp_steal(int cpu)
+{
+	int s, best = -1, lent = -1;
+	unsigned int best_acc = 0;
+
+	if (policy != SMP_POL_LEND || state != SMP_S_UP)
+		return -1;                                 /* lending only in the LEND policy */
+	for (s = 1; s < JOB_MAX; s++) {
+		struct job *j = &jobs[s];
+		if (!j->in_use || j->dead || j->prio_inc == 0 || j->status != 0)
+			continue;
+		if (j->aff != 1 || j->pin >= 0 || s == g_jobidle[1] || !pg_slot_prot(s))
+			continue;
+		if (cpu == 1) {                            /* CPU 1 would idle: take back one of its jobs on loan */
+			if (j->lent_tick != 0 && j->running_on == -1)
+				return s;
+			continue;
+		}
+		if (s == g_jobcur[cpu]) {                  /* already borrowed and still runnable: keep it here */
+			best = s;
+			lent = -1;
+			break;
+		}
+		if (j->running_on != -1)
+			continue;                              /* running on CPU 1 */
+		if (j->lent_tick != 0 && lent < 0)
+			lent = s;                              /* on loan already: prefer it over a fresh borrow */
+		if (g_jobcur[1] == g_jobidle[1])
+			continue;                              /* CPU 1 is free to run it itself */
+		if (best < 0 || (unsigned int) j->acc_prio > best_acc) {
+			best = s;
+			best_acc = (unsigned int) j->acc_prio;
+		}
+	}
+	if (cpu == 1)
+		return -1;
+	if (lent >= 0)
+		best = lent;
+	if (best >= 0) {
+		if (best != g_jobcur[cpu] && jobs[best].lent_tick == 0)
+			st_steal++;
+		jobs[best].lent_tick = sched_ticks;        /* refreshed on every CPU-0 dispatch while it stays lent */
+	}
+	return best;
+}
+
+static int r16b_stats(unsigned int words, unsigned int buf)
+{
+	unsigned int w[SMP_STATS_WORDS], i, n;
+	int c;
+
+	if (words < 10u)
+		return SMP_ERR_ARG;
+	n = words < SMP_STATS_WORDS ? words : SMP_STATS_WORDS;
+	if (!chan_user_range_ok(buf, n * 4u))
+		return CHAN_ERR_RANGE;
+	for (i = 0; i < SMP_STATS_WORDS; i++)
+		w[i] = 0;
+	w[0] = SMP_STATS_VERSION;
+	w[1] = (unsigned int) smp_cpu_count();
+	w[2] = (unsigned int) state;
+	w[3] = policy;
+	w[4] = (unsigned int) smp_focus_gen;
+	w[5] = (unsigned int) vcon_fg();
+	w[6] = (unsigned int) st_req;
+	w[7] = (unsigned int) st_polmoves;
+	w[8] = (unsigned int) sched_ticks;
+	w[9] = (unsigned int) st_poldefer;
+	for (c = 0; c < 2; c++) {
+		unsigned int *p = w + 10 + 16 * c;
+		p[0] = (unsigned int) st_ticks[c];
+		p[1] = (unsigned int) st_cpl3[c];
+		p[2] = (unsigned int) st_cpl0[c];
+		p[3] = (unsigned int) st_idle[c];
+		p[4] = (unsigned int) st_ctxsw[c];
+		p[5] = (unsigned int) st_migr[c];
+		p[6] = (unsigned int) bkl_acq[c];
+		p[7] = (unsigned int) bkl_contended[c];
+		p[8] = (unsigned int) bkl_spins[c];
+		p[9] = (unsigned int) bkl_wait_kc[c];
+		p[10] = (c == 0 || state == SMP_S_UP) ? jobs[g_jobcur[c]].id : 0u;
+		p[11] = (c == 0 || state == SMP_S_UP) ? jobs[g_jobidle[c]].id : 0u;
+		p[12] = (unsigned int) bkl_depth[c];
+	}
+	w[41] = (unsigned int) st_steal;
+	w[42] = bkl_word;
+	w[43] = (unsigned int) bkl_badrel;
+	w[44] = (unsigned int) bkl_maxspin;
+	{ unsigned int *u = (unsigned int *) buf; for (i = 0; i < n; i++) u[i] = w[i]; }
+	return (int) n;
+}
+#endif /* QDOS_R16B */
 
 /* ---- affinity / control trap (CPU 0) ---- */
 int smp_cpu_count(void) { return state == SMP_S_UP ? 2 : 1; }
@@ -279,6 +499,43 @@ int smp_trap(unsigned int a, unsigned int b, unsigned int c)
 		w[22] = (unsigned int) g_jobidle[1]; w[23] = kx_this_cpu();
 		{ unsigned int *u = (unsigned int *) c; for (i = 0; i < SMP_INFO_WORDS; i++) u[i] = w[i]; }
 		return 0;
+#ifdef QDOS_R16B
+	case SMP_OP_SETAFF:
+		/* R16B: pin a live CPL3 job to CPU 0/1, or AUTO.  Kernel, idle and legacy ring-0 jobs never move (an idle job
+		 * on the wrong CPU could be returned by both CPUs' idle fallback).  A job running on either CPU is accepted:
+		 * the change is a request that its owning CPU honours at its next schedule() pass. */
+		slot = job_lookup(b);
+		if (slot == JOB_NONE)
+			return SMP_ERR_NOJOB;
+		if ((int) c < 0 || c > SMP_CPU_AUTO)
+			return SMP_ERR_ARG;
+		if (!pg_slot_prot(slot))
+			return SMP_ERR_RING0;
+		if (jobs[slot].dead)
+			return SMP_ERR_DEAD;
+		if (c == 1 && state != SMP_S_UP)
+			return SMP_ERR_UNAVAIL;
+		jobs[slot].pin = (signed char) (c == SMP_CPU_AUTO ? -1 : (int) c);
+		(void) r16b_set_aff(slot, r16b_effective(slot));
+		return 0;
+	case SMP_OP_STATS:
+		return r16b_stats(b, c);
+#ifdef QDOS_R17
+	case SMP_OP_MEMINFO:
+		return proc_meminfo(b, c);
+#endif
+	case SMP_OP_POLICY:
+		{
+			unsigned int prev = policy;
+			if (b == SMP_POL_QUERY)
+				return (int) prev;
+			if (b != SMP_POL_OFF && b != SMP_POL_FG && b != SMP_POL_LEND)
+				return SMP_ERR_ARG;
+			policy = b;
+			smp_focus_gen++;               /* re-evaluate every AUTO job at the next CPU-0 tick */
+			return (int) prev;
+		}
+#else
 	case SMP_OP_SETAFF:
 		slot = job_lookup(b);
 		if (slot == JOB_NONE || (int) c < 0 || c > 1) return SMP_ERR_ARG;
@@ -289,6 +546,7 @@ int smp_trap(unsigned int a, unsigned int b, unsigned int c)
 		if (jobs[slot].running_on != -1 && slot != g_jobcur[kx_this_cpu()]) return SMP_ERR_STATE;
 		jobs[slot].aff = (signed char) c;
 		return 0;
+#endif
 	case SMP_OP_START:
 		if (state == SMP_S_UP) return SMP_S_UP;
 		smp_start_ap();

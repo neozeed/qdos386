@@ -17,6 +17,9 @@
 #include "aout.h"
 
 #define PROC_HEAP_BASE    0x10000000u
+#if !defined(QDOS_PROC_HEAP_MAX) && defined(QDOS_R17)
+#define QDOS_PROC_HEAP_MAX 0x04000000u          /* R17: 64 MiB of virtual heap per process (16 private tables) */
+#endif
 #ifndef QDOS_PROC_HEAP_MAX
 #define QDOS_PROC_HEAP_MAX 0x00800000u          /* 8 MiB of virtual heap per process; frames are the real limit */
 #endif

@@ -7,6 +7,9 @@
 #include "channel.h"
 #include "fat16.h"
 #include "win1.h"
+#ifdef QDOS_R16
+#include "mbr.h"
+#endif
 #ifdef QDOS_FS_WRITE
 #include "jobs.h"
 #endif
@@ -20,6 +23,68 @@
 static struct fat16_vol vol;
 static int mounted = 0;
 
+#ifdef QDOS_R16
+/*
+ * R16A: the WIN1_ data disk (the PIIX3 primary slave, QEMU hdb) may be either an unpartitioned FAT16 superfloppy
+ * (sector 0 is the FAT16 VBR, as every prior image) OR an ordinary MBR disk with one primary FAT16 partition (as a
+ * Windows-prepared VHD).  Only this block-volume adapter knows the difference: it applies a partition start offset,
+ * so the FAT16 driver keeps seeing partition-relative LBAs unchanged.  part_lba is the partition start (0 for a
+ * superfloppy); part_count is the partition length in sectors (the whole device for a superfloppy).
+ */
+static unsigned int part_lba = 0;
+static unsigned int part_count = 0;
+static unsigned int dev_count = 0;      /* physical device sector count, for the final bounds check */
+
+/* Decide part_lba / part_count for the device via the pure locator (kernel/mbr.c): superfloppy -> offset 0, whole
+ * device; one in-range primary FAT16 partition -> that partition; anything else is refused (never treated as empty,
+ * never formatted).  The partition's own VBR/BPB is then validated by fat16_mount through the offset. */
+static int choose_partition(unsigned int dev)
+{
+	unsigned char s[FAT_SECTOR_BYTES];
+	int ncand, rc;
+
+	if (disk_read_sector(0, &s[0]) != 0)
+		return FAT_ERR_IO;
+	rc = mbr_select_fat16(s, dev, &part_lba, &part_count, &ncand);
+	if (rc == MBR_REFUSE)
+		return FAT_ERR_BPB;                  /* not a FAT16 VBR and no usable FAT16 primary */
+	if (rc == MBR_PARTITION && ncand > 1)
+		con_puts("WIN1_: several FAT16 partitions; mounting the lowest-LBA one\n");
+	return FAT_OK;
+}
+
+static int disk_thunk(void *ctx, unsigned int lba, unsigned char *buf)
+{
+	unsigned int phys;
+	(void) ctx;
+	if (part_count != 0 && lba >= part_count)
+		return FAT_ERR_RANGE;                /* beyond the partition */
+	phys = part_lba + lba;
+	if (phys < part_lba)
+		return FAT_ERR_RANGE;                /* offset overflow */
+	if (dev_count != 0 && phys >= dev_count)
+		return FAT_ERR_RANGE;                /* beyond the physical device */
+	return disk_read_sector(phys, buf);
+}
+
+#ifdef QDOS_FS_WRITE
+static int disk_thunk_w(void *ctx, unsigned int lba, const unsigned char *buf)
+{
+	unsigned int phys;
+	(void) ctx;
+	if (part_count != 0 && lba >= part_count)
+		return FAT_ERR_RANGE;
+	phys = part_lba + lba;
+	if (phys < part_lba)
+		return FAT_ERR_RANGE;
+	if (dev_count != 0 && phys >= dev_count)
+		return FAT_ERR_RANGE;
+	return disk_write_sector(phys, buf);
+}
+#endif /* QDOS_FS_WRITE */
+
+#else /* !QDOS_R16: the original superfloppy-only adapter, byte-for-byte unchanged */
+
 static int disk_thunk(void *ctx, unsigned int lba, unsigned char *buf)
 {
 	(void) ctx;
@@ -32,7 +97,11 @@ static int disk_thunk_w(void *ctx, unsigned int lba, const unsigned char *buf)
 	(void) ctx;
 	return disk_write_sector(lba, buf);
 }
+#endif /* QDOS_FS_WRITE (plain thunk_w) */
 
+#endif /* QDOS_R16 */
+
+#ifdef QDOS_FS_WRITE
 /* Open-file registry: one record per distinct directory entry in use.  A file may have any number
  * of readers or exactly one writer, never both; delete and rename need the file closed.  The key is
  * the entry's sector and offset, so two names cannot alias one file.  Entries are released by
@@ -195,7 +264,18 @@ int win1_mount(void)
 	int rc;
 	if (mounted)
 		return FAT_OK;
+#ifdef QDOS_R16
+	dev_count = (unsigned int) disk_sector_count();
+	if (dev_count == 0)
+		return FAT_ERR_IO;
+	rc = choose_partition(dev_count);        /* R16A: superfloppy or one MBR FAT16 primary; sets part_lba/part_count */
+	if (rc != FAT_OK)
+		return rc;
+	/* fat16_mount validates the (partition's) VBR/BPB through the offset; the FAT driver sees relative LBAs. */
+	rc = fat16_mount(&vol, disk_thunk, 0, part_count);
+#else
 	rc = fat16_mount(&vol, disk_thunk, 0, disk_sector_count());
+#endif
 	if (rc == FAT_OK) {
 		mounted = 1;
 #ifdef QDOS_FS_WRITE

@@ -475,6 +475,12 @@ int vcon_switch(int con)
 	if (con == fg)
 		return 0;
 	fg = con;
+#ifdef QDOS_R16B
+	{
+		extern volatile unsigned long smp_focus_gen;
+		smp_focus_gen++;           /* R16B: the scheduler re-evaluates CPU preferences at its next safe point */
+	}
+#endif
 #ifdef QDOS_TASKMGR
 	if (overlay)
 		return 0;                      /* drawn when the overlay closes */

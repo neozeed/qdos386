@@ -20,7 +20,10 @@ extern void load_descriptors(unsigned int gdtr, unsigned int idtr);
 
 #define IRQ0_VECTOR 0x20
 
-#ifdef QDOS_R16
+#ifdef QDOS_R17
+/* R17: as R16, plus one TSS per application processor: CPU n (1..7) at 0x38 + 8 * (n - 1), i.e. 0x38 .. 0x70. */
+#define GDT_BYTES 120
+#elif defined(QDOS_R16)
 /* R16: user code 0x28 (selector 0x2B), user data 0x30 (selector 0x33), AP TSS 0x38 (filled by kernel/smp.c). */
 #define GDT_BYTES 64
 #elif defined(QDOS_DYNPROC)
@@ -104,7 +107,37 @@ void kx_tss_init(unsigned int template_cr3)
 	kx_tss_df[7] = template_cr3;
 }
 
-#ifdef QDOS_R16
+#ifdef QDOS_R17
+/* R17: per-CPU TSS.  CPU 0 uses kx_tss_main (selector 0x18); CPU n >= 1 uses kx_tss_aps[n - 1] (selector 0x30 + 8n). */
+unsigned int kx_tss_aps[7][26];
+int kx_this_cpu(void);
+
+void kx_set_esp0(unsigned int esp)                 /* dispatching CPU's TSS.ESP0 for the incoming job */
+{
+	int c = kx_this_cpu();
+	if (c == 0) kx_tss_main[1] = esp;
+	else kx_tss_aps[c - 1][1] = esp;
+}
+void kx_set_esp0_cpu(int cpu, unsigned int esp) { if (cpu == 0) kx_tss_main[1] = esp; else kx_tss_aps[cpu - 1][1] = esp; }
+
+unsigned int kx_gdtr_addr(void) { return (unsigned int) gdtr; }
+unsigned int kx_idtr_addr(void) { return (unsigned int) idtr; }
+
+/* Build CPU <cpu>'s TSS (ring 0, SS0=0x10, template CR3, own ESP0) and install its descriptor; returns the selector. */
+unsigned int kx_install_ap_tss_cpu(int cpu, unsigned int esp0, unsigned int cr3)
+{
+	int i;
+	unsigned int *t = kx_tss_aps[cpu - 1];
+	for (i = 0; i < 26; i++) t[i] = 0;
+	t[1] = esp0;
+	t[2] = 0x10u;
+	t[7] = cr3;
+	t[25] = 104u << 16;
+	tss_desc(gdt + 0x30 + 8 * cpu, (unsigned long) t);
+	return 0x30u + 8u * (unsigned int) cpu;
+}
+void kx_set_ap_gate(int vector, unsigned int handler) { set_gate(vector, (unsigned long) handler); }
+#elif defined(QDOS_R16)
 /* R16: per-CPU TSS.  CPU 0 uses kx_tss_main (selector 0x18); CPU 1 uses kx_tss_ap (selector 0x38). */
 unsigned int kx_tss_ap[26];
 int kx_this_cpu(void);
