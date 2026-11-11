@@ -1,0 +1,12 @@
+build/
+*.o
+__pycache__/
+sdk/examples/*.aout
+sdk/lib/*.o
+sdk/lib/*.a
+sdk/compiler/*.o
+sdk/compiler/gnulib.c
+sdk/compiler/gnulib2.c
+logs/r11l/**/*.img
+logs/r11l/**/img/
+logs/r11m/**/*.img

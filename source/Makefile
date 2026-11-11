@@ -1,0 +1,683 @@
+# QDOS/386 R6 and R7 - build both targets.
+#   make i386vm   : flat image for the i386VM harness: kernel, transfer area,
+#                   and the WIN1_ FAT16 volume as a preloaded RAM disk
+#   make pc       : Tiny386 PC disk image (SeaBIOS boot sector, transfer area);
+#                   the FAT16 volume is a separate disk, given as hdb in run.ini
+#   make apps     : the a.out applications and the transfer area
+#   make fat16    : the WIN1_ FAT16 volume (build/fat16/win1.img, 3 MiB)
+#   make notimer  : i386VM negative test (timer never started)
+#
+# Paths to external trees (override on the command line):
+I386VM   ?= $(HOME)/i386vm
+TINY386  ?= $(HOME)/tiny386/tiny386_headless
+SEABIOS  ?= $(HOME)/seabios/out
+GCC  = $(I386VM)/bin/i386-gcc
+AS   = $(I386VM)/bin/as
+LD   = $(I386VM)/bin/i386-ld
+VM   = $(I386VM)/bin/i386vm
+
+# Output directories and flags.  The defaults are the R6 test images; the R7
+# shell boot images are built from the same sources with other values:
+#   make i386vm-shell   build/i386vm-shell/qdos386-r7-shell.bin  (-DR7_SHELL_MODE)
+#   make pc-shell       build/pc-shell/r7shell.img                (-DR7_SHELL_MODE)
+I386D    ?= build/i386vm
+I386IMG  ?= qdos386-r6.bin
+I386FLAGS ?=
+PCD      ?= build/pc
+PCIMG    ?= r6pc.img
+PCFLAGS  ?=
+# R8: the FAT16 volume each boot image uses (R7 volume by default).
+I386WIN  ?= build/fat16/win1.img
+PCWIN    ?= build/fat16/win1.img
+
+INC = -Ikernel -Itests -Iplatform
+KCORE = kernel/region.c kernel/main.c kernel/jobs.c kernel/clock.c kernel/clock_boot.c kernel/fpu.c kernel/memory.c kernel/channel.c kernel/irq.c kernel/descriptors.c \
+        kernel/aout.c kernel/fat16.c kernel/win1.c kernel/cin.c kernel/kbd.c kernel/imgload.c kernel/shellboot.c \
+        tests/test_jobs.c tests/test_memory.c tests/test_channels.c tests/test_app.c tests/test_fs.c \
+        tests/test_console.c tests/test_dir.c tests/test_shell.c tests/test_r8.c
+
+# KCTX-FIX2: the default goal is the current kernel (qdos386-pc).  The original R6 pair is `make r6-images`.
+all: qdos386-pc
+r6-images: i386vm pc
+
+# ---- applications (independently linked; the kernel never links them) ------
+APPS = build/apps/hello.aout build/apps/prep.aout build/apps/hello1.aout build/apps/shell.aout build/apps/shellt.aout build/apps/args.aout
+
+build/apps/%.o: apps/hello/%.c apps/common/appcalls.h
+	mkdir -p build/apps
+	$(GCC) -c -Iapps/common $< -o $@
+build/apps/prep.o: apps/prep/prep.c apps/common/appcalls.h
+	mkdir -p build/apps
+	$(GCC) -c -Iapps/common $< -o $@
+build/apps/app_start.o: apps/common/app_start.s
+	mkdir -p build/apps
+	$(AS) -o $@ $<
+build/apps/qtrap.o: apps/common/qtrap.s
+	mkdir -p build/apps
+	$(AS) -o $@ $<
+
+build/apps/hello.aout: build/apps/hello.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
+	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/hello.o build/apps/qtrap.o
+build/apps/prep.aout: build/apps/prep.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot1.ld
+	$(LD) -N -T apps/common/slot1.ld -e _start -o $@ build/apps/app_start.o build/apps/prep.o build/apps/qtrap.o
+
+# hello linked for slot 1: the same object as hello.aout, a different origin.
+build/apps/hello1.aout: build/apps/hello.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot1.ld
+	$(LD) -N -T apps/common/slot1.ld -e _start -o $@ build/apps/app_start.o build/apps/hello.o build/apps/qtrap.o
+
+build/fat16/fixtures/big.bin build/fat16/fixtures/bad.bin build/fat16/fixtures/empty.bin: tools/make-fixtures.py
+	python3 tools/make-fixtures.py build/fat16/fixtures
+
+# R7 shell: slot 0, the same source twice (SHELLT adds the guest self-test).
+build/apps/shell.o: apps/shell/shell.c apps/common/appcalls.h
+	mkdir -p build/apps
+	$(GCC) -c -O -Iapps/common $< -o $@
+build/apps/shellt.o: apps/shell/shell.c apps/common/appcalls.h
+	mkdir -p build/apps
+	$(GCC) -c -O -DSHELL_SELFTEST -Iapps/common $< -o $@
+build/apps/shell.aout: build/apps/shell.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
+	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shell.o build/apps/qtrap.o
+# R11L: the same shell with a 160 character input line (the ported tools take long command lines).
+build/apps/shell-l.o: apps/shell/shell.c apps/common/appcalls.h
+	mkdir -p build/apps
+	$(GCC) -c -O -DSH_LINE_MAX=160 -Iapps/common $< -o $@
+build/apps/shell-l.aout: build/apps/shell-l.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
+	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shell-l.o build/apps/qtrap.o
+# R11M: the directory-aware shell (160 character line; -DR11M_SHELL adds PWD CD MD RD COPY DEL REN, and START PS WAIT KILL CON with -DR11M_JOBS).
+build/apps/shell-m.o: apps/shell/shell.c apps/shell/shell_r11m.inc apps/shell/shell_jobs.inc apps/shell/shell_edit.inc apps/common/appcalls.h
+	mkdir -p build/apps
+	$(GCC) -c -O -DSH_LINE_MAX=160 -DR11M_SHELL -DR11M_JOBS -Iapps/common -Iapps/shell $< -o $@
+build/apps/shell-m.aout: build/apps/shell-m.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
+	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shell-m.o build/apps/qtrap.o
+# R12A: the R11M/R12 shell for the 16-entry job table of QDOS_DYNPROC kernels (same source; -DR12A_SHELL changes messages).
+build/apps/shell-a.o: apps/shell/shell.c apps/shell/shell_r11m.inc apps/shell/shell_jobs.inc apps/shell/shell_edit.inc apps/common/appcalls.h
+	mkdir -p build/apps
+	$(GCC) -c -O -DSH_LINE_MAX=160 -DR11M_SHELL -DR11M_JOBS -DR12A_SHELL -DJC_MAXJOBS=16 -DSJ_MAX=16 -Iapps/common -Iapps/shell $< -o $@
+build/apps/shell-a.aout: build/apps/shell-a.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
+	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shell-a.o build/apps/qtrap.o
+# R12B: the R12A shell plus SET/UNSET/ECHO, %NAME% expansion, CALL/SOURCE scripts and /ETC/STARTUP.CMD (-DR12B_SHELL).
+build/apps/shell-b.o: apps/shell/shell.c apps/shell/shell_r11m.inc apps/shell/shell_jobs.inc apps/shell/shell_edit.inc apps/shell/shell_env.inc apps/common/appcalls.h
+	mkdir -p build/apps
+	$(GCC) -c -O -DSH_LINE_MAX=160 -DR11M_SHELL -DR11M_JOBS -DR12A_SHELL -DR12B_SHELL -DJC_MAXJOBS=16 -DSJ_MAX=16 -Iapps/common -Iapps/shell $< -o $@
+build/apps/shell-b.aout: build/apps/shell-b.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
+	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shell-b.o build/apps/qtrap.o
+# R12C: the R12B shell plus TASKS and SYNC (-DR12C_SHELL).
+build/apps/shell-c.o: apps/shell/shell.c apps/shell/shell_r11m.inc apps/shell/shell_jobs.inc apps/shell/shell_edit.inc apps/shell/shell_env.inc apps/shell/shell_parse.inc apps/shell/shell_r12c.inc apps/common/appcalls.h
+	mkdir -p build/apps
+	$(GCC) -c -O -DSH_LINE_MAX=160 -DR11M_SHELL -DR11M_JOBS -DR12A_SHELL -DR12B_SHELL -DR12C_SHELL -DJC_MAXJOBS=16 -DSJ_MAX=16 -Iapps/common -Iapps/shell $< -o $@
+build/apps/shell-c.aout: build/apps/shell-c.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
+	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shell-c.o build/apps/qtrap.o
+# R13: the R12C shell plus sessions: START /NEW, CON/CONDUMP/KILL for sessions 0..19, TASKS /L with MODE (-DR13_SHELL).
+build/apps/shell-d.o: apps/shell/shell.c apps/shell/shell_r11m.inc apps/shell/shell_jobs.inc apps/shell/shell_edit.inc apps/shell/shell_env.inc apps/shell/shell_parse.inc apps/shell/shell_r12c.inc apps/common/appcalls.h
+	mkdir -p build/apps
+	$(GCC) -c -O -DSH_LINE_MAX=160 -DR11M_SHELL -DR11M_JOBS -DR12A_SHELL -DR12B_SHELL -DR12C_SHELL -DR13_SHELL -DJC_MAXJOBS=16 -DSJ_MAX=16 -Iapps/common -Iapps/shell $< -o $@
+build/apps/shell-d.aout: build/apps/shell-d.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
+	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shell-d.o build/apps/qtrap.o
+# R13A: the R13 shell plus FONT, CONSOLE and SET FONT= (-DR13A_SHELL).
+build/apps/shell-e.o: apps/shell/shell.c apps/shell/shell_r11m.inc apps/shell/shell_jobs.inc apps/shell/shell_edit.inc apps/shell/shell_env.inc apps/shell/shell_parse.inc apps/shell/shell_r12c.inc apps/shell/shell_r13a.inc apps/common/appcalls.h
+	mkdir -p build/apps
+	$(GCC) -c -O -DSH_LINE_MAX=160 -DR11M_SHELL -DR11M_JOBS -DR12A_SHELL -DR12B_SHELL -DR12C_SHELL -DR13_SHELL -DR13A_SHELL -DJC_MAXJOBS=16 -DSJ_MAX=16 -Iapps/common -Iapps/shell $< -o $@
+build/apps/shell-e.aout: build/apps/shell-e.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
+	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shell-e.o build/apps/qtrap.o
+# R13B: the R13A shell plus CLS, DATE, TIME and programs run by name (-DR13B_SHELL).  shell-f is the boot shell
+# (0x200000, slot0.ld); sh is the same source as an ordinary program (-DR13B_DYN, canonical 0x240000, slot1.ld): /BIN/SH.AOU.
+SHELL_R13B_SRC = apps/shell/shell.c apps/shell/shell_r11m.inc apps/shell/shell_jobs.inc apps/shell/shell_edit.inc apps/shell/shell_env.inc apps/shell/shell_parse.inc apps/shell/shell_r12c.inc apps/shell/shell_r13a.inc apps/shell/shell_r13b.inc apps/common/appcalls.h
+SHELL_R13B_FLAGS = -DSH_LINE_MAX=160 -DR11M_SHELL -DR11M_JOBS -DR12A_SHELL -DR12B_SHELL -DR12C_SHELL -DR13_SHELL -DR13A_SHELL -DR13B_SHELL -DJC_MAXJOBS=16 -DSJ_MAX=16
+build/apps/shell-f.o: $(SHELL_R13B_SRC)
+	mkdir -p build/apps
+	$(GCC) -c -O $(SHELL_R13B_FLAGS) -Iapps/common -Iapps/shell $< -o $@
+build/apps/shell-f.aout: build/apps/shell-f.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
+	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shell-f.o build/apps/qtrap.o
+build/apps/sh.o: $(SHELL_R13B_SRC)
+	mkdir -p build/apps
+	$(GCC) -c -O $(SHELL_R13B_FLAGS) -DR13B_DYN -Iapps/common -Iapps/shell $< -o $@
+build/apps/sh.aout: build/apps/sh.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot1.ld
+	$(LD) -N -T apps/common/slot1.ld -e _start -o $@ build/apps/app_start.o build/apps/sh.o build/apps/qtrap.o
+build/apps/shellt.aout: build/apps/shellt.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
+	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o build/apps/shellt.o build/apps/qtrap.o
+
+# R8: ARGS.AOU, slot 1, prints and validates argc/argv (apps/args/args.c).
+build/apps/args.o: apps/args/args.c apps/common/appcalls.h
+	mkdir -p build/apps
+	$(GCC) -c -O -Iapps/common $< -o $@
+build/apps/args.aout: build/apps/args.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot1.ld
+	$(LD) -N -T apps/common/slot1.ld -e _start -o $@ build/apps/app_start.o build/apps/args.o build/apps/qtrap.o
+
+apps: $(APPS) build/apps/hello1.aout build/apps/shell.aout build/apps/shellt.aout
+
+# WIN1_ volume (R6): the same bytes go on the Tiny386 hdb disk and into the
+# i386VM image.  HELLO.AOU is the hello application as a file; PREP.AOU is
+# the R5 prep application.
+build/fat16/win1.img: $(APPS) tools/make-fat16.py fs/README.TXT build/fat16/fixtures/big.bin build/fat16/fixtures/bad.bin build/fat16/fixtures/empty.bin
+	mkdir -p build/fat16
+	python3 tools/make-fat16.py $@ HELLO.AOU=build/apps/hello1.aout PREP.AOU=build/apps/prep.aout \
+	  SLOT0.AOU=build/apps/hello.aout README.TXT=fs/README.TXT BIG.AOU=build/fat16/fixtures/big.bin \
+	  BAD.AOU=build/fat16/fixtures/bad.bin EMPTY.TXT=build/fat16/fixtures/empty.bin \
+	  SHELL.AOU=build/apps/shell.aout SHELLT.AOU=build/apps/shellt.aout
+
+fat16: build/fat16/win1.img
+
+# Transfer area: directory plus the exact a.out bytes.  HEL2 is a second copy
+# of hello (slot 0), used to test the busy-slot refusal.
+build/xfer.bin: $(APPS) tools/make-xfer.py
+	mkdir -p build
+	python3 tools/make-xfer.py $@ HELO=build/apps/hello.aout PREP=build/apps/prep.aout HEL2=build/apps/hello.aout
+
+# ---- i386VM ---------------------------------------------------------------
+# R11J/R11K: I386EXTRA adds the paging sources (empty for every default image).
+I386EXTRA ?=
+I386VM_SRC = $(KCORE) kernel/context.s platform/i386vm/platform.c platform/i386vm/disk.c platform/i386vm/halt.s $(I386EXTRA)
+
+$(I386D)/kernel-raw.bin: $(I386VM_SRC) $(wildcard kernel/*.h) $(wildcard tests/*.h) platform/platform.h
+	mkdir -p $(I386D)
+	$(GCC) --raw $(I386FLAGS) -DQDOS_KCTX_PTRBITS $(INC) $(I386VM_SRC) -o $@
+
+# IMGENV selects the image layout for make-vm-image.py (R9: QDOS_LAYOUT=r9).
+IMGENV ?=
+$(I386D)/$(I386IMG): $(I386D)/kernel-raw.bin build/xfer.bin $(I386WIN) tools/make-vm-image.py
+	$(IMGENV) python3 tools/make-vm-image.py $(I386D)/kernel-raw.bin build/xfer.bin $@ $(I386WIN)
+
+i386vm: $(I386D)/$(I386IMG)
+
+# Negative test: the same image with the synthetic timer never started.
+build/i386vm/kernel-notimer-raw.bin: $(I386VM_SRC) $(wildcard kernel/*.h) $(wildcard tests/*.h) platform/platform.h
+	mkdir -p build/i386vm
+	$(GCC) --raw -DQDOS_NO_TIMER -DQDOS_KCTX_PTRBITS $(INC) $(I386VM_SRC) -o $@
+
+build/i386vm/qdos386-r6-notimer.bin: build/i386vm/kernel-notimer-raw.bin build/xfer.bin build/fat16/win1.img tools/make-vm-image.py
+	python3 tools/make-vm-image.py build/i386vm/kernel-notimer-raw.bin build/xfer.bin $@ build/fat16/win1.img
+
+run-i386vm: $(I386D)/$(I386IMG)
+	$(VM) $(I386D)/$(I386IMG)
+
+# ---- Tiny386 PC -----------------------------------------------------------
+PC_OBJS = $(PCD)/main.o $(PCD)/region.o $(PCD)/jobs.o $(PCD)/clock.o $(PCD)/clock_boot.o $(PCD)/fpu.o $(PCD)/memory.o $(PCD)/channel.o $(PCD)/irq.o \
+          $(PCD)/descriptors.o $(PCD)/test_jobs.o $(PCD)/test_memory.o $(PCD)/test_channels.o \
+          $(PCD)/aout.o $(PCD)/test_app.o $(PCCTX) $(PCD)/platform.o \
+          $(PCD)/fat16.o $(PCD)/win1.o $(PCD)/test_fs.o $(PCD)/disk.o \
+          $(PCD)/cin.o $(PCD)/kbd.o $(PCD)/vga.o $(PCD)/test_console.o $(PCD)/test_r8.o $(PCD)/i8042.o $(PCD)/test_dir.o $(PCD)/imgload.o $(PCD)/shellboot.o $(PCD)/test_shell.o
+
+# R12A: PCCTX is the architecture assembly object (context.o everywhere except QDOS_DYNPROC kernels: kctx.o).
+PCCTX ?= $(PCD)/context.o
+# KCTX-FIX2: the C half of the resume convention follows the linked context object, so the two always match.  A kernel
+# that links kernel/kctx.s (every current kernel) gets the default: the exact stack pointer, format in kx_resume_fmt.
+# Any other context object (context.s, paging.s: R6..R12; kernel/frozen/kctx-r12a-r14.s: the frozen R12A..R14 targets)
+# keeps the historical saved_sp | fmt encoding (-DQDOS_KCTX_PTRBITS), which only those frozen images use.
+PCKCTX = $(if $(filter %/kctx.o %/kctx3.o %/kctx17.o,$(PCCTX)),,-DQDOS_KCTX_PTRBITS)
+# R11J/R11K: PCEXTRA adds the paging objects (empty for every default image).
+PCEXTRA ?=
+PC_OBJS += $(PCEXTRA)
+
+pc: $(PCD)/$(PCIMG)
+
+# Every object depends on every header: the R8 change to a shared struct
+# (struct job) must rebuild all users, or the Tiny386 image runs stale layouts.
+PC_HDR = $(wildcard kernel/*.h) $(wildcard tests/*.h) $(wildcard platform/*.h) $(wildcard platform/pc/*.h) $(wildcard sdk/include/qdos386amp.h)
+
+# The compiler flags are part of the build identity: a change to PCFLAGS for an
+# existing PCD must rebuild every object, not reuse objects built with other
+# defines.  The stamp is rewritten only when its content changes.
+FORCE:
+$(PCD)/.pcflags: FORCE
+	@mkdir -p $(PCD)
+	@printf '%s\n' '$(PCFLAGS) $(PCKCTX)' > $@.new; if cmp -s $@.new $@; then rm -f $@.new; else mv $@.new $@; fi
+$(PCD)/%.o: kernel/%.c $(PC_HDR) $(PCD)/.pcflags
+	mkdir -p $(PCD)
+	$(GCC) -c $(INC) $(PCFLAGS) $(PCKCTX) $< -o $@
+$(PCD)/%.o: tests/%.c $(PC_HDR) $(PCD)/.pcflags
+	mkdir -p $(PCD)
+	$(GCC) -c $(INC) $(PCFLAGS) $(PCKCTX) $< -o $@
+$(PCD)/%.o: platform/pc/%.c $(PC_HDR) $(PCD)/.pcflags
+	mkdir -p $(PCD)
+	$(GCC) -c $(INC) $(PCFLAGS) $(PCKCTX) $< -o $@
+$(PCD)/context.o: kernel/context.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+$(PCD)/paging_s.o: kernel/paging.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+$(PCD)/kctx.o: kernel/kctx.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+$(PCD)/kctx_frozen.o: kernel/frozen/kctx-r12a-r14.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+$(PCD)/kctx3.o: kernel/kctx3.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+$(PCD)/kctx17.o: kernel/kctx17.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+$(PCD)/uart_s17.o: kernel/uart_s17.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+$(PCD)/smp_s17.o: kernel/smp_s17.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+$(PCD)/uart_s3.o: kernel/uart_s3.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+$(PCD)/smp_s.o: kernel/smp_s.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+$(PCD)/bkl_s.o: kernel/bkl_s.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+$(PCD)/r16b_s.o: kernel/r16b_s.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+$(PCD)/entry.o: platform/pc/entry.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+
+$(PCD)/kernel.aout: $(PCD)/entry.o $(PC_OBJS) platform/pc/kernel.ld
+	$(LD) -N -T platform/pc/kernel.ld -e kstart -o $@ $(PCD)/entry.o $(PC_OBJS)
+
+$(PCD)/kernel.raw: $(PCD)/kernel.aout
+	python3 platform/pc/extract-kernel.py $< $@ 0x100000
+
+# PCBOOT is the boot sector: the R5-R8 one, or the R9 copy whose transfer
+# address is 0x340000 (see the R9 section).
+PCBOOT ?= platform/pc/boot.bin
+# R11K: PCMKIMG is the image builder that matches PCBOOT.  The default pair (boot.bin + make-image.py)
+# is the original loader and gives byte-identical images; the multi-transfer loader is the pair
+# build/pc-r9/boot2.bin + platform/pc/make-image2.py (see the R11K section).
+PCMKIMG ?= platform/pc/make-image.py
+$(PCD)/$(PCIMG): $(PCD)/kernel.raw build/xfer.bin $(PCBOOT) $(PCMKIMG)
+	python3 $(PCMKIMG) $(PCBOOT) $(PCD)/kernel.raw build/xfer.bin $@
+
+platform/pc/boot.bin: platform/pc/boot.s
+	cd platform/pc && $(AS) -o boot.o boot.s && $(LD) -N -T boot.ld -e start -o boot.aout boot.o && python3 $(I386VM)/tools/aout-to-raw.py boot.aout boot.bin
+
+$(PCD)/run.ini: $(PCD)/$(PCIMG) $(PCWIN)
+	printf '[pc]\nbios = %s/bios.bin\nvga_bios = %s/vgabios.bin\nmem_size = 8M\nhda = %s\nhdb = %s\n\n[cpu]\nfpu = 1\n' \
+	  "$(SEABIOS)" "$(SEABIOS)" "$(CURDIR)/$(PCD)/$(PCIMG)" "$(CURDIR)/$(PCWIN)" > $@
+
+# Canonical R11H i386VM images (release and negative-test).  Requires I386VM=<tree>.
+r11h-i386vm:
+	$(MAKE) i386vm I386D=build/i386vm-r11h-rel I386FLAGS="$(R9_FLAGS)" I386IMG=qdos386-r11h-rel.bin I386WIN=build/fat16/win1-r11h.img IMGENV="QDOS_LAYOUT=r9"
+	$(MAKE) i386vm I386D=build/i386vm-r11h-neg I386FLAGS="$(R9_FLAGS)" I386IMG=qdos386-r11h-neg.bin I386WIN=build/fat16/win1-r11h-neg.img IMGENV="QDOS_LAYOUT=r9"
+
+# R11I: kernel-only i386VM image for the host-backed block device (patches/i386vm-block.patch).
+# No FAT16 payload is appended (I386WIN empty); the volume is passed to the harness at launch.
+# The legacy RAM-disk targets above are unchanged.  Requires I386VM=<tree>.
+r11i-i386vm-block:
+	$(MAKE) i386vm I386D=build/r11i/block I386FLAGS="$(R9_FLAGS) -DQDOS_I386VM_BLOCK" I386IMG=qdos386-r11i-block.bin I386WIN= IMGENV="QDOS_LAYOUT=r9"
+
+# R11K: opt-in paging (docs/R11K-PAGING-APP-ABI.md; R11J's POC flag QDOS_PAGING_POC is now QDOS_PAGING, ABI 2).
+# Default images are unchanged: the paging sources enter only through I386EXTRA / PCEXTRA here.
+# The multi-transfer boot sector is selected with PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py
+# (docs/R11K-BOOT-ABI.md); the default pair is the original boot.bin + make-image.py.
+R11K_PAGING = -DQDOS_PAGING
+r11k-i386vm-paging:
+	$(MAKE) i386vm I386D=build/r11k/vm-paging I386FLAGS="$(R9_FLAGS) -DQDOS_I386VM_BLOCK $(R11K_PAGING)" I386IMG=qdos386-r11k-paging.bin I386WIN= IMGENV="QDOS_LAYOUT=r9" I386EXTRA="kernel/paging.c kernel/paging.s"
+r11k-pc-paging:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r11k/pc-paging PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11K_PAGING)" PCIMG=r11k-paging.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r11k/pc-paging/paging.o build/r11k/pc-paging/paging_s.o"
+	$(MAKE) pc PCD=build/r11k/pc-paging-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11K_PAGING)" PCIMG=r11k-paging-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r11k/pc-paging-vga/paging.o build/r11k/pc-paging-vga/paging_s.o"
+
+# R11L: opt-in writable FAT16 (-DQDOS_FS_WRITE; docs/R11L-FAT-WRITE-ABI.md).  Separate output
+# directories; no default or R11K image is rebuilt by these targets.
+#   r11l-i386vm-fs      i386VM block mode, writable volume (harness i386vm-r9-blockrw ... rw)
+#   r11l-i386vm-fs-pg   the same with R11K paging
+#   r11l-pc-fs / -vga   Tiny386 / QEMU PC with the R11K boot sector, writable volume
+# R11L kernels: writable volume + 64 KiB application stacks (cccp alloca()s whole include files, cc1 recurses; the
+# default 16 KiB stack is kept for every other image)
+R11L_FS = -DQDOS_FS_WRITE -DQDOS_APP_STACK=65536u
+r11l-i386vm-fs:
+	$(MAKE) i386vm I386D=build/r11l/vm-fs I386FLAGS="$(R9_FLAGS) -DQDOS_I386VM_BLOCK $(R11L_FS)" I386IMG=qdos386-r11l-fs.bin I386WIN= IMGENV="QDOS_LAYOUT=r9"
+r11l-i386vm-fs-pg:
+	$(MAKE) i386vm I386D=build/r11l/vm-fs-pg I386FLAGS="$(R9_FLAGS) -DQDOS_I386VM_BLOCK $(R11L_FS) $(R11K_PAGING)" I386IMG=qdos386-r11l-fs-pg.bin I386WIN= IMGENV="QDOS_LAYOUT=r9" I386EXTRA="kernel/paging.c kernel/paging.s"
+r11l-pc-fs:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r11l/pc-fs PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11L_FS)" PCIMG=r11l-fs.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py
+	$(MAKE) pc PCD=build/r11l/pc-fs-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11L_FS)" PCIMG=r11l-fs-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py
+r11l-pc-fs-pg:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r11l/pc-fs-pg PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11L_FS) $(R11K_PAGING)" PCIMG=r11l-fs-pg.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r11l/pc-fs-pg/paging.o build/r11l/pc-fs-pg/paging_s.o"
+	$(MAKE) pc PCD=build/r11l/pc-fs-pg-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11L_FS) $(R11K_PAGING)" PCIMG=r11l-fs-pg-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r11l/pc-fs-pg-vga/paging.o build/r11l/pc-fs-pg-vga/paging_s.o"
+
+# ---- R11M: usable-OS kernels --------------------------------------------------------------------------------
+# Writable volume with directories (R11L option, R11M path layer) plus the virtual consoles (-DQDOS_VCON) and,
+# from Stage 3, job control.  None of these macros is set for any earlier image, so those stay byte-identical
+# (scripts/r11l-default-check.sh).
+#   r11m-i386vm / -pg   i386VM harness kernels without / with R11K paging
+#   r11m-pc / -pg       Tiny386 PC images (no VGA) and QEMU PC images with the VGA text console (-vga)
+R11M_OPTS = $(R11L_FS) -DQDOS_VCON -DQDOS_JOBCTL -DQDOS_VFAT
+r11m-i386vm:
+	$(MAKE) i386vm I386D=build/r11m/vm I386FLAGS="$(R9_FLAGS) -DQDOS_I386VM_BLOCK $(R11M_OPTS)" I386IMG=qdos386-r11m.bin I386WIN= IMGENV="QDOS_LAYOUT=r9" I386EXTRA="kernel/vcon.c kernel/jobctl.c"
+r11m-i386vm-pg:
+	$(MAKE) i386vm I386D=build/r11m/vm-pg I386FLAGS="$(R9_FLAGS) -DQDOS_I386VM_BLOCK $(R11M_OPTS) $(R11K_PAGING)" I386IMG=qdos386-r11m-pg.bin I386WIN= IMGENV="QDOS_LAYOUT=r9" I386EXTRA="kernel/paging.c kernel/paging.s kernel/vcon.c kernel/jobctl.c"
+r11m-pc:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r11m/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11M_OPTS)" PCIMG=r11m.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r11m/pc/vcon.o build/r11m/pc/jobctl.o"
+	$(MAKE) pc PCD=build/r11m/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11M_OPTS)" PCIMG=r11m-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r11m/pc-vga/vcon.o build/r11m/pc-vga/jobctl.o"
+r11m-pc-pg:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r11m/pc-pg PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11M_OPTS) $(R11K_PAGING)" PCIMG=r11m-pg.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r11m/pc-pg/paging.o build/r11m/pc-pg/paging_s.o build/r11m/pc-pg/vcon.o build/r11m/pc-pg/jobctl.o"
+	$(MAKE) pc PCD=build/r11m/pc-pg-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R11M_OPTS) $(R11K_PAGING)" PCIMG=r11m-pg-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r11m/pc-pg-vga/paging.o build/r11m/pc-pg-vga/paging_s.o build/r11m/pc-pg-vga/vcon.o build/r11m/pc-pg-vga/jobctl.o"
+# R12: the PC kernels of the interactive stretch (QEMU VGA and Tiny386): the R11M options plus QDOS_PG_WIN3 (three paged windows).
+R12_OPTS = $(R11M_OPTS) -DQDOS_PG_WIN3
+r12-pc-pg:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r12/pc-pg PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12_OPTS) $(R11K_PAGING)" PCIMG=r12-pg.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r12/pc-pg/paging.o build/r12/pc-pg/paging_s.o build/r12/pc-pg/vcon.o build/r12/pc-pg/jobctl.o"
+	$(MAKE) pc PCD=build/r12/pc-pg-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12_OPTS) $(R11K_PAGING)" PCIMG=r12-pg-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCEXTRA="build/r12/pc-pg-vga/paging.o build/r12/pc-pg-vga/paging_s.o build/r12/pc-pg-vga/vcon.o build/r12/pc-pg-vga/jobctl.o"
+# R12A (opt-in): dynamic process address spaces, private heaps/stacks, kernel-entry stacks (docs/R12A-*.md).
+# QEMU kernel build/r12a/pc-vga/r12a-vga.img, headless (Tiny386) kernel build/r12a/pc/r12a.img.  R12A_EXTRA adds options.
+R12A_OPTS = $(R11M_OPTS) -DQDOS_PAGING -DQDOS_DYNPROC -DQDOS_DYNPROC_SHELL $(R12A_EXTRA)
+R12A_OBJS = proc.o frames.o vas.o pheap.o vcon.o jobctl.o
+r12a-pc:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r12a/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12A_OPTS)" PCIMG=r12a.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r12a/pc/kctx_frozen.o PCEXTRA="$(addprefix build/r12a/pc/,$(R12A_OBJS))"
+	$(MAKE) pc PCD=build/r12a/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12A_OPTS)" PCIMG=r12a-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r12a/pc-vga/kctx_frozen.o PCEXTRA="$(addprefix build/r12a/pc-vga/,$(R12A_OBJS))"
+# R12B (opt-in): R12A + per-process environment (QDOS_ENV) and the program search path (docs/R12B-*.md).
+R12B_OPTS = $(R12A_OPTS) -DQDOS_ENV $(R12B_EXTRA)
+R12B_OBJS = $(R12A_OBJS) env.o pathres.o
+r12b-pc:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r12b/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12B_OPTS)" PCIMG=r12b.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r12b/pc/kctx_frozen.o PCEXTRA="$(addprefix build/r12b/pc/,$(R12B_OBJS))"
+	$(MAKE) pc PCD=build/r12b/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12B_OPTS)" PCIMG=r12b-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r12b/pc-vga/kctx_frozen.o PCEXTRA="$(addprefix build/r12b/pc-vga/,$(R12B_OBJS))"
+# R12C: SYSTASK task selector (Ctrl+Esc, TASKS), program titles, storage SYNC (docs/R12C-*.md).
+# QEMU kernel build/r12c/pc-vga/r12c-vga.img, headless (Tiny386) build/r12c/pc/r12c.img.
+R12C_OPTS = $(R12B_OPTS) -DQDOS_TITLES -DQDOS_SYNC -DQDOS_TASKMGR $(R12C_EXTRA)
+R12C_OBJS = $(R12B_OBJS) sync.o taskmgr.o
+r12c-pc:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r12c/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12C_OPTS)" PCIMG=r12c.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r12c/pc/kctx_frozen.o PCEXTRA="$(addprefix build/r12c/pc/,$(R12C_OBJS))"
+	$(MAKE) pc PCD=build/r12c/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R12C_OPTS)" PCIMG=r12c-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r12c/pc-vga/kctx_frozen.o PCEXTRA="$(addprefix build/r12c/pc-vga/,$(R12C_OBJS))"
+# R13: process-owned display sessions, INDEX8 surfaces, the VGA presenter (mode 13h), the bitmap font
+# (docs/R13-*.md).  QEMU kernel build/r13/pc-vga/r13-vga.img, headless (Tiny386) build/r13/pc/r13.img.
+# R13_FONT=minerva (default: Minerva 1.98's QL fonts, GPL-2.0, third_party/minerva) or R13_FONT=qdos5x9 (the original
+# fallback font, no GPL material): r13-pc-qdos5x9 builds that variant in build/r13/pc-vga-q5.
+R13_FONT ?= minerva
+ifeq ($(R13_FONT),qdos5x9)
+R13_FONT_OPT = -DQDOS_FONT_QDOS5X9
+R13_FONT_OBJ = font5x9.o
+else
+R13_FONT_OPT =
+R13_FONT_OBJ = font_minerva.o
+endif
+R13_OPTS = $(R12C_OPTS) -DQDOS_SURFACES $(R13_FONT_OPT) $(R13_EXTRA)
+R13_OBJS = $(R12C_OBJS) surface.o gsurf.o font.o $(R13_FONT_OBJ) vgapres.o
+r13-pc:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r13/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13_OPTS)" PCIMG=r13.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13/pc/kctx_frozen.o PCEXTRA="$(addprefix build/r13/pc/,$(R13_OBJS))"
+	$(MAKE) pc PCD=build/r13/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13_OPTS)" PCIMG=r13-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13/pc-vga/kctx_frozen.o PCEXTRA="$(addprefix build/r13/pc-vga/,$(R13_OBJS))"
+R13Q5_OPTS = $(R12C_OPTS) -DQDOS_SURFACES -DQDOS_FONT_QDOS5X9 $(R13_EXTRA)
+R13Q5_OBJS = $(R12C_OBJS) surface.o gsurf.o font.o font5x9.o vgapres.o
+r13-pc-qdos5x9:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r13/pc-vga-q5 PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13Q5_OPTS)" PCIMG=r13-vga-q5.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13/pc-vga-q5/kctx_frozen.o PCEXTRA="$(addprefix build/r13/pc-vga-q5/,$(R13Q5_OBJS))"
+# R13A: loadable fonts (QFNT), rendered text consoles (mode 12h), logical surfaces up to 512x256, native key events,
+# transparent blit / copy (docs/R13A-*.md).  No Minerva bytes in these kernels: the built-in fonts are the
+# public-domain / unrestricted X11 fonts in fonts/ (kernel/font_recovery.c, kernel/font_console.c, generated by
+# tools/r13a-font/build-fonts.sh); Minerva is the optional file third_party/minerva/MINERVA.FNT.
+# QEMU kernel build/r13a/pc-vga/r13a-vga.img, headless (Tiny386) build/r13a/pc/r13a.img.
+R13A_OPTS = $(R12C_OPTS) -DQDOS_SURFACES -DQDOS_R13A $(R13A_EXTRA)
+R13A_OBJS = $(R12C_OBJS) surface.o gsurf.o fontreg.o font_recovery.o font_console.o kev.o vgapres13a.o
+r13a-pc:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r13a/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13A_OPTS)" PCIMG=r13a.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13a/pc/kctx_frozen.o PCEXTRA="$(addprefix build/r13a/pc/,$(R13A_OBJS))"
+	$(MAKE) pc PCD=build/r13a/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13A_OPTS)" PCIMG=r13a-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13a/pc-vga/kctx_frozen.o PCEXTRA="$(addprefix build/r13a/pc-vga/,$(R13A_OBJS))"
+# R13B: the R13A kernel plus focus return to the launching session, SYSTASK F2 (start a program) and the CMOS RTC wall
+# clock (docs/R13B-*.md).  QEMU kernel build/r13b/pc-vga/r13b-vga.img, headless (Tiny386) build/r13b/pc/r13b.img.
+R13B_OPTS = $(R13A_OPTS) -DQDOS_R13B $(R13B_EXTRA)
+R13B_OBJS = $(R13A_OBJS) rtc.o
+r13b-pc:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r13b/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13B_OPTS)" PCIMG=r13b.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13b/pc/kctx_frozen.o PCEXTRA="$(addprefix build/r13b/pc/,$(R13B_OBJS))"
+	$(MAKE) pc PCD=build/r13b/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13B_OPTS)" PCIMG=r13b-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13b/pc-vga/kctx_frozen.o PCEXTRA="$(addprefix build/r13b/pc-vga/,$(R13B_OBJS))"
+# R14: the R13B kernel plus the PC UART driver (COM1/COM2, SER1/SER2 channels, QT_SER 0x3C: kernel/uart.c,
+# kernel/uart_s.s; docs/R14-SERIAL-ABI.md).  QEMU kernel build/r14/pc-vga/r14-vga.img, headless build/r14/pc/r14.img.
+R14_OPTS = $(R13B_OPTS) -DQDOS_R14 $(R14_EXTRA)
+R14_OBJS = $(R13B_OBJS) uart.o uart_s.o
+$(PCD)/uart_s.o: kernel/uart_s.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+r14-pc:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r14/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R14_OPTS)" PCIMG=r14.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r14/pc/kctx_frozen.o PCEXTRA="$(addprefix build/r14/pc/,$(R14_OBJS))"
+	$(MAKE) pc PCD=build/r14/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R14_OPTS)" PCIMG=r14-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r14/pc-vga/kctx_frozen.o PCEXTRA="$(addprefix build/r14/pc-vga/,$(R14_OBJS))"
+# CURRENT KERNEL (KCTX-FIX2 mainline, docs/KCTX-FIX2-IMPLEMENTATION.md): the R14 feature set (R13B + serial) with the
+# current context switcher kernel/kctx.s (exact stack pointer on every resume, any ESP residue mod 4).  No special flag:
+# the source default is the corrected path.  QEMU kernel build/qdos386/pc-vga/qdos386-vga.img, headless (Tiny386)
+# build/qdos386/pc/qdos386.img.  `make` (all) builds these.  QDOS386_EXTRA adds options.
+QDOS386_OPTS = $(R14_OPTS) $(QDOS386_EXTRA)
+QDOS386_OBJS = $(R14_OBJS)
+qdos386-pc:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/qdos386/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(QDOS386_OPTS)" PCIMG=qdos386.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/qdos386/pc/kctx.o PCEXTRA="$(addprefix build/qdos386/pc/,$(QDOS386_OBJS))"
+	$(MAKE) pc PCD=build/qdos386/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(QDOS386_OPTS)" PCIMG=qdos386-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/qdos386/pc-vga/kctx.o PCEXTRA="$(addprefix build/qdos386/pc-vga/,$(QDOS386_OBJS))"
+# R16 (opt-in, EXPERIMENTAL; docs/R16-AUDIT.md, docs/R16-CPL3-ABI.md): CPL3 user mode for marked or flagged
+# processes, per-CPU kernel state, big kernel lock and two-CPU scheduling.  QEMU build/qdos386-smp/pc-vga/
+# qdos386-smp-vga.img, headless build/qdos386-smp/pc/qdos386-smp.img.  The default `make` kernels are unchanged.
+R16_OPTS = $(QDOS386_OPTS) -DQDOS_R16 $(R16_EXTRA)
+R16_OBJS = $(R13B_OBJS) uart.o uart_s3.o bkl.o bkl_s.o smp.o smp_s.o mbr.o
+qdos386-smp-pc:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/qdos386-smp/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R16_OPTS)" PCIMG=qdos386-smp.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/qdos386-smp/pc/kctx3.o PCEXTRA="$(addprefix build/qdos386-smp/pc/,$(R16_OBJS))"
+	$(MAKE) pc PCD=build/qdos386-smp/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R16_OPTS)" PCIMG=qdos386-smp-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/qdos386-smp/pc-vga/kctx3.o PCEXTRA="$(addprefix build/qdos386-smp/pc-vga/,$(R16_OBJS))"
+# R16B (opt-in, EXPERIMENTAL; docs/R16B-SCHEDULER-POLICY.md, docs/R16B-MIGRATION-ABI.md): the R16A kernel plus per-CPU
+# accounting, safe affinity migration of CPL3 jobs and the foreground-first policy, all under -DQDOS_R16B.  QEMU
+# build/qdos386-r16b/pc-vga/qdos386-r16b-vga.img.  qdos386-smp-pc (R16A) and the default `make` kernels are unchanged.
+R16B_OPTS = $(R16_OPTS) -DQDOS_R16B $(R16B_EXTRA)
+R16B_OBJS = $(R16_OBJS) r16b_s.o
+qdos386-r16b-pc:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/qdos386-r16b/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R16B_OPTS)" PCIMG=qdos386-r16b.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/qdos386-r16b/pc/kctx3.o PCEXTRA="$(addprefix build/qdos386-r16b/pc/,$(R16B_OBJS))"
+	$(MAKE) pc PCD=build/qdos386-r16b/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R16B_OPTS)" PCIMG=qdos386-r16b-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/qdos386-r16b/pc-vga/kctx3.o PCEXTRA="$(addprefix build/qdos386-r16b/pc-vga/,$(R16B_OBJS))"
+# R17 Apollo 13 (opt-in, EXPERIMENTAL; docs/APOLLO13-*.md): the R16B kernel plus the E820 memory map (QBOOT3 boot
+# sector, up to 256 MiB of RAM), up to 8 CPUs and topology-aware foreground-first placement, all under -DQDOS_R17.
+# QEMU build/qdos386-r17/pc-vga/qdos386-r17-vga.img.  The R16B, R16A and default `make` kernels are unchanged.
+R17_OPTS = $(R16B_OPTS) -DQDOS_R17 $(R17_EXTRA)
+R17CTX ?= kctx17.o
+R17UART ?= uart_s17.o
+R17_OBJS = $(R13B_OBJS) uart.o $(R17UART) bkl.o bkl_s.o smp17.o smp_s17.o mbr.o r16b_s.o memmap.o
+R17D ?= qdos386-r17
+qdos386-r17-pc:
+	$(MAKE) build/pc-r17/boot3.bin
+	$(MAKE) pc PCD=build/$(R17D)/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R17_OPTS)" PCIMG=qdos386-r17.img PCBOOT=build/pc-r17/boot3.bin PCMKIMG=platform/pc/make-image3.py PCCTX=build/$(R17D)/pc/$(R17CTX) PCEXTRA="$(addprefix build/$(R17D)/pc/,$(R17_OBJS))"
+	$(MAKE) pc PCD=build/$(R17D)/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R17_OPTS)" PCIMG=qdos386-r17-vga.img PCBOOT=build/pc-r17/boot3.bin PCMKIMG=platform/pc/make-image3.py PCCTX=build/$(R17D)/pc-vga/$(R17CTX) PCEXTRA="$(addprefix build/$(R17D)/pc-vga/,$(R17_OBJS))"
+# R18 Apollo 14 (opt-in; docs/APOLLO14-*.md): the R17 kernel plus the 640x480x16 planar presentation of INDEX8
+# surfaces (SURF_OP_VIEW GS_VIEW_VGA12 / GS_VIEW_VGA12W), all under -DQDOS_R18.  QEMU
+# build/qdos386-r18/pc-vga/qdos386-r18-vga.img.  The R17, R16B, R16A and default `make` kernels are unchanged.
+R18_OPTS = $(R17_OPTS) -DQDOS_R18 $(R18_EXTRA)
+R18D ?= qdos386-r18
+qdos386-r18-pc:
+	$(MAKE) build/pc-r17/boot3.bin
+	$(MAKE) pc PCD=build/$(R18D)/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R18_OPTS)" PCIMG=qdos386-r18.img PCBOOT=build/pc-r17/boot3.bin PCMKIMG=platform/pc/make-image3.py PCCTX=build/$(R18D)/pc/$(R17CTX) PCEXTRA="$(addprefix build/$(R18D)/pc/,$(R17_OBJS))"
+	$(MAKE) pc PCD=build/$(R18D)/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R18_OPTS)" PCIMG=qdos386-r18-vga.img PCBOOT=build/pc-r17/boot3.bin PCMKIMG=platform/pc/make-image3.py PCCTX=build/$(R18D)/pc-vga/$(R17CTX) PCEXTRA="$(addprefix build/$(R18D)/pc-vga/,$(R17_OBJS))"
+# R20 / Apollo 16 (opt-in, docs/A16-*.md): the R18 kernel plus one internal Ring 0 worker context and its bounded
+# request table (kernel/r20w.c).  The default targets and the frozen R18 images are unchanged.  Test-only trap numbers
+# 0x40-0x45 are internal to the R20 tests.  make qdos386-r20-pc -> build/qdos386-r20/pc-vga/qdos386-r20-vga.img (QEMU),
+#                                                                  build/qdos386-r20/pc/qdos386-r20.img (headless)
+R20D ?= qdos386-r20
+R20_OPTS = $(R18_OPTS) -DQDOS_R20 $(R20_EXTRA)
+qdos386-r20-pc:
+	$(MAKE) build/pc-r17/boot3.bin
+	$(MAKE) pc PCD=build/$(R20D)/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R20_OPTS)" PCIMG=qdos386-r20.img PCBOOT=build/pc-r17/boot3.bin PCMKIMG=platform/pc/make-image3.py PCCTX=build/$(R20D)/pc/$(R17CTX) PCEXTRA="$(addprefix build/$(R20D)/pc/,$(R17_OBJS) r20w.o)"
+	$(MAKE) pc PCD=build/$(R20D)/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R20_OPTS)" PCIMG=qdos386-r20-vga.img PCBOOT=build/pc-r17/boot3.bin PCMKIMG=platform/pc/make-image3.py PCCTX=build/$(R20D)/pc-vga/$(R17CTX) PCEXTRA="$(addprefix build/$(R20D)/pc-vga/,$(R17_OBJS) r20w.o)"
+
+# R15 AMP0 (opt-in, docs/R15-AMP-ARCHITECTURE.md): the current kernel plus the master/worker service - CPU 0 keeps the
+# whole kernel, one application processor runs kernel/amp_ap.c only.  QEMU build/qdos386-amp/pc-vga/qdos386-amp-vga.img,
+# headless build/qdos386-amp/pc/qdos386-amp.img.  The default `make` kernels are unchanged.  Test-only variants:
+#   make qdos386-amp-variant AMPV=<name> AMP_EXTRA=<-D...>   -> build/qdos386-amp-<name>/pc-vga/qdos386-amp-vga.img
+QDOS386_AMP_OPTS = $(QDOS386_OPTS) -DQDOS_AMP $(AMP_EXTRA)
+QDOS386_AMP_OBJS = $(QDOS386_OBJS) amp.o amp_s.o amp_ap.o amp_ap_s.o
+$(PCD)/amp_s.o: kernel/amp_s.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+$(PCD)/amp_ap_s.o: kernel/amp_ap_s.s
+	mkdir -p $(PCD)
+	$(AS) -o $@ $<
+qdos386-amp-pc:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/qdos386-amp/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(QDOS386_AMP_OPTS)" PCIMG=qdos386-amp.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/qdos386-amp/pc/kctx.o PCEXTRA="$(addprefix build/qdos386-amp/pc/,$(QDOS386_AMP_OBJS))"
+	$(MAKE) pc PCD=build/qdos386-amp/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(QDOS386_AMP_OPTS)" PCIMG=qdos386-amp-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/qdos386-amp/pc-vga/kctx.o PCEXTRA="$(addprefix build/qdos386-amp/pc-vga/,$(QDOS386_AMP_OBJS))"
+qdos386-amp-variant:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/qdos386-amp-$(AMPV)/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(QDOS386_AMP_OPTS)" PCIMG=qdos386-amp-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/qdos386-amp-$(AMPV)/pc-vga/kctx.o PCEXTRA="$(addprefix build/qdos386-amp-$(AMPV)/pc-vga/,$(QDOS386_AMP_OBJS))"
+# Test-only (never shipped): the current kernel with every resume hand-off checked (jobs.c kx_resume_check, KCTX-FIX2).
+qdos386-check-pc:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/qdos386-check/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(QDOS386_OPTS) -DQDOS_KCTX_CHECK" PCIMG=qdos386-check-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/qdos386-check/pc-vga/kctx.o PCEXTRA="$(addprefix build/qdos386-check/pc-vga/,$(QDOS386_OBJS))"
+# KCTX-FIX1 (delivered corrective release, historical): the same configuration under its own name, kept so that its
+# images (kfix1-vga.img f8e5d5e1..., kfix1.img 7c675978...) stay reproducible; they equal the current kernel's bytes.
+kfix1-pc:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/kfix1/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R14_OPTS)" PCIMG=kfix1.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/kfix1/pc/kctx.o PCEXTRA="$(addprefix build/kfix1/pc/,$(R14_OBJS))"
+	$(MAKE) pc PCD=build/kfix1/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R14_OPTS)" PCIMG=kfix1-vga.img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/kfix1/pc-vga/kctx.o PCEXTRA="$(addprefix build/kfix1/pc-vga/,$(R14_OBJS))"
+# R13B test kernels for the R11F calendar boundaries through DATE/TIME/time(): the R13B QEMU kernel with a build-time
+# epoch instead of the RTC (QEMU's RTC cannot hold dates after 2038 reliably: see docs/R13B-CLOCK-ABI.md).
+#   make r13b-epoch EPD=e2100 EPOCH=4107542397    -> build/r13b/e2100/e2100.img
+r13b-epoch:
+	$(MAKE) build/pc-r9/boot2.bin
+	$(MAKE) pc PCD=build/r13b/$(EPD) PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R13B_OPTS) -DQDOS_CLOCK_EPOCH=$(EPOCH)UL" PCIMG=$(EPD).img PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py PCCTX=build/r13b/$(EPD)/kctx_frozen.o PCEXTRA="$(addprefix build/r13b/$(EPD)/,$(R13B_OBJS))"
+r13b-epoch-kernels:
+	$(MAKE) r13b-epoch EPD=e2100 EPOCH=4107542397
+	$(MAKE) r13b-epoch EPD=e2101 EPOCH=4133980797
+	$(MAKE) r13b-epoch EPD=e2106 EPOCH=4294967280
+r11m-kernels: r11m-i386vm r11m-i386vm-pg r11m-pc r11m-pc-pg
+
+# Canonical R11H PC images (the shipped set).  Requires I386VM=<tree>.  The R9 boot
+# sector (transfer address 0x340000) is built by its own rule.
+r11h-pc:
+	$(MAKE) build/pc-r9/boot.bin
+	$(MAKE) pc PCD=build/pc-r11h PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE" PCIMG=r11h-shell.img PCBOOT=build/pc-r9/boot.bin
+	$(MAKE) pc PCD=build/pc-r11h-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE -DQDOS_CLOCK_EPOCH=1793102400 -DQDOS_CLOCK_PINNED" PCIMG=r9shell-vga.img PCBOOT=build/pc-r9/boot.bin
+
+run-pc: $(PCD)/run.ini
+	cd $(PCD) && $(TINY386) run.ini
+
+notimer: build/i386vm/qdos386-r6-notimer.bin
+
+# ---- R7 shell boot images -------------------------------------------------
+i386vm-shell:
+	$(MAKE) i386vm I386D=build/i386vm-shell I386FLAGS=-DR7_SHELL_MODE I386IMG=qdos386-r7-shell.bin
+
+pc-shell:
+	$(MAKE) pc PCD=build/pc-shell PCFLAGS=-DR7_SHELL_MODE PCIMG=r7shell.img
+
+# Negative test: the shell image with the timer never started.
+i386vm-shell-notimer:
+	$(MAKE) i386vm I386D=build/i386vm-shell-notimer I386FLAGS="-DR7_SHELL_MODE -DQDOS_NO_TIMER" I386IMG=qdos386-r7-shell-notimer.bin
+
+clean:
+	rm -rf build platform/pc/boot.o platform/pc/boot.aout platform/pc/boot.bin
+
+.PHONY: all apps fat16 i386vm pc r11h-pc r11h-i386vm run-i386vm run-pc clean notimer i386vm-shell pc-shell i386vm-shell-notimer i386vm-r8-shell pc-r8-shell r8-apps r8-fat16
+
+# ---- R8: large applications, ARGS.AOU and the R8 volume -------------------
+# LARGE.AOU is generated (tools/make-large.py): about 175 KiB of text, data and
+# BSS, in slot 1, with argv and heap, timer and table checks.  Its expected
+# dispatcher value is written to build/apps/large-expected.txt.
+build/apps/large.c build/apps/large-expected.txt: tools/make-large.py
+	mkdir -p build/apps
+	python3 tools/make-large.py build/apps/large.c build/apps/large-expected.txt
+build/apps/large.o: build/apps/large.c apps/common/appcalls.h
+	$(GCC) -c -O -Iapps/common $< -o $@
+build/apps/large.aout: build/apps/large.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot1.ld
+	$(LD) -N -T apps/common/slot1.ld -e _start -o $@ build/apps/app_start.o build/apps/large.o build/apps/qtrap.o
+
+# Negative fixtures derived from LARGE.AOU (read-only; see the script).
+build/fat16/r8fix/OVER.AOU: build/apps/large.aout tools/make-r8-fixtures.py
+	python3 tools/make-r8-fixtures.py build/apps/large.aout build/fat16/r8fix
+build/fat16/r8fix/TRUNC.AOU build/fat16/r8fix/LONG.AOU build/fat16/r8fix/ENTRY.AOU build/fat16/r8fix/MAGIC.AOU: build/fat16/r8fix/OVER.AOU
+
+r8-apps: build/apps/args.aout build/apps/large.aout build/apps/shell.aout build/apps/hello1.aout build/fat16/r8fix/OVER.AOU
+
+# The R8 volume (separate from the R7 volume, which keeps its 10-file listing).
+# The SDK examples (sdk/examples) are built with qdos386-gcc from sdk/.
+sdk-examples:
+	$(MAKE) -C sdk/lib QDOS386_TOOLS=$(I386VM)
+	$(MAKE) -C sdk/libc QDOS386_TOOLS=$(I386VM)
+	$(MAKE) -C sdk/examples QDOS386_TOOLS=$(I386VM)
+
+build/fat16/win1-r8.img: r8-apps sdk-examples tools/make-fat16.py fs/README.TXT build/fat16/fixtures/big.bin build/fat16/fixtures/bad.bin build/fat16/fixtures/empty.bin
+	mkdir -p build/fat16
+	python3 tools/make-fat16.py $@ SHELL.AOU=build/apps/shell.aout ARGS.AOU=build/apps/args.aout \
+	  LARGE.AOU=build/apps/large.aout HELLO.AOU=build/apps/hello1.aout README.TXT=fs/README.TXT \
+	  SDKHEL.AOU=sdk/examples/SDKHEL.aout SDKARG.AOU=sdk/examples/SDKARG.aout \
+	  SDKSTM.AOU=sdk/examples/SDKSTM.aout SDKSTS.AOU=sdk/examples/SDKSTS.aout \
+	  BIG.AOU=build/fat16/fixtures/big.bin BAD.AOU=build/fat16/fixtures/bad.bin \
+	  EMPTY.TXT=build/fat16/fixtures/empty.bin OVER.AOU=build/fat16/r8fix/OVER.AOU \
+	  TRUNC.AOU=build/fat16/r8fix/TRUNC.AOU LONG.AOU=build/fat16/r8fix/LONG.AOU \
+	  ENTRY.AOU=build/fat16/r8fix/ENTRY.AOU MAGIC.AOU=build/fat16/r8fix/MAGIC.AOU
+r8-fat16: build/fat16/win1-r8.img
+
+# R8 boot images: the R7 shell mode on the R8 volume.
+i386vm-r8-shell:
+	$(MAKE) i386vm I386D=build/i386vm-r8 I386FLAGS=-DR7_SHELL_MODE I386IMG=qdos386-r8-shell.bin I386WIN=build/fat16/win1-r8.img
+# Negative test: the R8 shell image with the timer never started.
+i386vm-r8-shell-notimer:
+	$(MAKE) i386vm I386D=build/i386vm-r8-notimer I386FLAGS="-DR7_SHELL_MODE -DQDOS_NO_TIMER" I386IMG=qdos386-r8-shell-notimer.bin I386WIN=build/fat16/win1-r8.img
+pc-r8-shell: build/fat16/win1-r8.img
+	$(MAKE) pc PCD=build/pc-r8 PCFLAGS=-DR7_SHELL_MODE PCIMG=r8shell.img PCWIN=build/fat16/win1-r8.img
+
+# ---- R9: 16 MiB i386VM guest, 1 MiB child slot (kernel/appmap.h) ----------
+# Build with QDOS_LAYOUT_R9 in every kernel object and with QDOS_LAYOUT=r9 for
+# the image builder.  The R8 targets above are unchanged and still build the
+# R8 map.  The i386VM run needs the R9 harness (x/i386vm-r9, 16 MiB), which is
+# not the 8 MiB harness; see patches/i386vm-r9-ram16.patch.
+R9_FLAGS = -DR7_SHELL_MODE -DQDOS_LAYOUT_R9
+I386VM_R9 ?= build/i386vm-r9/i386vm-r9
+
+r9-i386vm-shell: build/fat16/win1-r9.img
+	$(MAKE) i386vm I386D=build/i386vm-r9 I386FLAGS="$(R9_FLAGS)" I386IMG=qdos386-r9-shell.bin I386WIN=build/fat16/win1-r9.img IMGENV="QDOS_LAYOUT=r9"
+
+r9-i386vm-shell-notimer:
+	$(MAKE) i386vm I386D=build/i386vm-r9-notimer I386FLAGS="$(R9_FLAGS) -DQDOS_NO_TIMER" I386IMG=qdos386-r9-shell-notimer.bin I386WIN=build/fat16/win1-r9.img IMGENV="QDOS_LAYOUT=r9"
+
+# The PC boot sector with the R9 transfer address.
+build/pc-r9/boot.bin: platform/pc/boot.s
+	mkdir -p build/pc-r9
+	sed 's/movl $$0x280000,%edi/movl $$0x340000,%edi/' platform/pc/boot.s > build/pc-r9/boot.s
+	$(AS) -o build/pc-r9/boot.o build/pc-r9/boot.s
+	$(LD) -N -T platform/pc/boot.ld -e start -o build/pc-r9/boot.aout build/pc-r9/boot.o
+	python3 $(I386VM)/tools/aout-to-raw.py build/pc-r9/boot.aout build/pc-r9/boot.bin
+
+# R11K multi-transfer boot sector with the R9 transfer address (PCBOOT=build/pc-r9/boot2.bin
+# PCMKIMG=platform/pc/make-image2.py selects it; the original loader stays the default).
+build/pc-r9/boot2.bin: platform/pc/boot2.s
+	mkdir -p build/pc-r9
+	sed 's/movl $$0x280000,%edi/movl $$0x340000,%edi/' platform/pc/boot2.s > build/pc-r9/boot2.s
+	$(AS) -o build/pc-r9/boot2.o build/pc-r9/boot2.s
+	$(LD) -N -T platform/pc/boot.ld -e start -o build/pc-r9/boot2.aout build/pc-r9/boot2.o
+	python3 $(I386VM)/tools/aout-to-raw.py build/pc-r9/boot2.aout build/pc-r9/boot2.bin
+
+# R17 Apollo 13: the QBOOT3 boot sector (boot2 + INT 15h E820 map at 0x500), R9 transfer address, for make-image3.py.
+build/pc-r17/boot3.bin: platform/pc/boot3.s
+	mkdir -p build/pc-r17
+	sed 's/movl $$0x280000,%edi/movl $$0x340000,%edi/' platform/pc/boot3.s > build/pc-r17/boot3.s
+	$(AS) -o build/pc-r17/boot3.o build/pc-r17/boot3.s
+	$(LD) -N -T platform/pc/boot.ld -e start -o build/pc-r17/boot3.aout build/pc-r17/boot3.o
+	python3 $(I386VM)/tools/aout-to-raw.py build/pc-r17/boot3.aout build/pc-r17/boot3.bin
+
+r9-pc-shell: build/pc-r9/boot.bin build/fat16/win1-r9.img
+	$(MAKE) pc PCD=build/pc-r9 PCFLAGS="$(R9_FLAGS)" PCIMG=r9shell.img PCBOOT=build/pc-r9/boot.bin PCWIN=build/fat16/win1-r9.img
+
+# R9 negative fixtures: OVER.AOU has BSS 1 MiB (over the slot-1 limit).
+build/fat16/r9fix/OVER.AOU: build/apps/large.aout tools/make-r8-fixtures.py
+	python3 tools/make-r8-fixtures.py build/apps/large.aout build/fat16/r9fix 0x100000
+build/fat16/r9fix/TRUNC.AOU build/fat16/r9fix/LONG.AOU build/fat16/r9fix/ENTRY.AOU build/fat16/r9fix/MAGIC.AOU: build/fat16/r9fix/OVER.AOU
+
+r9-apps: build/apps/args.aout build/apps/large.aout build/apps/shell.aout build/apps/hello1.aout build/fat16/r9fix/OVER.AOU
+
+# The R9 volume: the R8 files, the R9 OVER fixture, the SDK examples and the
+# C library proofs.  Its names stay 8.3-safe (10 characters with the dot).
+r9-fat16: build/fat16/win1-r9.img
+
+build/fat16/win1-r9.img: r9-apps sdk-examples tools/make-fat16.py fs/README.TXT build/fat16/fixtures/big.bin build/fat16/fixtures/bad.bin build/fat16/fixtures/empty.bin build/fat16/r9fix/TRUNC.AOU build/fat16/r9fix/LONG.AOU build/fat16/r9fix/ENTRY.AOU build/fat16/r9fix/MAGIC.AOU
+	mkdir -p build/fat16
+	python3 tools/make-fat16.py $@ SHELL.AOU=build/apps/shell.aout ARGS.AOU=build/apps/args.aout \
+	  LARGE.AOU=build/apps/large.aout HELLO.AOU=build/apps/hello1.aout README.TXT=fs/README.TXT \
+	  SDKHEL.AOU=sdk/examples/SDKHEL.aout SDKARG.AOU=sdk/examples/SDKARG.aout \
+	  SDKSTM.AOU=sdk/examples/SDKSTM.aout SDKSTS.AOU=sdk/examples/SDKSTS.aout \
+	  LIBHEL.AOU=sdk/examples/LIBHEL.aout CATFIL.AOU=sdk/examples/CATFIL.aout \
+	  MEMSTR.AOU=sdk/examples/MEMSTR.aout BIGAPP.AOU=sdk/examples/BIGAPP.aout \
+	HEAPEX.AOU=sdk/examples/HEAPEX.aout \
+	  BIG.AOU=build/fat16/fixtures/big.bin BAD.AOU=build/fat16/fixtures/bad.bin \
+	  EMPTY.TXT=build/fat16/fixtures/empty.bin OVER.AOU=build/fat16/r9fix/OVER.AOU \
+	  TRUNC.AOU=build/fat16/r9fix/TRUNC.AOU LONG.AOU=build/fat16/r9fix/LONG.AOU \
+	  ENTRY.AOU=build/fat16/r9fix/ENTRY.AOU MAGIC.AOU=build/fat16/r9fix/MAGIC.AOU
+

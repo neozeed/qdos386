@@ -1,0 +1,96 @@
+Start SeaVGABIOS (version 1.16.3-debian-1.16.3-2)
+VGABUILD: gcc: (Ubuntu 13.2.0-7ubuntu1) 13.2.0 binutils: (GNU Binutils for Ubuntu) 2.41
+enter vga_post:
+   a=00000010  b=0000ffff  c=00000000  d=0000ffff ds=0000 es=f000 ss=0000
+  si=00000000 di=000075b0 bp=00000000 sp=00006da2 cs=f000 ip=d15b  f=0000
+VBE DISPI: bdf 00:02.0, bar 0
+VBE DISPI: lfb_addr=fd000000, size 16 MB
+Removing mode 19a
+Removing mode 19b
+Removing mode 19c
+Removing mode 19d
+Removing mode 19e
+Attempting to allocate 512 bytes lowmem via pmm call to f000:d200
+VGA stack allocated at eeb20
+set VGA mode 3
+QDOS/386 R7
+Native i386 kernel
+
+FPU: x87 OK
+SMP: ACPI MADT: 1 CPU(s), BSP 0
+MEMMAP: E820 6 records
+  0000000000000000 +000000000009fc00 type 1
+  000000000009fc00 +0000000000000400 type 2
+  00000000000f0000 +0000000000010000 type 2
+  0000000000100000 +0000000000ee0000 type 1
+  0000000000fe0000 +0000000000020000 type 2
+  00000000fffc0000 +0000000000040000 type 2
+MEMMAP: usable 15232 KiB below the 256 MiB ceiling, top 00fe0000
+PAGING: R17 dynamic processes, ram 16256 KiB (E820), identity 0..16 MiB, pool 3104 frames (0 above 16 MiB), template cr3 00142000
+WIN1_: mounted
+SHELL: started as a process
+SYSTASK: task selector on Ctrl+Esc
+SURFACES R13A: 320x200x256, 640x480x16 text, fonts built in
+PRESENTER shadow 0x00129f54
+CLOCK: CMOS RTC (UTC) read at boot [cc yy mm dd hh mi ss B = 20 26 11 02 00 49 12 02], 1793580552 s since 1970
+SERIAL: SER1 COM1 0x3f8 IRQ4 16550A
+SERIAL: SER2 COM2 0x2f8 IRQ3 absent
+SHELL: running
+
+STARTUP: /ETC/STARTUP.CMD - press ESC within 2 seconds to skip it
+job 65540 started on session 0 (this session; /NEW gives it its own)
+R20P start tick=204
+R20P progress calls=65536 tick=236
+R20P progress calls=131072 tick=269
+R20P progress calls=196608 tick=319
+R20P progress calls=262144 tick=358
+R20P progress calls=327680 tick=395
+R20P progress calls=393216 tick=426
+R20P progress calls=458752 tick=460
+R20P progress calls=524288 tick=496
+R20P progress calls=589824 tick=531
+R20P progress calls=655360 tick=572
+R20G small pass=1 calls=1000 bytes=256000 bad=0 t0=205 t1=624 ticks=419
+R20G small pass=1 hit=51079 miss=129 fill=129 restart=129 coal=0 evict=0 nospace=0 ide=0 used=339
+R20G small pass=2 calls=1000 bytes=256000 bad=0 t0=626 t1=676 ticks=50
+R20G small pass=2 hit=43776 miss=0 fill=0 restart=0 coal=0 evict=0 nospace=0 ide=0 used=339
+R20P progress calls=720896 tick=677
+R20G PASS bad=0
+exit status 0
+STARTUP: done (2 commands)
+QDOS/386 R13B shell. Type HELP.
+/> R20P progress calls=786432 tick=717
+R20P progress calls=851968 tick=766
+R20P progress calls=917504 tick=827
+R20P progress calls=983040 tick=889
+R20P progress calls=1048576 tick=933
+R20P progress calls=1114112 tick=968
+R20P progress calls=1179648 tick=999
+R20P progress calls=1245184 tick=1031
+R20P progress calls=1310720 tick=1083
+R20P progress calls=1376256 tick=1135
+R20P progress calls=1441792 tick=1179
+R20P progress calls=1507328 tick=1210
+R20P progress calls=1572864 tick=1241
+R20P progress calls=1638400 tick=1270
+R20P progress calls=1703936 tick=1300
+R20P progress calls=1769472 tick=1333
+R20P progress calls=1835008 tick=1362
+R20P progress calls=1900544 tick=1394
+R20P progress calls=1966080 tick=1437
+R20P progress calls=2031616 tick=1489
+R20P progress calls=2097152 tick=1530
+R20P progress calls=2162688 tick=1559
+R20P progress calls=2228224 tick=1587
+R20P progress calls=2293760 tick=1616
+R20P progress calls=2359296 tick=1647
+R20P progress calls=2424832 tick=1677
+R20P progress calls=2490368 tick=1719
+R20P progress calls=2555904 tick=1749
+R20P progress calls=2621440 tick=1789
+R20P progress calls=2686976 tick=1835
+R20P progress calls=2752512 tick=1876
+R20P progress calls=2818048 tick=1906
+R20P progress calls=2883584 tick=1936
+R20P progress calls=2949120 tick=1969
+R20P done calls=3000000 tick=1991

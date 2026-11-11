@@ -1,0 +1,881 @@
+Start SeaVGABIOS (version 1.16.3-debian-1.16.3-2)
+VGABUILD: gcc: (Ubuntu 13.2.0-7ubuntu1) 13.2.0 binutils: (GNU Binutils for Ubuntu) 2.41
+enter vga_post:
+   a=00000010  b=0000ffff  c=00000000  d=0000ffff ds=0000 es=f000 ss=0000
+  si=00000000 di=000075b0 bp=00000000 sp=00006da2 cs=f000 ip=d15b  f=0000
+VBE DISPI: bdf 00:02.0, bar 0
+VBE DISPI: lfb_addr=fd000000, size 16 MB
+Removing mode 19a
+Removing mode 19b
+Removing mode 19c
+Removing mode 19d
+Removing mode 19e
+Attempting to allocate 512 bytes lowmem via pmm call to f000:d200
+VGA stack allocated at eeb20
+set VGA mode 3
+QDOS/386 R7
+Native i386 kernel
+
+FPU: x87 OK
+SMP: ACPI MADT: 1 CPU(s), BSP 0
+MEMMAP: E820 6 records
+  0000000000000000 +000000000009fc00 type 1
+  000000000009fc00 +0000000000000400 type 2
+  00000000000f0000 +0000000000010000 type 2
+  0000000000100000 +0000000000ee0000 type 1
+  0000000000fe0000 +0000000000020000 type 2
+  00000000fffc0000 +0000000000040000 type 2
+MEMMAP: usable 15232 KiB below the 256 MiB ceiling, top 00fe0000
+PAGING: R17 dynamic processes, ram 16256 KiB (E820), identity 0..16 MiB, pool 3104 frames (0 above 16 MiB), template cr3 00141000
+WIN1_: mounted
+SHELL: started as a process
+SYSTASK: task selector on Ctrl+Esc
+SURFACES R13A: 320x200x256, 640x480x16 text, fonts built in
+PRESENTER shadow 0x00128d44
+CLOCK: CMOS RTC (UTC) read at boot [cc yy mm dd hh mi ss B = 20 26 11 02 00 42 32 02], 1793580152 s since 1970
+SERIAL: SER1 COM1 0x3f8 IRQ4 16550A
+SERIAL: SER2 COM2 0x2f8 IRQ3 absent
+SHELL: running
+
+STARTUP: /ETC/STARTUP.CMD - press ESC within 2 seconds to skip it
+job 65540 started on session 0 (this session; /NEW gives it its own)
+R20P start tick=203
+R20P progress calls=65536 tick=230
+R20P progress calls=131072 tick=257
+R20P progress calls=196608 tick=286
+R20P progress calls=262144 tick=313
+R20P progress calls=327680 tick=341
+R20P progress calls=393216 tick=368
+R20P progress calls=458752 tick=395
+R20G short random read -40 at 1109823
+R20P progress calls=524288 tick=423
+R20P progress calls=589824 tick=472
+R20P progress calls=655360 tick=506
+R20P progress calls=720896 tick=534
+R20P progress calls=786432 tick=564
+R20P progress calls=851968 tick=592
+R20P progress calls=917504 tick=623
+R20G short random read -40 at 999515
+R20P progress calls=983040 tick=664
+R20P progress calls=1048576 tick=694
+R20P progress calls=1114112 tick=722
+R20P progress calls=1179648 tick=750
+R20P progress calls=1245184 tick=778
+R20P progress calls=1310720 tick=822
+R20P progress calls=1376256 tick=866
+R20G short random read -40 at 1024525
+R20P progress calls=1441792 tick=893
+R20P progress calls=1507328 tick=921
+R20P progress calls=1572864 tick=955
+R20P progress calls=1638400 tick=994
+R20P progress calls=1703936 tick=1026
+R20P progress calls=1769472 tick=1061
+R20P progress calls=1835008 tick=1090
+R20P progress calls=1900544 tick=1125
+R20P progress calls=1966080 tick=1157
+R20P progress calls=2031616 tick=1185
+R20G short random read -40 at 1373771
+R20P progress calls=2097152 tick=1214
+R20P progress calls=2162688 tick=1242
+R20P progress calls=2228224 tick=1276
+R20P progress calls=2293760 tick=1309
+R20P progress calls=2359296 tick=1337
+R20P progress calls=2424832 tick=1373
+R20P progress calls=2490368 tick=1405
+R20P progress calls=2555904 tick=1432
+R20P progress calls=2621440 tick=1472
+R20G short random read -40 at 779203
+R20P progress calls=2686976 tick=1522
+R20P progress calls=2752512 tick=1549
+R20P progress calls=2818048 tick=1577
+R20P progress calls=2883584 tick=1605
+R20P progress calls=2949120 tick=1632
+R20P done calls=3000000 tick=1654
+R20G short random read -40 at 1020992
+R20G short random read -40 at 1068438
+R20G short random read -40 at 1468431
+R20G short random read -40 at 1297061
+R20G short random read -40 at 1275435
+R20G short random read -40 at 1417938
+R20G short random read -40 at 1474467
+R20G short random read -40 at 965162
+R20G short random read -40 at 1553848
+R20G short random read -40 at 1462006
+R20G short random read -40 at 1471844
+R20G short random read -40 at 831433
+R20G short random read -40 at 888577
+R20G short random read -40 at 808935
+R20G short random read -40 at 1318201
+R20G short random read -40 at 1480074
+R20G short random read -40 at 998001
+R20G short random read -40 at 1078724
+R20G short random read -40 at 1313965
+R20G short random read -40 at 964956
+R20G short random read -40 at 1314632
+R20G short random read -40 at 1473309
+R20G short random read -40 at 753504
+R20G short random read -40 at 1554111
+R20G short random read -40 at 1126796
+R20G short random read -40 at 1548522
+R20G short random read -40 at 1432184
+R20G short random read -40 at 1140109
+R20G short random read -40 at 1019731
+R20G short random read -40 at 1409168
+R20G short random read -40 at 773513
+R20G short random read -40 at 1339790
+R20G short random read -40 at 940606
+R20G short random read -40 at 1408437
+R20G short random read -40 at 1170506
+R20G short random read -40 at 868401
+R20G short random read -40 at 996147
+R20G short random read -40 at 1345264
+R20G short random read -40 at 1174522
+R20G short random read -40 at 890785
+R20G short random read -40 at 1022132
+R20G short random read -40 at 1441874
+R20G short random read -40 at 1571477
+R20G short random read -40 at 1146779
+R20G short random read -40 at 1490744
+R20G short random read -40 at 1062006
+R20G short random read -40 at 1473143
+R20G short random read -40 at 1349348
+R20G short random read -40 at 1253890
+R20G short random read -40 at 933200
+R20G short random read -40 at 1327471
+R20G short random read -40 at 1422085
+R20G short random read -40 at 978778
+R20G short random read -40 at 1276545
+R20G short random read -40 at 1409300
+R20G short random read -40 at 1308857
+R20G short random read -40 at 976763
+R20G short random read -40 at 1194392
+R20G short random read -40 at 1508849
+R20G short random read -40 at 1540649
+R20G short random read -40 at 992079
+R20G short random read -40 at 872210
+R20G short random read -40 at 939747
+R20G short random read -40 at 1464544
+R20G short random read -40 at 871006
+R20G short random read -40 at 1425243
+R20G short random read -40 at 1190157
+R20G short random read -40 at 776999
+R20G short random read -40 at 1335764
+R20G short random read -40 at 1339261
+R20G short random read -40 at 987445
+R20G short random read -40 at 1346481
+R20G short random read -40 at 1435652
+R20G short random read -40 at 1389037
+R20G short random read -40 at 1222690
+R20G short random read -40 at 1516654
+R20G short random read -40 at 1552805
+R20G short random read -40 at 742214
+R20G short random read -40 at 915719
+R20G short random read -40 at 1515171
+R20G short random read -40 at 1041824
+R20G short random read -40 at 1291609
+R20G short random read -40 at 972074
+R20G short random read -40 at 1422993
+R20G short random read -40 at 1382902
+R20G short random read -40 at 1570512
+R20G short random read -40 at 897020
+R20G short random read -40 at 1238661
+R20G short random read -40 at 974042
+R20G short random read -40 at 1298408
+R20G short random read -40 at 1436838
+R20G short random read -40 at 1345255
+R20G short random read -40 at 1180308
+R20G short random read -40 at 1322290
+R20G short random read -40 at 1487872
+R20G short random read -40 at 1276661
+R20G short random read -40 at 1508120
+R20G short random read -40 at 905585
+R20G short random read -40 at 1505239
+R20G short random read -40 at 1541355
+R20G short random read -40 at 1524253
+R20G short random read -40 at 1415125
+R20G short random read -40 at 1337636
+R20G short random read -40 at 1176474
+R20G short random read -40 at 1290086
+R20G short random read -40 at 1503911
+R20G short random read -40 at 744434
+R20G short random read -40 at 1073344
+R20G short random read -40 at 1303033
+R20G short random read -40 at 1413023
+R20G short random read -40 at 1472330
+R20G short random read -40 at 1359382
+R20G short random read -40 at 739716
+R20G short random read -40 at 883184
+R20G short random read -40 at 1325929
+R20G short random read -40 at 883182
+R20G short random read -40 at 1547919
+R20G short random read -40 at 1263354
+R20G short random read -40 at 1557009
+R20G short random read -40 at 1020015
+R20G short random read -40 at 932200
+R20G short random read -40 at 1147924
+R20G short random read -40 at 1269758
+R20G short random read -40 at 1274719
+R20G short random read -40 at 1130924
+R20G short random read -40 at 1435259
+R20G short random read -40 at 1285361
+R20G short random read -40 at 1316653
+R20G short random read -40 at 1295458
+R20G short random read -40 at 829939
+R20G short random read -40 at 1215432
+R20G short random read -40 at 1424262
+R20G short random read -40 at 1451421
+R20G short random read -40 at 984588
+R20G short random read -40 at 879445
+R20G short random read -40 at 1383362
+R20G short random read -40 at 1449427
+R20G short random read -40 at 1256720
+R20G short random read -40 at 1392649
+R20G short random read -40 at 1389070
+R20G short random read -40 at 942362
+R20G short random read -40 at 1507763
+R20G short random read -40 at 1209200
+R20G short random read -40 at 1537769
+R20G short random read -40 at 1494894
+R20G short random read -40 at 1170740
+R20G short random read -40 at 1128285
+R20G short random read -40 at 1306654
+R20G short random read -40 at 1216767
+R20G short random read -40 at 1432504
+R20G short random read -40 at 1290701
+R20G short random read -40 at 1399426
+R20G short random read -40 at 1463036
+R20G short random read -40 at 998657
+R20G short random read -40 at 787860
+R20G short random read -40 at 911104
+R20G short random read -40 at 1430910
+R20G short random read -40 at 1342175
+R20G short random read -40 at 1566203
+R20G short random read -40 at 1381974
+R20G short random read -40 at 1369815
+R20G short random read -40 at 1440708
+R20G short random read -40 at 1563087
+R20G short random read -40 at 1507164
+R20G short random read -40 at 1110629
+R20G short random read -40 at 996295
+R20G short random read -40 at 1170932
+R20G short random read -40 at 788765
+R20G short random read -40 at 845714
+R20G short random read -40 at 1382937
+R20G short random read -40 at 1436382
+R20G short random read -40 at 1505164
+R20G short random read -40 at 1169130
+R20G short random read -40 at 1179768
+R20G short random read -40 at 1472438
+R20G short random read -40 at 1471373
+R20G short random read -40 at 1469359
+R20G short random read -40 at 1279813
+R20G short random read -40 at 1429146
+R20G short random read -40 at 1021682
+R20G short random read -40 at 1388867
+R20G short random read -40 at 1428405
+R20G short random read -40 at 1148347
+R20G short random read -40 at 1313046
+R20G short random read -40 at 1372467
+R20G short random read -40 at 1159785
+R20G short random read -40 at 1254638
+R20G short random read -40 at 1182757
+R20G short random read -40 at 1090042
+R20G short random read -40 at 975814
+R20G short random read -40 at 957149
+R20G short random read -40 at 882258
+R20G short random read -40 at 1241632
+R20G short random read -40 at 1005827
+R20G short random read -40 at 1179776
+R20G short random read -40 at 1324017
+R20G short random read -40 at 1293270
+R20G short random read -40 at 952752
+R20G short random read -40 at 1188715
+R20G short random read -40 at 1219647
+R20G short random read -40 at 1214968
+R20G short random read -40 at 1218242
+R20G short random read -40 at 1408211
+R20G short random read -40 at 1027388
+R20G short random read -40 at 867013
+R20G short random read -40 at 1063962
+R20G short random read -40 at 1194279
+R20G short random read -40 at 1375613
+R20G short random read -40 at 730558
+R20G short random read -40 at 1269557
+R20G short random read -40 at 1564618
+R20G short random read -40 at 1392621
+R20G short random read -40 at 1487659
+R20G short random read -40 at 1267463
+R20G short random read -40 at 1334435
+R20G short random read -40 at 1002400
+R20G short random read -40 at 925695
+R20G short random read -40 at 885196
+R20G short random read -40 at 1502904
+R20G short random read -40 at 1183735
+R20G short random read -40 at 898195
+R20G short random read -40 at 1242620
+R20G short random read -40 at 1013224
+R20G short random read -40 at 1120768
+R20G short random read -40 at 1327673
+R20G short random read -40 at 1294462
+R20G short random read -40 at 903413
+R20G short random read -40 at 1507185
+R20G short random read -40 at 1153120
+R20G short random read -40 at 741657
+R20G short random read -40 at 848362
+R20G short random read -40 at 981645
+R20G short random read -40 at 1289299
+R20G short random read -40 at 1227439
+R20G short random read -40 at 1375932
+R20G short random read -40 at 912965
+R20G short random read -40 at 1419674
+R20G short random read -40 at 1036786
+R20G short random read -40 at 1281772
+R20G short random read -40 at 1569461
+R20G short random read -40 at 1093080
+R20G short random read -40 at 1350562
+R20G short random read -40 at 1255785
+R20G short random read -40 at 1118891
+R20G short random read -40 at 1416353
+R20G short random read -40 at 1515956
+R20G short random read -40 at 1109909
+R20G short random read -40 at 1284266
+R20G short random read -40 at 1217910
+R20G short random read -40 at 1008659
+R20G short random read -40 at 1414736
+R20G short random read -40 at 1236302
+R20G short random read -40 at 1435653
+R20G short random read -40 at 1278042
+R20G short random read -40 at 1277031
+R20G short random read -40 at 1411604
+R20G short random read -40 at 1446589
+R20G short random read -40 at 1163442
+R20G short random read -40 at 1144835
+R20G short random read -40 at 1258368
+R20G short random read -40 at 925113
+R20G short random read -40 at 996862
+R20G short random read -40 at 1461591
+R20G short random read -40 at 1211568
+R20G short random read -40 at 1544271
+R20G short random read -40 at 1225692
+R20G short random read -40 at 1297637
+R20G short random read -40 at 1548916
+R20G short random read -40 at 1553309
+R20G short random read -40 at 1149790
+R20G short random read -40 at 731967
+R20G short random read -40 at 1100812
+R20G short random read -40 at 869175
+R20G short random read -40 at 1315266
+R20G short random read -40 at 1389608
+R20G short random read -40 at 1262717
+R20G short random read -40 at 1183934
+R20G short random read -40 at 1520927
+R20G short random read -40 at 733444
+R20G short random read -40 at 1333616
+R20G short random read -40 at 1416348
+R20G short random read -40 at 881734
+R20G short random read -40 at 1499956
+R20G short random read -40 at 1099101
+R20G short random read -40 at 1347282
+R20G short random read -40 at 786872
+R20G short random read -40 at 1284348
+R20G short random read -40 at 1335819
+R20G short random read -40 at 1001704
+R20G short random read -40 at 1346982
+R20G short random read -40 at 1381351
+R20G short random read -40 at 1313684
+R20G short random read -40 at 1062461
+R20G short random read -40 at 956639
+R20G short random read -40 at 1390892
+R20G short random read -40 at 1372149
+R20G short random read -40 at 1152625
+R20G short random read -40 at 1361111
+R20G short random read -40 at 785889
+R20G short random read -40 at 1216967
+R20G short random read -40 at 1152797
+R20G short random read -40 at 1465746
+R20G short random read -40 at 886809
+R20G short random read -40 at 991569
+R20G short random read -40 at 1445302
+R20G short random read -40 at 854867
+R20G short random read -40 at 1288585
+R20G short random read -40 at 1332549
+R20G short random read -40 at 1179841
+R20G short random read -40 at 1265766
+R20G short random read -40 at 1343399
+R20G short random read -40 at 1141844
+R20G short random read -40 at 1370109
+R20G short random read -40 at 1438188
+R20G short random read -40 at 1069808
+R20G short random read -40 at 1211118
+R20G short random read -40 at 1005562
+R20G short random read -40 at 1145758
+R20G short random read -40 at 956053
+R20G short random read -40 at 897962
+R20G short random read -40 at 1014683
+R20G short random read -40 at 984849
+R20G short random read -40 at 1311565
+R20G short random read -40 at 1557267
+R20G short random read -40 at 1212811
+R20G short random read -40 at 1233702
+R20G short random read -40 at 1412372
+R20G short random read -40 at 1113010
+R20G short random read -40 at 1021699
+R20G short random read -40 at 1139185
+R20G short random read -40 at 1331670
+R20G short random read -40 at 1195095
+R20G short random read -40 at 1073988
+R20G short random read -40 at 1548651
+R20G short random read -40 at 846151
+R20G short random read -40 at 1123225
+R20G short random read -40 at 1242718
+R20G short random read -40 at 1289996
+R20G short random read -40 at 1531989
+R20G short random read -40 at 1150146
+R20G short random read -40 at 1017360
+R20G short random read -40 at 979772
+R20G short random read -40 at 919336
+R20G short random read -40 at 1076692
+R20G short random read -40 at 887677
+R20G short random read -40 at 1000479
+R20G short random read -40 at 1027381
+R20G short random read -40 at 1442619
+R20G short random read -40 at 1396205
+R20G short random read -40 at 1012495
+R20G short random read -40 at 835484
+R20G short random read -40 at 1002917
+R20G short random read -40 at 1213818
+R20G short random read -40 at 1192235
+R20G short random read -40 at 962976
+R20G short random read -40 at 1567253
+R20G short random read -40 at 1184401
+R20G short random read -40 at 1066486
+R20G short random read -40 at 1024267
+R20G short random read -40 at 728040
+R20G short random read -40 at 1393383
+R20G short random read -40 at 1481866
+R20G short random read -40 at 1499899
+R20G short random read -40 at 1448361
+R20G short random read -40 at 1224264
+R20G short random read -40 at 1463521
+R20G short random read -40 at 1382546
+R20G short random read -40 at 1059806
+R20G short random read -40 at 993258
+R20G short random read -40 at 1562806
+R20G short random read -40 at 1239479
+R20G short random read -40 at 1206867
+R20G short random read -40 at 966544
+R20G short random read -40 at 1489989
+R20G short random read -40 at 1138586
+R20G short random read -40 at 1233099
+R20G short random read -40 at 1241256
+R20G short random read -40 at 1428383
+R20G short random read -40 at 1561560
+R20G short random read -40 at 1127217
+R20G short random read -40 at 796142
+R20G short random read -40 at 1303304
+R20G short random read -40 at 1412231
+R20G short random read -40 at 1484626
+R20G short random read -40 at 1187384
+R20G short random read -40 at 1318417
+R20G short random read -40 at 1280258
+R20G short random read -40 at 1389390
+R20G large pass=1 calls=1107 bytes=283392 bad=393 t0=206 t1=7298 ticks=7092
+R20G large pass=1 hit=25196175 miss=29741 fill=29348 restart=29348 coal=0 evict=0 nospace=0 ide=0 used=-43
+R20G short random read -40 at 1255454
+R20G short random read -40 at 757013
+R20G short random read -40 at 1266616
+R20G short random read -40 at 1369489
+R20G short random read -40 at 1449206
+R20G short random read -40 at 1133005
+R20G short random read -40 at 1106384
+R20G short random read -40 at 1238405
+R20G short random read -40 at 1514216
+R20G short random read -40 at 822759
+R20G short random read -40 at 1392701
+R20G short random read -40 at 1338156
+R20G short random read -40 at 1128949
+R20G short random read -40 at 1344394
+R20G short random read -40 at 1003094
+R20G short random read -40 at 1490647
+R20G short random read -40 at 1290925
+R20G short random read -40 at 1178082
+R20G short random read -40 at 826347
+R20G short random read -40 at 1440006
+R20G short random read -40 at 1286429
+R20G short random read -40 at 1454617
+R20G short random read -40 at 1372044
+R20G short random read -40 at 1347306
+R20G short random read -40 at 1538168
+R20G short random read -40 at 1315138
+R20G short random read -40 at 1367696
+R20G short random read -40 at 794437
+R20G short random read -40 at 1469387
+R20G short random read -40 at 1437608
+R20G short random read -40 at 915879
+R20G short random read -40 at 782845
+R20G short random read -40 at 1476931
+R20G short random read -40 at 1009726
+R20G short random read -40 at 1049732
+R20G short random read -40 at 1201261
+R20G short random read -40 at 1398946
+R20G short random read -40 at 1329459
+R20G short random read -40 at 1172771
+R20G short random read -40 at 1477965
+R20G short random read -40 at 905218
+R20G short random read -40 at 1465619
+R20G short random read -40 at 760656
+R20G short random read -40 at 1290569
+R20G short random read -40 at 1029999
+R20G short random read -40 at 1514620
+R20G short random read -40 at 1203083
+R20G short random read -40 at 1016936
+R20G short random read -40 at 1570086
+R20G short random read -40 at 1343252
+R20G short random read -40 at 1205181
+R20G short random read -40 at 1457586
+R20G short random read -40 at 1093891
+R20G short random read -40 at 1341568
+R20G short random read -40 at 1474233
+R20G short random read -40 at 1438678
+R20G short random read -40 at 1037636
+R20G short random read -40 at 882530
+R20G short random read -40 at 891215
+R20G short random read -40 at 1539557
+R20G short random read -40 at 1342315
+R20G short random read -40 at 1473810
+R20G short random read -40 at 1240291
+R20G short random read -40 at 1428889
+R20G short random read -40 at 1267806
+R20G short random read -40 at 1406015
+R20G short random read -40 at 988507
+R20G short random read -40 at 1330882
+R20G short random read -40 at 858128
+R20G short random read -40 at 1446183
+R20G short random read -40 at 1174642
+R20G short random read -40 at 1087683
+R20G short random read -40 at 1465790
+R20G short random read -40 at 943766
+R20G short random read -40 at 943620
+R20G short random read -40 at 972781
+R20G short random read -40 at 1201698
+R20G short random read -40 at 1355023
+R20G short random read -40 at 1208732
+R20G short random read -40 at 1054629
+R20G short random read -40 at 1345402
+R20G short random read -40 at 1116971
+R20G short random read -40 at 1286470
+R20G short random read -40 at 1257223
+R20G short random read -40 at 996373
+R20G short random read -40 at 1309841
+R20G short random read -40 at 1042423
+R20G short random read -40 at 1019266
+R20G short random read -40 at 937093
+R20G short random read -40 at 1476413
+R20G short random read -40 at 1137209
+R20G short random read -40 at 1560108
+R20G short random read -40 at 1391867
+R20G short random read -40 at 1307874
+R20G short random read -40 at 884943
+R20G short random read -40 at 1294049
+R20G short random read -40 at 1457251
+R20G short random read -40 at 1337625
+R20G short random read -40 at 1347038
+R20G short random read -40 at 932799
+R20G short random read -40 at 905868
+R20G short random read -40 at 1550826
+R20G short random read -40 at 1473206
+R20G short random read -40 at 1362569
+R20G short random read -40 at 1452686
+R20G short random read -40 at 951877
+R20G short random read -40 at 1360552
+R20G short random read -40 at 1458625
+R20G short random read -40 at 1113446
+R20G short random read -40 at 1386663
+R20G short random read -40 at 1532244
+R20G short random read -40 at 820639
+R20G short random read -40 at 756119
+R20G short random read -40 at 1201058
+R20G short random read -40 at 934249
+R20G short random read -40 at 1488122
+R20G short random read -40 at 1272491
+R20G short random read -40 at 915933
+R20G short random read -40 at 1392511
+R20G short random read -40 at 1417079
+R20G short random read -40 at 1227795
+R20G short random read -40 at 1353801
+R20G short random read -40 at 950277
+R20G short random read -40 at 1284747
+R20G short random read -40 at 884774
+R20G short random read -40 at 1081876
+R20G short random read -40 at 1157821
+R20G short random read -40 at 1145010
+R20G short random read -40 at 895872
+R20G short random read -40 at 1207806
+R20G short random read -40 at 1326203
+R20G short random read -40 at 1218628
+R20G short random read -40 at 1405538
+R20G short random read -40 at 1048361
+R20G short random read -40 at 1337423
+R20G short random read -40 at 1370592
+R20G short random read -40 at 1185016
+R20G short random read -40 at 1486289
+R20G short random read -40 at 1456581
+R20G short random read -40 at 1494810
+R20G short random read -40 at 1273688
+R20G short random read -40 at 1552790
+R20G short random read -40 at 1474839
+R20G short random read -40 at 1364336
+R20G short random read -40 at 883945
+R20G short random read -40 at 1414300
+R20G short random read -40 at 1463203
+R20G short random read -40 at 1537696
+R20G short random read -40 at 1048094
+R20G short random read -40 at 875724
+R20G short random read -40 at 973589
+R20G short random read -40 at 1170986
+R20G short random read -40 at 1553142
+R20G short random read -40 at 1544444
+R20G short random read -40 at 1158769
+R20G short random read -40 at 1453939
+R20G short random read -40 at 1200079
+R20G short random read -40 at 998748
+R20G short random read -40 at 1448427
+R20G short random read -40 at 1226124
+R20G short random read -40 at 735569
+R20G short random read -40 at 1557648
+R20G short random read -40 at 778671
+R20G short random read -40 at 1501643
+R20G short random read -40 at 1356213
+R20G short random read -40 at 1245258
+R20G short random read -40 at 1170363
+R20G short random read -40 at 1079447
+R20G short random read -40 at 1280644
+R20G short random read -40 at 942701
+R20G short random read -40 at 1100528
+R20G short random read -40 at 1303439
+R20G short random read -40 at 1549852
+R20G short random read -40 at 790522
+R20G short random read -40 at 862635
+R20G short random read -40 at 1257926
+R20G short random read -40 at 1088692
+R20G short random read -40 at 1037211
+R20G short random read -40 at 1253137
+R20G short random read -40 at 1492482
+R20G short random read -40 at 999502
+R20G short random read -40 at 1510182
+R20G short random read -40 at 1305785
+R20G short random read -40 at 1008300
+R20G short random read -40 at 1477078
+R20G short random read -40 at 1229869
+R20G short random read -40 at 851374
+R20G short random read -40 at 997199
+R20G short random read -40 at 970460
+R20G short random read -40 at 871397
+R20G short random read -40 at 1294689
+R20G short random read -40 at 1318260
+R20G short random read -40 at 1191518
+R20G short random read -40 at 1282771
+R20G short random read -40 at 1310224
+R20G short random read -40 at 1326345
+R20G short random read -40 at 1123197
+R20G short random read -40 at 1145465
+R20G short random read -40 at 1061822
+R20G short random read -40 at 1035722
+R20G short random read -40 at 1375382
+R20G short random read -40 at 1142807
+R20G short random read -40 at 1436676
+R20G short random read -40 at 1242803
+R20G short random read -40 at 1509486
+R20G short random read -40 at 1193761
+R20G short random read -40 at 1084679
+R20G short random read -40 at 979619
+R20G short random read -40 at 1177898
+R20G short random read -40 at 1474038
+R20G short random read -40 at 799740
+R20G short random read -40 at 907777
+R20G short random read -40 at 915456
+R20G short random read -40 at 819167
+R20G short random read -40 at 1322838
+R20G short random read -40 at 1366251
+R20G short random read -40 at 1145443
+R20G short random read -40 at 1006015
+R20G short random read -40 at 1259408
+R20G short random read -40 at 1212558
+R20G short random read -40 at 1528901
+R20G short random read -40 at 1185690
+R20G short random read -40 at 1468584
+R20G short random read -40 at 1310706
+R20G short random read -40 at 1304131
+R20G short random read -40 at 1452350
+R20G short random read -40 at 1352607
+R20G short random read -40 at 1497269
+R20G short random read -40 at 1547082
+R20G short random read -40 at 1067426
+R20G short random read -40 at 1238579
+R20G short random read -40 at 1400302
+R20G short random read -40 at 1239211
+R20G short random read -40 at 1268488
+R20G short random read -40 at 1163811
+R20G short random read -40 at 1225036
+R20G short random read -40 at 1476266
+R20G short random read -40 at 1467254
+R20G short random read -40 at 1211767
+R20G short random read -40 at 1122893
+R20G short random read -40 at 1349158
+R20G short random read -40 at 1552999
+R20G short random read -40 at 1345556
+R20G short random read -40 at 1306290
+R20G short random read -40 at 934910
+R20G short random read -40 at 1476447
+R20G short random read -40 at 1099180
+R20G short random read -40 at 1456763
+R20G short random read -40 at 1311575
+R20G short random read -40 at 1166125
+R20G short random read -40 at 1497776
+R20G short random read -40 at 1157294
+R20G short random read -40 at 1503708
+R20G short random read -40 at 1527752
+R20G short random read -40 at 1316961
+R20G short random read -40 at 1470535
+R20G short random read -40 at 1471129
+R20G short random read -40 at 1043818
+R20G short random read -40 at 835522
+R20G short random read -40 at 951578
+R20G short random read -40 at 1038566
+R20G short random read -40 at 1534589
+R20G short random read -40 at 1480024
+R20G short random read -40 at 1480369
+R20G short random read -40 at 964464
+R20G short random read -40 at 1487726
+R20G short random read -40 at 1480826
+R20G short random read -40 at 1442952
+R20G short random read -40 at 1425990
+R20G short random read -40 at 1129479
+R20G short random read -40 at 1567581
+R20G short random read -40 at 1368153
+R20G short random read -40 at 1190165
+R20G short random read -40 at 1446954
+R20G short random read -40 at 1544731
+R20G short random read -40 at 1224144
+R20G short random read -40 at 1365756
+R20G short random read -40 at 831745
+R20G short random read -40 at 1395175
+R20G short random read -40 at 1182770
+R20G short random read -40 at 1408825
+R20G short random read -40 at 1543903
+R20G short random read -40 at 1240970
+R20G short random read -40 at 1399320
+R20G short random read -40 at 948951
+R20G short random read -40 at 1560237
+R20G short random read -40 at 1550505
+R20G short random read -40 at 1540956
+R20G short random read -40 at 1427399
+R20G short random read -40 at 1510937
+R20G short random read -40 at 1232606
+R20G short random read -40 at 1451917
+R20G short random read -40 at 1485710
+R20G short random read -40 at 1009611
+R20G short random read -40 at 1296065
+R20G short random read -40 at 1089126
+R20G short random read -40 at 1226151
+R20G short random read -40 at 1487519
+R20G short random read -40 at 1376181
+R20G short random read -40 at 1062474
+R20G short random read -40 at 1431995
+R20G short random read -40 at 974552
+R20G short random read -40 at 1463959
+R20G short random read -40 at 1033523
+R20G short random read -40 at 1540495
+R20G short random read -40 at 1289736
+R20G short random read -40 at 1030561
+R20G short random read -40 at 850905
+R20G short random read -40 at 1133841
+R20G short random read -40 at 878416
+R20G short random read -40 at 1157244
+R20G short random read -40 at 1529739
+R20G short random read -40 at 957569
+R20G short random read -40 at 1171815
+R20G short random read -40 at 1255858
+R20G short random read -40 at 1195274
+R20G short random read -40 at 1128827
+R20G short random read -40 at 730008
+R20G short random read -40 at 1201070
+R20G short random read -40 at 1013611
+R20G short random read -40 at 1077089
+R20G short random read -40 at 729972
+R20G short random read -40 at 1241809
+R20G short random read -40 at 1261878
+R20G short random read -40 at 1402935
+R20G short random read -40 at 1238032
+R20G short random read -40 at 1192252
+R20G short random read -40 at 1232167
+R20G short random read -40 at 1012032
+R20G short random read -40 at 1202491
+R20G short random read -40 at 1453489
+R20G short random read -40 at 1369377
+R20G short random read -40 at 792409
+R20G short random read -40 at 1380635
+R20G short random read -40 at 1145218
+R20G short random read -40 at 1214611
+R20G short random read -40 at 1079051
+R20G short random read -40 at 957919
+R20G short random read -40 at 875052
+R20G short random read -40 at 1346186
+R20G short random read -40 at 1128699
+R20G short random read -40 at 781592
+R20G short random read -40 at 1491652
+R20G short random read -40 at 1103277
+R20G short random read -40 at 1001264
+R20G short random read -40 at 1464043
+R20G short random read -40 at 1383137
+R20G short random read -40 at 869657
+R20G short random read -40 at 792042
+R20G short random read -40 at 1343571
+R20G short random read -40 at 1353353
+R20G short random read -40 at 1416641
+R20G short random read -40 at 1255782
+R20G short random read -40 at 1398013
+R20G short random read -40 at 786238
+R20G short random read -40 at 1360287
+R20G short random read -40 at 987884
+R20G short random read -40 at 1517237
+R20G short random read -40 at 840010
+R20G short random read -40 at 1431739
+R20G short random read -40 at 1495940
+R20G short random read -40 at 1458082
+R20G short random read -40 at 1356782
+R20G short random read -40 at 1527951
+R20G short random read -40 at 1205931
+R20G short random read -40 at 1118369
+R20G short random read -40 at 1266374
+R20G short random read -40 at 1381853
+R20G short random read -40 at 1304864
+R20G short random read -40 at 1192665
+R20G short random read -40 at 1472332
+R20G short random read -40 at 1188757
+R20G short random read -40 at 1530743
+R20G short random read -40 at 1082441
+R20G short random read -40 at 1330044
+R20G short random read -40 at 1446329
+R20G short random read -40 at 828767
+R20G short random read -40 at 1169418
+R20G short random read -40 at 1403606
+R20G short random read -40 at 1565015
+R20G short random read -40 at 1506990
+R20G short random read -40 at 1025103
+R20G short random read -40 at 1206173
+R20G short random read -40 at 1553888
+R20G short random read -40 at 1200140
+R20G short random read -40 at 1450858
+R20G short random read -40 at 808720
+R20G short random read -40 at 1456922
+R20G short random read -40 at 1308712
+R20G short random read -40 at 1378625
+R20G short random read -40 at 1371878
+R20G large pass=2 calls=1109 bytes=283904 bad=784 t0=7299 t1=13068 ticks=5769
+R20G large pass=2 hit=25077943 miss=29416 fill=29025 restart=29025 coal=0 evict=0 nospace=0 ide=0 used=-43
+R20G FAIL bad=784
+exit status 1
+STARTUP: done (2 commands)
+QDOS/386 R13B shell. Type HELP.
+/> 

@@ -1,105 +1,54 @@
-# QDOS/386 Apollo 14 (R18) — graphics presentation and native-resolution EliteQL: handover
+# QDOS/386 Apollo 16 Phase 2B: bounded sector cache (release)
 
-**Package**: `qdos386-APOLLO14-R18-GRAPHICS.tar.gz` (public-safe: no SuperBASIC, no Infocom, no Elite).
+Branch `r20-apollo16-io-workers`, commit `93fd6a5`, tag `a16-gate2b`, on top of `a16-gate2a` (`cf1cbcc`). Phase 1
+(`a16-gate1`) and Phase 2A (`a16-gate2a`) are unchanged. The R18 frozen kernel is byte-identical to the frozen tree.
 
-**Private add-on**: `qdos386-APOLLO14-ELITEQL-PRIVATE.tar.gz`. It contains the frozen `ELITEP.AOU` and the Elite
-evidence pictures. Do not redistribute it.
+## What is here
 
-**Source**: branch `r18-apollo14-graphics` on top of `a13-r17`.
+- `source/`: the Phase 2B tree (kernel, platform, SDK, tools, the kernel test sources `tests/*.c|h` and `tests/a16/`, the
+  non-private application sources the PC build links, the Apollo 16 scripts, and the design and results documents).
+  Built from the tag, not from a working copy. The SuperBASIC, Infocom and story trees are not included.
+- `patch/phase2b.patch`: the diff from `a16-gate2a` to `a16-gate2b`.
+- `binaries/`: `r18-vga.img` (frozen R18 kernel, for comparison), `r20-2a-vga.img` (Phase 2A), `r20-2b-vga.img`
+  (Phase 2B, default cache size), and the protected test programs (`R20*P.aout`): `R20GS/GW/GL` (cache workloads), `R20X`
+  (contention reader), `R20XK` (1000-read reader for termination tests), `R20K` (process termination helper), `R20C`
+  (write coherence), `R20D` (state dump), `R20P` (background progress).
+- `performance/`: the matrix table (`mx-summary.txt`), the serial logs of the 18-run matrix, and the contention, injection,
+  termination, coherence and reboot runs.
+- `docs/A16-CACHE-DESIGN.md`, `docs/A16-CACHE-RESULTS.md`: the design (including the reservation rules) and results
+  (gates, performance, Phase 2A diagnosis, limitations).
 
-| Tag | Content |
-| --- | --- |
-| `a14-gate1` | planar presenter |
-| `a14-gate2` | session switching |
-| `a14-gate3` | EliteQL |
-| `a14-gate4` | compatibility and robustness |
-| `a14-r18` | release |
+## Rebuild and check
 
-## What R18 is
+    tar -xzf qdos386-APOLLO16-R20-PHASE2B-CACHE.tar.gz && cd qdos386-APOLLO16-R20-PHASE2B-CACHE
+    sha256sum -c SHA256SUMS
+    cd source && . <your toolchain env> && make qdos386-r20-pc      # the Phase 2B kernel (QDOS_R20)
+    make qdos386-r18-pc                                              # the frozen R18 kernel (must be byte-identical to binaries/r18-vga.img)
 
-An **opt-in** kernel target, `make qdos386-r18-pc`, which builds `qdos386-r18-vga.img` and `qdos386-r18.img`. It is
-R17 plus a **640×480×16 (VGA mode 12h) presentation path for INDEX8 surfaces**. Every change is inside
-`#ifdef QDOS_R18`. These kernels rebuild byte-identical:
+The test programs are built by `scripts/a16-p2b-build.sh` (needs the same toolchain). The test volume is built by
+`scripts/a16-p2b-sysvol.sh` from a base volume that is NOT part of this release.
 
-| Kernel | Image | SHA-256 prefix |
-| --- | --- | --- |
-| R17 | `qdos386-r17-vga.img` | `40968de4` |
-| R17 | `qdos386-r17.img` | `f53bd88a` |
-| R16B | `qdos386-r16b-vga.img` | `d073fbea` |
-| R16A | `qdos386-smp-vga.img` | `b9ecb69a` |
-| KCTX-FIX2 | `qdos386-vga.img` | `f8e5d5e1` |
-| KCTX-FIX2 | `qdos386.img` | `7c675978` |
+## Running the diagnostics
 
-* **Views**: `SURF_OP_VIEW` b = 2 (`VGA12`, 1:1 centred) or 3 (`VGA12W`, each pixel twice as wide = the QL's own
-  aspect). Rows are never scaled. A 256×256 surface is shown complete at (192, 112), or as 512×256 at (64, 112).
-* **Colour**: colour = pixel & 15, through palette entries 0..15. The capability bit is `SURF_CAP_VGA12`. Earlier
-  kernels refuse the new views with -4.
-* **User override, no program change**: Task Manager **F3** cycles the selected job's presentation (program's choice →
-  640×480 1:1 → 640×480 2× wide → 320×200 fit). `/BIN/VIEW con APP|FIT|VGA12|VGA12W` does the same from the shell. The
-  kernel call underneath is `SURF_OP_SESS_VIEW`. This is how the frozen EliteQL is shown at full height.
-* **Presenter cost**: the presenter does at most 64 rows per tick, because the SYSTEM poll holds the BKL with
-  interrupts off. `SURF_OP_PRES_TIME` / `PLANAR TIME` measure it.
-* **Public demo and test card**: `/BIN/PLANAR`. The host oracle `tests/a14/oracle.py` recomputes every screen pixel
-  (layout, bitplanes, DAC).
+Use the debug port, not the VGA text capture. Boot the kernel with `isa-debugcon` mapped to 0x402:
 
-Unchanged: SMP (8 CPUs, BKL, topology), the memory map, the file system, GCC, QLTerm, Hack, gameplay code, and the
-320×200×256 and rendered-text-console paths.
+    qemu-system-i386 -machine pc -cpu pentium -m 16 -drive file=kernel.img,format=raw,if=ide,index=0 \
+      -drive file=vol.img,format=raw,if=ide,index=1 -smp 2 -display none \
+      -chardev file,id=dbg,path=serial.txt -device isa-debugcon,iobase=0x402,chardev=dbg
 
-## Build, boot, test
+Set `/ETC/STARTUP.CMD` to one of: `START /BIN/R20X` (x8), then `/BIN/R20D` (state dump after 40000 ticks); or
+`/BIN/R20C` (write test; run again with `K` for the reboot readback); or `START /BIN/R20XK` (x8), `/BIN/R20K <ids>`.
 
-```sh
-export QDOS386_TOOLS=/path/to/i386vm-tree         # GCC 1.40 / GAS 1.38 / i386-ld (see README.md)
-make qdos386-r18-pc
-sh scripts/a14-build-guest.sh                      # PLANAR VIEW + the R17 tools
-sh scripts/a14-sysvol.sh vol.img                   # public-safe volume with the tools in /BIN
-qemu-system-i386 -drive file=build/qdos386-r18/pc-vga/qdos386-r18-vga.img,format=raw,if=ide,index=0 \
-                 -drive file=vol.img,format=raw,if=ide,index=1 -m 64 -smp 2
-```
+## Gate status
 
-At the shell:
+Passed: contention (8 readers, 8 entries, 2 and 8 CPUs; default size), forced fallback, injected device failures
+(default and 8-entry), process termination during queued and waiting fills, write coherence, reboot readback, R18
+byte identity, the 18-run performance matrix. See `docs/A16-CACHE-RESULTS.md`.
 
-```
-START PLANAR CARD 256 256 VGA12 30 /TMP/C.RAW /NEW    the test card, 1:1 in 640x480x16 (it shows itself; Alt+F1 back)
-START PLANAR CARD 256 256 FIT 60 /TMP/D.RAW /NEW      a program that asks for the old 320x200 fit...
-VIEW 4 VGA12W                                         ...shown 2x wide in 640x480 instead (TASKS /L: CON column)
-```
+Not done: the Phase 2A cause is not confirmed (the diagnostic copy was built but not run); the 8-entry injected run
+masks 10 device failures behind successful retries (documented); cold streaming reads are slower with the cache.
 
-With the private add-on: copy `ELITEP.AOU` to `/BIN`, then `START ELITEP /NEW`, then Ctrl+Esc, select it, **F3**, Esc.
-Elite's whole 256×256 screen, dashboard included, is shown 1:1. Press F3 again for 512×256.
+## Not included (public-safe)
 
-Tests (QEMU; one emulator at a time):
-
-| Script | What it covers |
-| --- | --- |
-| `sh tests/a14/run-s1.sh OUT` | Stage 1: 9 test cards, every pixel checked |
-| `sh tests/a14/run-g2.sh OUT` | Stage 2: session switching |
-| `sh tests/a14/run-s4.sh OUT` | Stage 4: 1 and 8 CPUs, robustness |
-| `sh tests/a14/run-elite.sh OUT ELITEP.AOU ["-smp 2"]` | Stage 3: needs the private fixture |
-| `R12_QKERNEL=build/qdos386-r18/pc-vga/qdos386-r18-vga.img sh tests/r13a/run-gate.sh 2\|3 OUT` | R13A regressions |
-| `sh scripts/a14-verify-package.sh EXTRACTED OUT` | fresh-package verification |
-
-## Evidence
-
-Results are in `docs/APOLLO14-RUNTIME-REPORT.md`. `evidence/` has the text summaries and the PLANAR screendumps.
-Elite pictures are only in the private add-on.
-
-## Docs
-
-| File | Content |
-| --- | --- |
-| `docs/APOLLO14-AUDIT.md` | Stage 0 audit and contract |
-| `docs/APOLLO14-DISPLAY-ABI.md` | modes, views, colour policy, override, ownership, compatibility |
-| `docs/APOLLO14-PLANAR-VGA.md` | registers, plane writes, bounded work, host oracle |
-| `docs/APOLLO14-RUNTIME-REPORT.md` | QEMU evidence |
-| `docs/APOLLO14-KNOWN-LIMITATIONS.md` | known limitations |
-
-The patch against R17 is `patches/r18-against-r17.patch`.
-
-## Constraints kept
-
-* No source changes to SMP, memory discovery, the BKL, file systems, GCC, QLTerm, Hack, GW-BASIC or gameplay.
-* EliteQL: the frozen protected binary is used unchanged, and no Elite source is in the tree.
-* Applications never touch VGA registers.
-* The override changes presentation only, and its permission is checked.
-* Frozen kernels are byte-identical.
-* No VBE, SVGA, mouse, windows or sound.
+Private Elite, SuperBASIC and Infocom material, story files, the base user volumes (the test volumes are built from a base
+that is not in this release), and the 700 MB of run logs. Nothing here needs those.

@@ -1,0 +1,2042 @@
+diff --git a/docs/A16-CACHE-DESIGN.md b/docs/A16-CACHE-DESIGN.md
+new file mode 100644
+index 0000000..fa196e6
+--- /dev/null
++++ b/docs/A16-CACHE-DESIGN.md
+@@ -0,0 +1,106 @@
++# Apollo 16 Phase 2B: the bounded sector cache
++
++Status: implemented under `QDOS_R20`; the frozen R18 kernel is byte-identical and the Phase 2A tree is unchanged.
++Builds on Phase 2A (`a16-gate2a`, `cf1cbcc`), the probe-and-restart file read on the Ring 0 disk worker.
++
++## Scope
++
++A read-through, write-coherent sector cache between the file layer and the storage worker. It does not change the
++application ABI (the 256-byte `QD_READ_MAX` read cap, the ticket and file-handle formats), does not make writes
++asynchronous, and does not touch FAT32, DMA, IRQ14, the display worker or the scheduler.
++
++## Sizing
++
++- Usable RAM comes from `memmap_summary` (valid only after `pg_init`), so the cache is created after paging is set up
++  and before the first mount.
++- Budget = min(5 % of usable RAM, 2 MiB). Data and metadata both count. Entries are 512-byte sectors; the metadata
++  per entry is the `struct r20_ce` record plus its hash bucket and queue slot.
++- The entry index is 12 bits (at most 4096 entries). Below 8 entries the cache is disabled and file reads run
++  synchronously, as in Phase 2A.
++- The cache is one kernel-heap allocation (`mem_alloc`, owner `0x7E20`), made once at boot.
++
++## Keys, states and generations
++
++- Key: physical LBA (the partition offset is applied above the cache). Device identity is fixed at 0 (the single IDE
++  slave); the field is kept for a future second device.
++- States: `FREE`, `LOADING` (queued, or being filled by the worker), `VALID`, `ERROR` (a device failure, reported once).
++- Every entry has a generation. A fill's ticket carries the generation; a completion whose generation no longer matches
++  is an orphan (the sector was invalidated while in flight) and publishes nothing.
++- Lookup is hashed (power-of-two buckets). Eviction is a clock with a bounded two sweeps; a full cache with every entry
++  loading, pinned or reserved returns "no victim", and the caller waits (or reads directly, see below).
++
++## Coherence
++
++- Every sector write goes through one choke point (`r20c_write`): the entry is invalidated before and after the disk
++  write, and an in-flight fill of the old contents is discarded at its completion.
++- `win1_mount` and media change call `r20c_invalidate_all`; nothing cached is trusted across a mount.
++- Write coherence is tested by `tests/a16/r20c.c` (rewrite, partial overwrite across a sector boundary, remove and
++  reuse, extend, and a readback after reboot).
++
++## Read path
++
++1. A file read runs as a probe on a copy of the file cursor into a 256-byte kernel buffer. Nothing user-visible changes
++   during the probe.
++2. If every sector the read needs is VALID, the probe commits: the cursor is updated and the data copied to the user
++   buffer in one step (cursor atomicity as in Phase 2A).
++3. If a sector is missing, the probe returns `FAT_ERR_MISS` (kernel-internal). The reader queues the fill (or joins a
++   fill already in flight, a coalesced miss), sleeps, and is re-executed from the start when the fill completes.
++4. A fill completes on the worker (ring 0, interrupts off during the controller access, no BKL held while waiting).
++   The completed sector is VALID and reserved for every reader that was waiting for it (see below).
++
++## Reservations (the cache-lifetime rule)
++
++A sector that a waiting reader has just filled must still be there when that reader retries. Without a reservation a
++busy cache can evict it first, and the whole-operation restart can repeat indefinitely. That is the failure this rule
++removes.
++
++- At fill completion each reader asleep on that entry gets a reservation bit (one bit per job slot). An entry with any
++  reservation bit is not evicted.
++- A reader holds at most `R20_RSV_MAX` (4) reservations. A 256-byte read touches at most three sectors (two data
++  sectors across a 512-byte boundary, and one FAT sector for the next cluster), so four covers any single read. The
++  list is generation-safe: a reservation whose entry has since been freed or re-filled is stale and is skipped.
++- A reader keeps its reservations across restarts, so a restarted read makes progress: each restart adds at most one
++  sector and the reader never needs to find those sectors again. The reservations are released when the read commits,
++  when it fails, when the process ends, and on invalidation (the entry is freed and the bits are cleared).
++- Multiple readers may share one fill. Each keeps its own bit and releases only its own.
++
++### Deadlock avoidance
++
++A reader that already holds reservations never waits for a victim. If it misses, no entry is free, and it cannot take
++another reservation, the probe reads that one sector directly (uncached, under the BKL, as the synchronous path does).
++Such a read completes, commits, and releases its reservations. A reader with no reservations may wait for a victim
++(`NOSPACE`, backpressure); that wait does not use the retry budget, because every wake-up means an entry has just
++become free. Reserved readers therefore never sleep on victims, so no cycle can form. Their only waits are on fills
++that the worker is already processing.
++
++## Retry budget and errors
++
++- `R20_MAX_MISS` (64) is the number of consecutive restarts one process may take before its read fails with
++  `FAT_ERR_IO`. It is unchanged. With reservations, every restart adds a sector, so a read that makes progress cannot
++  reach it; the budget is a safety net against a pathological loop, not a normal path.
++- Device failures are not restarts. A fill that fails at the device goes to `ERROR`, is reserved for its waiters, and
++  is reported to the first reader that probes it (`FAT_ERR_IO`, once). The other waiters retry and fill again.
++- A waiter that cannot take a reservation (its list is full) is not protected; if its sector is evicted before it
++  retries, the retry simply fills again. No successful retry is reported as an error.
++
++## Termination
++
++A process that ends while it has queued, active or waiting fills: `r20w_job_gone` releases its reservations and drops
++its waits. The fills themselves belong to the cache, not to the process: they complete into kernel memory and are
++published (or discarded, if orphaned) with no reference to the process's buffers. A process's buffer is written only
++by the process's own trap, from the kernel copy, at commit.
++
++## Diagnostics
++
++`R20_STAT_DUMP` (stat index 35) prints, on the debug port: entry states, queue depth, worker state, claim, waiters
++(per job, with what each waits for), the counters (hit, miss, fill, coalesced, evict, nospace, restart, device
++failures, reservations set/released/full, sync fallbacks), and the reservations still held. At quiescence `held` and
++`bits` must be zero and `set` must equal `release` plus entries freed by eviction or invalidation.
++`R20_STAT_MY_GIVEUP` (34) gives a job its own give-up count.
++
++## Test-only switches (not in the release build)
++
++- `R20C_TEST_ENT=N`: cap the entry count (N = 8 gives the contention configuration).
++- `R20C_INJECT_EVERY=N`: every Nth fill fails at the device, alternately as an IDE error (-1) and a timeout (-2). The
++  sector is not read. This simulates the device result; it does not model the controller's timing.
++- `R20_RSV_MAX=1`: forces the direct-read fallback path.
+diff --git a/docs/A16-CACHE-RESULTS.md b/docs/A16-CACHE-RESULTS.md
+new file mode 100644
+index 0000000..944c8e8
+--- /dev/null
++++ b/docs/A16-CACHE-RESULTS.md
+@@ -0,0 +1,77 @@
++# Apollo 16 Phase 2B: results
++
++All runs use fresh boots and the debug-port diagnostic output (`isa-debugcon` at 0x402). The VGA capture harness is not used.
++Ticks are kernel timer ticks. Each reader prints one summary record, so concurrent readers cannot corrupt each other's output.
++
++## Safety and correctness gates
++
++| Gate | Configuration | Result |
++|---|---|---|
++| Contention, original failure | 8 readers x 200 reads, 8-entry cache, 2 CPUs | 1,600 / 1,600 complete, 0 I/O errors, 0 short, 0 mismatches, `held=0 bits=0`, `set=release` |
++| Contention, default size | 8 readers x 200 reads, default cache (719 entries), 2 CPUs | 1,600 / 1,600 ok, 0 errors |
++| Contention, default size | same, 8 CPUs | 1,600 / 1,600 ok, 0 errors |
++| Forced fallback | 8 readers, 8 entries, `R20_RSV_MAX=1` | 1,600 / 1,600 ok, 0 errors; direct reads used, no livelock |
++| Injected device failures | every 7th fill fails (IDE error / timeout alternately), default size, 8 readers | 272 device failures, 272 I/O errors reported, 0 give-ups, 0 mismatches |
++| Injected device failures | same, 8-entry cache | 301 device failures, 291 I/O errors (rest superseded by successful retries before the reader saw them: see Limitations) |
++| Process termination | 8 readers x 1000 reads, 4 killed (`QT_JOB_KILL`) at ~300 ticks while waiting for fills | Pre-kill dump: 8 waiters, 7 queued fills, worker running, 3 reservations held. Post-kill: 0 waiters, 0 queued, 0 held, `set=release`. Survivors 4 / 4 complete, 0 mismatches |
++| Write coherence | `R20C W` on the reservation build | PASS, bad=0 |
++| Reboot readback | `R20C K` after a reboot, default kernel | PASS, bad=0 |
++| R18 identity | R18 rebuilt from the working tree and from the frozen `a16-gate2a` tree | Byte-identical (VGA and serial images) |
++
++## Performance (serial matrix, 2 CPUs unless noted)
++
++Ticks per pass; `bg/tick` is background R20P calls per tick during the pass (higher = foreground more responsive).
++Full table: `build/a16/mx-summary.txt` (regenerated by `scripts/a16-p2b-serial-summary.py`).
++
++| Workload | R18 | Phase 2A | Phase 2B |
++|---|---|---|---|
++| Warm small set, pass 2 (1 CPU) | 716 | 52 | 50 |
++| Warm small set, pass 2 (2 CPUs) | 894 | 1,473 | 26 |
++| Stream 1.5 MB, pass 1 (1 CPU) | 234 | 1,463 | 1,743 |
++| Stream 1.5 MB, pass 1 (2 CPUs) | 282 | 4,227 | 4,169 |
++| Large random (1500 x 256 B), pass 1 (1 CPU) | 2,840 | 7,092 (393 errors) | 2,695 |
++| Large random, pass 1 (2 CPUs) | 2,918 | 31,257 (393 errors) | 3,429 |
++| Background bg/tick, large random (2 CPUs) | 427 | 94 | 860 |
++| Background bg/tick, small set (2 CPUs) | 410 | 1,284 | 1,593 |
++
++Notes:
++- R18 large-set pass 2 is not in this serial matrix (the 200-second limit stopped those runs); the earlier VGA matrix
++  measured it at 2,701 ticks on one CPU. The 2B pass 2 on one CPU is 1,146 ticks.
++- Phase 2A's large-set errors (`FAT_ERR_IO`) reproduce here: 393 and 784 per run. Those are the same 8-entry configuration
++  and retry-cap mechanism as the 8-reader defect, not device errors (see the design document).
++- Cold streaming is slower with the cache than without it: a 1.5 MB sequential read is about 7x slower on one CPU and about
++  15x slower on two. Every sector is a miss and an eviction in this pattern, and the synchronous fill and the reservation
++  bookkeeping cost more than a direct read. This is a real cold-read regression, reported as measured.
++- The foreground stays responsive: background progress during random reads is about twice the R18 rate, and far above
++  Phase 2A's.
++
++## Phase 2A large-set diagnosis
++
++What was measured on the committed Phase 2A kernel (`R20GL`, serial matrix): every failed read returns `FAT_ERR_IO`, with
++393 (pass 1) and 784 (cumulative, pass 2) failures per run, on one and two CPUs. No byte is wrong.
++
++What the 2B diagnostic run established, on the same 8-entry cache and retry cap: a failure of this kind is a retry-limit
++give-up, and give-ups equal reader I/O errors exactly, while device failures and cache waits are counted separately and
++were zero. A restarted read re-probes from the start, and without reservations the sectors it had filled can be evicted
++before it retries, so a long run of misses ends in the retry limit.
++
++For Phase 2A itself the same mechanism is the most likely cause, but it is not confirmed. The diagnostic copy of the 2A
++tree (with a per-job give-up counter) was built and not run, and the 2A serial runs do not print give-up counts. The 2A
++tag and source are unchanged.
++
++## Limitations
++
++- The 8-entry cache is a stress configuration (about 4 KiB), not a production size. The defect it exposed is fixed by
++  reservations; the default size does not reach the retry limit under this workload.
++- 301 device failures produced 291 visible I/O errors in the 8-entry injected run. The missing 10 were superseded by a
++  successful retry: their waiters could not take a reservation (the reader held its maximum of four), so the sector was
++  evicted before the reader saw the error. This does not return bad data, but a device failure can be masked in that case.
++- Injected failures are applied at the fill result. They do not model the controller's timing or a real timeout; the
++  blkdebug path was not used.
++- Cold streaming is slower with the cache (see Performance).
++- Device identity is fixed at 0 (one IDE slave). Seeks and directory operations stay synchronous under the BKL. Writes
++  are synchronous and only invalidate the cache; they are not restartable.
++- Killing a process is tested through `QT_JOB_KILL` from another process. A process that is killed during its own
++  synchronous trap is not separately tested.
++- The eight-CPU result is one configuration (8 readers, default size).
++- `R20_STAT_DUMP` and the test switches are diagnostics; they are not a public API.
+diff --git a/kernel/r20w.c b/kernel/r20w.c
+index aab6290..ae8c3ad 100644
+--- a/kernel/r20w.c
++++ b/kernel/r20w.c
+@@ -1,16 +1,28 @@
+ /*
+- * QDOS/386 R20 (Apollo 16) - the Ring 0 storage worker, its request table and the restartable sector cache.
++ * QDOS/386 R20 (Apollo 16) - the Ring 0 storage worker, its request table and the bounded sector cache.
+  * See kernel/r20w.h for the protocol and its limits.
+  *
+- * Locking: all state below is changed only inside a trap (under the BKL, interrupts off), except:
+- *   - r20_claim is cleared by the worker's body, which runs with the BKL released and interrupts off, and is read by
+- *     sync traps spinning for the controller (the spin holds the BKL, which the worker never needs before it clears it);
+- *   - the worker body reads its own ACTIVE/LOADING entry (no other context writes an entry in those states).
++ * Locking: all state below changes only inside a trap (under the BKL, interrupts off), except:
++ *   - r20_claim is cleared by the worker's body, which runs with the BKL released and interrupts off; sync traps spin on it
++ *     WITH the BKL held, which is safe because the worker clears the claim before it needs the BKL (its DONE trap);
++ *   - the worker's body reads its own pinned cache entry (lba) and writes its own data buffer.  A pinned entry is never
++ *     reassigned, so nothing else touches that buffer until DONE.
++ *
++ * Cache invariants:
++ *   - an entry is FREE, LOADING (queued or taken by the worker), VALID or ERROR;
++ *   - a LOADING entry is never a victim; a pinned entry (taken by the worker) is never a victim;
++ *   - an entry is in the hash chain exactly when hashed == 1; invalidation unhashes it and bumps its generation, so a
++ *     fill that completes later finds a different generation and publishes nothing ("orphan"), and the orphan is freed
++ *     when its last reference (queue ticket or worker pin) goes;
++ *   - each entry has at most one ticket in the fill queue; the queue has room for every entry, so it never overflows.
+  */
+ #include "jobs.h"
+ #include "r20w.h"
+ #include "fat16.h"
+ #include "channel.h"
++#include "memmap.h"
++#include "memory.h"
++#include "platform.h"
+ 
+ #ifdef QDOS_R20
+ 
+@@ -23,12 +35,18 @@ extern int smp_cpu_count(void);
+ #define RQ_ABANDONED 4
+ 
+ #define CE_FREE    0
+-#define CE_REQ     1          /* queued for the worker */
+-#define CE_LOADING 2          /* the worker holds the controller claim for it */
+-#define CE_VALID   3
+-#define CE_ERROR   4
++#define CE_LOADING 1
++#define CE_VALID   2
++#define CE_ERROR   3
++
++/* forward declarations: the cache section below is used by the trap code above it */
++int r20c_queue_head(void);
++void r20c_queue_pop(void);
++int r20c_fill_done(unsigned int ticket, int res);
++unsigned long r20c_used(void);
+ 
+-#define GEN_MASK 0x3fffffu    /* tickets keep bits 8..29 for the generation; bit 30 is the cache flag */
++#define GEN_MASK   0x3ffffu   /* generation: 18 bits, so it fits the cache ticket (bits 12..29) and the user ticket */
++#define NOSPACE_TAG 0xffffu   /* jwait value: asleep for a free cache entry, not for one fill */
+ 
+ struct r20_req {
+ 	unsigned char state;          /* RQ_* */
+@@ -44,28 +62,50 @@ struct r20_req {
+ };
+ 
+ struct r20_ce {
+-	unsigned char state;          /* CE_* */
+ 	unsigned int lba;
+ 	unsigned int gen;
++	unsigned int rmask;           /* readers holding this VALID sector reserved: bit = job slot (not evictable) */
+ 	unsigned int seq;
+-	unsigned int lru;
+-	unsigned char buf[FAT_SECTOR_BYTES];
++	unsigned short hnext;         /* hash chain: next entry index + 1, 0 = end */
++	unsigned char state;          /* CE_* */
++	unsigned char queued;         /* 1 while its ticket waits in the fill queue */
++	unsigned char pins;           /* 1 while the worker holds it */
++	unsigned char ref;            /* clock reference bit */
++	unsigned char hashed;         /* 1 while in the hash chain */
++	unsigned char dev;            /* device identity: 0 = the single IDE slave */
+ };
+ 
+ static struct r20_req rq[R20_NQ];
+-static struct r20_ce ce[R20_CACHE_N];
+ static int wslot = -1;                       /* the worker's job slot */
+ static int wstate = R20W_STOPPED;
+ static unsigned int gen_next = 1;
+ static unsigned int seq_next = 1;
+-static unsigned int lru_clock = 1;
+ static unsigned long st[R20_STAT_N];
+-static unsigned char jwait[JOB_MAX];         /* cache entry index + 1 that this job sleeps on, 0 = none */
++static unsigned short jwait[JOB_MAX];        /* 0 none; entry index + 1; NOSPACE_TAG */
++static unsigned int jwait_id[JOB_MAX];       /* tagged job id the wait belongs to (slot reuse) */
+ static unsigned char misses[JOB_MAX];        /* restarts taken by this job in a row */
++static unsigned int giveup_job[JOB_MAX];     /* GAVE_UP events per job (diagnostics; R20_STAT_MY_GIVEUP) */
++static unsigned long inj_n = 0;              /* test-only fault injection counter (R20C_INJECT_EVERY) */
++static int r20c_dump(void);                  /* console state dump (R20_STAT_DUMP) */
+ static volatile int r20_claim = 0;           /* the worker holds the controller: sync traps must wait */
++#if JOB_MAX > 32
++#error "r20w: rmask holds one bit per job slot"
++#endif
++static unsigned short rsv_e[JOB_MAX][R20_RSV_MAX];   /* a reader's reserved entries (index) ... */
++static unsigned int rsv_g[JOB_MAX][R20_RSV_MAX];     /* ... and their generations (stale ones are skipped) */
++static unsigned char rsv_n[JOB_MAX];
+ static int r20_probe = 0;                    /* 1 while a file read is probed: cache misses return FAT_ERR_MISS */
+ static unsigned int r20_miss_lba = 0;
+ 
++/* the cache: allocated once at boot from the heap, sized by usable RAM */
++static int c_on = 0;
++static unsigned int nent = 0, nb = 0, hand = 0;
++static struct r20_ce *ce = 0;
++static unsigned char *cdata = 0;             /* nent * 512 */
++static unsigned short *bucket = 0;           /* nb */
++static unsigned int *cq = 0;                 /* fill queue ring: (gen << 12) | index */
++static unsigned int cq_head = 0, cq_count = 0;
++
+ static unsigned int next_gen(void)
+ {
+ 	unsigned int g = gen_next;
+@@ -90,17 +130,128 @@ static void job_sleep(int slot)
+ 	jobs[slot].hold = 0;
+ }
+ 
+-/* Wake the jobs asleep on cache entry e (completion, invalidation).  A sleeper is woken only if it still sleeps for
+- * this entry (jwait) and still owns its slot. */
+-static void wake_waiters(int e)
++static int waiter_live(int i)
++{
++	return jobs[i].in_use && jobs[i].id == jwait_id[i] && jobs[i].status < 0;
++}
++
++static int rsv_add(int slot, unsigned int e);
++static void rsv_release(int slot);
++static void wake_space(void);
++
++/* ---- reservations (Phase 2B cache-lifetime fix) -------------------------------------------------------------------
++ * A fill that completes is reserved for every reader that was asleep on it: the sector stays VALID and is not evicted
++ * until that reader has used it (its next probe commits, or it ends).  A reader's reservations accumulate across its
++ * restarts, so a whole-operation restart makes progress.  Each reader holds at most R20_RSV_MAX.  Reservation is
++ * generation-safe: a list entry whose entry has been freed or re-filled is stale and is skipped. */
++static int rsv_compact(int slot)
++{
++	unsigned int k, n = 0;
++
++	for (k = 0; k < rsv_n[slot]; k++) {
++		unsigned int e = rsv_e[slot][k];
++
++		if (e < nent && (ce[e].gen & GEN_MASK) == rsv_g[slot][k] && (ce[e].rmask & (1u << slot))) {
++			rsv_e[slot][n] = rsv_e[slot][k];
++			rsv_g[slot][n] = rsv_g[slot][k];
++			n++;
++		}
++	}
++	rsv_n[slot] = (unsigned char) n;
++	return (int) n;
++}
++
++static int rsv_add(int slot, unsigned int e)
++{
++	unsigned int k;
++
++	if (!c_on || slot < 0 || slot >= JOB_MAX || e >= nent)
++		return 0;
++	rsv_compact(slot);
++	for (k = 0; k < rsv_n[slot]; k++)
++		if (rsv_e[slot][k] == e)
++			return 1;
++	if (rsv_n[slot] >= R20_RSV_MAX) {
++		st[R20_STAT_RSV_FULL]++;
++		return 0;
++	}
++	k = rsv_n[slot]++;
++	rsv_e[slot][k] = (unsigned short) e;
++	rsv_g[slot][k] = ce[e].gen & GEN_MASK;
++	ce[e].rmask |= 1u << slot;
++	st[R20_STAT_RSV_SET]++;
++	return 1;
++}
++
++static void rsv_release(int slot)
++{
++	unsigned int k, bit;
++	int any = 0;
++
++	if (!c_on || slot < 0 || slot >= JOB_MAX)
++		return;
++	bit = 1u << slot;
++	for (k = 0; k < rsv_n[slot]; k++) {
++		unsigned int e = rsv_e[slot][k];
++
++		if (e < nent && (ce[e].gen & GEN_MASK) == rsv_g[slot][k] && (ce[e].rmask & bit)) {
++			ce[e].rmask &= ~bit;
++			st[R20_STAT_RSV_RELEASE]++;
++			any = 1;
++		}
++	}
++	rsv_n[slot] = 0;
++	if (any)
++		wake_space();                 /* an entry may have become evictable */
++}
++
++/* True if some entry could be taken now (free, or idle VALID/ERROR), without moving the clock hand. */
++static int victim_free(void)
++{
++	unsigned int e;
++
++	for (e = 0; e < nent; e++)
++		if (ce[e].state == CE_FREE)
++			return 1;
++	for (e = 0; e < nent; e++)
++		if (ce[e].state != CE_LOADING && !ce[e].pins && !ce[e].rmask)
++			return 1;
++	return 0;
++}
++
++/* Wake the jobs asleep for entry e (fill completed, or invalidated).  Only sleepers that still wait for it. */
++static void wake_entry_ex(unsigned int e, int reserve)
++{
++	int i;
++
++	for (i = 0; i < JOB_MAX; i++) {
++		if (jwait[i] != (unsigned short) (e + 1u))
++			continue;
++		jwait[i] = 0;
++		if (waiter_live(i)) {
++			if (reserve)
++				rsv_add(i, e);      /* the completed sector is kept for this reader until it has used it */
++			job_wake(i);
++			st[R20_STAT_WAKE_CACHE]++;
++		}
++	}
++}
++
++static void wake_entry(unsigned int e)
++{
++	wake_entry_ex(e, 0);
++}
++
++/* Wake the jobs waiting for a free cache entry: any entry may have become free or ready. */
++static void wake_space(void)
+ {
+ 	int i;
+ 
+ 	for (i = 0; i < JOB_MAX; i++) {
+-		if (jwait[i] != (unsigned char) (e + 1))
++		if (jwait[i] != (unsigned short) NOSPACE_TAG)
+ 			continue;
+ 		jwait[i] = 0;
+-		if (jobs[i].in_use && jobs[i].status < 0) {
++		if (waiter_live(i)) {
+ 			job_wake(i);
+ 			st[R20_STAT_WAKE_CACHE]++;
+ 		}
+@@ -129,14 +280,25 @@ static void r20w_entry(void)
+ 		int h = qtrap(QT_R20_TAKE, 0, 0, 0);
+ 
+ 		if (h == 0)
+-			continue;                       /* woken with nothing pending: take again (checked under the BKL) */
++			continue;                       /* woken with nothing pending: take again */
+ 		if (h < 0) {
+ 			wstate = R20W_STOPPED;          /* fail-stop: the worker owns no request any more */
+ 			return;
+ 		}
+ 		if ((unsigned int) h & R20_CACHE_BIT) {
+-			int e = h & 0xff;
+-			int res = disk_read_worker(ce[e].lba, ce[e].buf);   /* no BKL; the controller is ours */
++			unsigned int e = (unsigned int) h & (R20C_MAX_ENT - 1u);
++			int res;
++
++#ifdef R20C_INJECT_EVERY
++			/* test-only: every Nth fill fails at the device, alternately as an IDE error (-1) and a timeout (-2).
++			 * The sector is not read; the entry goes to ERROR exactly as a real device failure would. */
++			if (++inj_n % R20C_INJECT_EVERY == 0)
++				res = (inj_n / R20C_INJECT_EVERY) & 1u ? -1 : -2;
++			else
++				res = disk_read_worker(ce[e].lba, cdata + e * R20C_SECTOR);   /* no BKL; the controller is ours */
++#else
++			res = disk_read_worker(ce[e].lba, cdata + e * R20C_SECTOR);       /* no BKL; the controller is ours */
++#endif
+ 			r20_claim = 0;
+ 			qtrap(QT_R20_DONE, (unsigned int) h, (unsigned int) res, 0);
+ 			continue;
+@@ -182,8 +344,9 @@ int r20w_is_worker(int slot)
+ int r20w_trap(unsigned int fn, unsigned int a, unsigned int b, int caller_job, int *sleep)
+ {
+ 	int r = R20_ERR_ARG;
+-	int i, best, best_ce;
++	int i, best;
+ 	struct job *cj = &jobs[caller_job];
++	int ce_head;
+ 
+ 	*sleep = 0;
+ 	switch (fn) {
+@@ -259,17 +422,17 @@ int r20w_trap(unsigned int fn, unsigned int a, unsigned int b, int caller_job, i
+ 		for (i = 0; i < R20_NQ; i++)
+ 			if (rq[i].state == RQ_QUEUED && (best < 0 || rq[i].seq < rq[best].seq))
+ 				best = i;
+-		best_ce = -1;
+-		for (i = 0; i < R20_CACHE_N; i++)
+-			if (ce[i].state == CE_REQ && (best_ce < 0 || ce[i].seq < ce[best_ce].seq))
+-				best_ce = i;
++		ce_head = c_on ? r20c_queue_head() : -1;
+ 		st[R20_STAT_TAKES]++;
+-		if (best_ce >= 0 && (best < 0 || ce[best_ce].seq < rq[best].seq)) {
+-			/* the oldest pending work is a cache fill: claim the controller for it, under the BKL */
+-			ce[best_ce].state = CE_LOADING;
++		if (ce_head >= 0 && (best < 0 || ce[ce_head].seq < rq[best].seq)) {
++			/* the oldest pending work is a cache fill: pop it, pin the entry, claim the controller (under the BKL) */
++			unsigned int e = (unsigned int) ce_head;
++			r20c_queue_pop();
++			ce[e].queued = 0;
++			ce[e].pins = 1;
+ 			r20_claim = 1;
+ 			wstate = R20W_RUNNING;
+-			r = (int) (R20_CACHE_BIT | (ce[best_ce].gen << 8) | (unsigned int) best_ce);
++			r = (int) (R20_CACHE_BIT | ((ce[e].gen & GEN_MASK) << R20C_IDX_BITS) | e);
+ 			break;
+ 		}
+ 		if (best < 0) {
+@@ -305,23 +468,7 @@ int r20w_trap(unsigned int fn, unsigned int a, unsigned int b, int caller_job, i
+ 			break;
+ 		}
+ 		if (a & R20_CACHE_BIT) {
+-			i = (int) (a & 0xffu);
+-			if (i >= R20_CACHE_N || ce[i].state != CE_LOADING || ce[i].gen != ((a >> 8) & GEN_MASK)) {
+-				st[R20_STAT_FILL_DISCARDED]++;   /* invalidated while in flight: the result is not published */
+-				r = 0;
+-				break;
+-			}
+-			st[R20_STAT_COMPLETIONS]++;
+-			if (b == 0) {
+-				ce[i].state = CE_VALID;
+-				ce[i].lru = lru_clock++;
+-				st[R20_STAT_FILL_OK]++;
+-			} else {
+-				ce[i].state = CE_ERROR;
+-				st[R20_STAT_FILL_ERR]++;
+-			}
+-			wake_waiters(i);
+-			r = 0;
++			r = r20c_fill_done(a, (int) b);
+ 			break;
+ 		}
+ 		i = (int) (a & 0xffu);
+@@ -354,6 +501,12 @@ int r20w_trap(unsigned int fn, unsigned int a, unsigned int b, int caller_job, i
+ 	case QT_R20_STAT:
+ 		if (a == R20_STAT_STATE)
+ 			r = wstate;
++		else if (a == R20_STAT_CACHE_USED)
++			r = (int) r20c_used();
++		else if (a == R20_STAT_MY_GIVEUP)
++			r = (job_current >= 0 && job_current < JOB_MAX) ? (int) giveup_job[job_current] : 0;
++		else if (a == R20_STAT_DUMP)
++			r = r20c_dump();
+ 		else if (a < R20_STAT_N)
+ 			r = (int) st[a];
+ 		else
+@@ -371,9 +524,11 @@ void r20w_job_gone(int slot, unsigned int id)
+ {
+ 	int i;
+ 
++	(void) id;
+ 	if (slot >= 0 && slot < JOB_MAX) {
+ 		jwait[slot] = 0;
+ 		misses[slot] = 0;
++		rsv_release(slot);
+ 	}
+ 	for (i = 0; i < R20_NQ; i++) {
+ 		if (rq[i].state == RQ_FREE || rq[i].submitter_id != id)
+@@ -393,37 +548,361 @@ unsigned long r20w_stat(int idx)
+ {
+ 	if (idx == R20_STAT_STATE)
+ 		return (unsigned long) wstate;
++	if (idx == R20_STAT_CACHE_USED)
++		return (unsigned long) r20c_used();
+ 	return (idx >= 0 && idx < R20_STAT_N) ? st[idx] : 0ul;
+ }
+ 
+-/* ---- Phase 2A: the sector cache -------------------------------------------------------------------------------- */
++/* ---- Phase 2B: the bounded sector cache ------------------------------------------------------------------------- */
+ 
++static unsigned int hsh(unsigned int lba)
++{
++	unsigned int x = lba * 0x9e3779b1u;
++	return (x ^ (x >> 15)) & (nb - 1u);
++}
++
++/* Index of the entry holding lba (hashed), or -1. */
+ static int cache_find(unsigned int lba)
+ {
+-	int e;
++	unsigned short i;
+ 
+-	for (e = 0; e < R20_CACHE_N; e++)
+-		if (ce[e].state != CE_FREE && ce[e].lba == lba)
+-			return e;
++	for (i = bucket[hsh(lba)]; i != 0; i = ce[i - 1u].hnext)
++		if (ce[i - 1u].hashed && ce[i - 1u].lba == lba)
++			return (int) (i - 1u);
+ 	return -1;
+ }
+ 
+-/* A free entry, else the least recently used valid one.  Entries being filled are never taken. */
+-static int cache_alloc(void)
++static void cache_unhash(unsigned int e)
+ {
+-	int e, best = -1;
++	unsigned short *p = &bucket[hsh(ce[e].lba)];
+ 
+-	for (e = 0; e < R20_CACHE_N; e++)
++	while (*p != 0) {
++		if (*p == (unsigned short) (e + 1u)) {
++			*p = ce[e].hnext;
++			break;
++		}
++		p = &ce[*p - 1u].hnext;
++	}
++	ce[e].hashed = 0;
++	ce[e].hnext = 0;
++}
++
++static void cache_hash(unsigned int e)
++{
++	unsigned int h = hsh(ce[e].lba);
++
++	ce[e].hnext = bucket[h];
++	bucket[h] = (unsigned short) (e + 1u);
++	ce[e].hashed = 1;
++}
++
++/* Clock (second chance) victim: a FREE entry, or a VALID/ERROR one that is not pinned or recently used.  Bounded:
++ * at most two sweeps, so a full cache with every entry loading or pinned returns -1 (the caller waits). */
++static int cache_victim(void)
++{
++	unsigned int n;
++
++	for (n = 0; n < 2u * nent; n++) {
++		unsigned int e = hand;
++
++		hand = (hand + 1u == nent) ? 0u : hand + 1u;
+ 		if (ce[e].state == CE_FREE)
+-			return e;
+-	for (e = 0; e < R20_CACHE_N; e++)
+-		if (ce[e].state == CE_VALID && (best < 0 || ce[e].lru < ce[best].lru))
+-			best = e;
+-	return best;
++			return (int) e;
++		if (ce[e].state == CE_LOADING || ce[e].pins || ce[e].rmask)
++			continue;
++		if (ce[e].ref) {
++			ce[e].ref = 0;
++			continue;
++		}
++		return (int) e;
++	}
++	return -1;
++}
++
++/* Take entry e for a new value: drop what it held (an eviction counts), and make it hashed for lba. */
++static void cache_take(unsigned int e, unsigned int lba)
++{
++	if (ce[e].state == CE_VALID)
++		st[R20_STAT_EVICT]++;
++	if (ce[e].hashed)
++		cache_unhash(e);
++	ce[e].lba = lba;
++	ce[e].gen = next_gen();
++	ce[e].ref = 0;
++	ce[e].dev = 0;
++	ce[e].pins = 0;
++	ce[e].queued = 0;
++	ce[e].rmask = 0;
++	ce[e].state = CE_LOADING;
++	cache_hash(e);
+ }
+ 
+-/* Storage claim: a sync trap that needs the controller waits here (BKL held, which is safe: the worker clears the claim
+- * without needing the BKL).  Bounded. */
++/* The queue ring: a ticket is pushed when an entry starts loading and popped when the worker takes it. */
++static void cq_push(unsigned int e)
++{
++	cq[(cq_head + cq_count) % nent] = (ce[e].gen << R20C_IDX_BITS) | e;
++	cq_count++;
++}
++
++/* The oldest queued fill, or -1.  A ticket of an orphan (invalidated while queued) is dropped here; its entry is
++ * freed when it is the orphan's last reference. */
++int r20c_queue_head(void)
++{
++	while (cq_count != 0) {
++		unsigned int t = cq[cq_head];
++		unsigned int e = t & (R20C_MAX_ENT - 1u);
++		unsigned int g = t >> R20C_IDX_BITS;
++
++		if (ce[e].queued && (ce[e].gen & GEN_MASK) == g)
++			return (int) e;
++		if (ce[e].queued) {                       /* orphan: invalidated while it waited */
++			ce[e].queued = 0;
++			if (!ce[e].hashed && ce[e].pins == 0)
++				ce[e].state = CE_FREE;
++			ce[e].rmask = 0;
++			wake_space();
++		}
++		cq_head = (cq_head + 1u) % nent;
++		cq_count--;
++	}
++	return -1;
++}
++
++void r20c_queue_pop(void)
++{
++	cq_head = (cq_head + 1u) % nent;
++	cq_count--;
++}
++
++/* A fill's DONE.  A matching generation publishes the result; an orphan publishes nothing. */
++int r20c_fill_done(unsigned int ticket, int res)
++{
++	unsigned int e = ticket & (R20C_MAX_ENT - 1u);
++	unsigned int g = (ticket >> R20C_IDX_BITS) & GEN_MASK;
++
++	if (e >= nent) {
++		st[R20_STAT_STALE]++;
++		return R20_ERR_STALE;
++	}
++	if ((ce[e].gen & GEN_MASK) != g) {
++		/* orphan: invalidated while in flight.  The data is discarded. */
++		ce[e].pins = 0;
++		if (!ce[e].hashed && !ce[e].queued && ce[e].state == CE_LOADING)
++			ce[e].state = CE_FREE;
++		st[R20_STAT_FILL_DISCARDED]++;
++		wake_space();
++		return 0;
++	}
++	ce[e].pins = 0;
++	st[R20_STAT_COMPLETIONS]++;
++	if (res == 0) {
++		ce[e].state = CE_VALID;
++		ce[e].ref = 1;
++		st[R20_STAT_FILL_OK]++;
++		wake_entry_ex(e, 1);        /* reserve it for every reader that waits on it */
++	} else {
++		ce[e].state = CE_ERROR;
++		st[R20_STAT_FILL_ERR]++;
++		wake_entry_ex(e, 1);        /* the failure is kept for its waiters: each reader that asked is told once */
++	}
++	wake_space();
++	return 0;
++}
++
++/* Stall diagnostics (R20_STAT_DUMP): the entry states, the fill queue, the storage claim, and every job asleep on the
++ * cache with what it waits for.  One console line per item; returns the entry count. */
++static int r20c_dump(void)
++{
++	unsigned int e, i;
++	unsigned long cnt[4] = { 0, 0, 0, 0 };
++	unsigned long waiters = 0, nospace = 0;
++
++	if (!c_on)
++		return 0;
++	for (e = 0; e < nent; e++)
++		cnt[ce[e].state & 3u]++;
++	for (i = 0; i < JOB_MAX; i++)
++		if (jwait[i] != 0) {
++			waiters++;
++			if (jwait[i] == NOSPACE_TAG)
++				nospace++;
++		}
++	con_puts("R20DUMP entries="); con_putdec(nent);
++	con_puts(" free="); con_putdec(cnt[CE_FREE]);
++	con_puts(" loading="); con_putdec(cnt[CE_LOADING]);
++	con_puts(" valid="); con_putdec(cnt[CE_VALID]);
++	con_puts(" error="); con_putdec(cnt[CE_ERROR]);
++	con_puts(" queue="); con_putdec(cq_count);
++	con_puts(" worker="); con_putdec((unsigned long) wstate);
++	con_puts(" claim="); con_putdec((unsigned long) r20_claim);
++	con_puts(" waiters="); con_putdec(waiters);
++	con_puts(" nospace="); con_putdec(nospace);
++	con_puts(" gaveup="); con_putdec(st[R20_STAT_GAVE_UP]);
++	con_puts("\n");
++	con_puts("R20DUMP counters hit="); con_putdec(st[R20_STAT_HIT]);
++	con_puts(" miss="); con_putdec(st[R20_STAT_MISS]);
++	con_puts(" fill="); con_putdec(st[R20_STAT_FILL]);
++	con_puts(" fill_ok="); con_putdec(st[R20_STAT_FILL_OK]);
++	con_puts(" fill_err="); con_putdec(st[R20_STAT_FILL_ERR]);
++	con_puts(" coal="); con_putdec(st[R20_STAT_COALESCED]);
++	con_puts(" evict="); con_putdec(st[R20_STAT_EVICT]);
++	con_puts(" nospace="); con_putdec(st[R20_STAT_NOSPACE]);
++	con_puts(" restart="); con_putdec(st[R20_STAT_RESTART]);
++	con_puts(" invalidate="); con_putdec(st[R20_STAT_INVALIDATE]);
++	con_puts(" discarded="); con_putdec(st[R20_STAT_FILL_DISCARDED]);
++	con_puts(" ide_read="); con_putdec(st[R20_STAT_IDE_READ]);
++	con_puts("\n");
++	{
++		unsigned long bits = 0, held = 0;
++		int j;
++
++		for (e = 0; e < nent; e++)
++			for (j = 0; j < JOB_MAX; j++)
++				if (ce[e].rmask & (1u << j))
++					bits++;
++		for (j = 0; j < JOB_MAX; j++)
++			held += rsv_n[j];
++		con_puts("R20DUMP reservations bits="); con_putdec(bits);
++		con_puts(" held="); con_putdec(held);
++		con_puts(" set="); con_putdec(st[R20_STAT_RSV_SET]);
++		con_puts(" release="); con_putdec(st[R20_STAT_RSV_RELEASE]);
++		con_puts(" full="); con_putdec(st[R20_STAT_RSV_FULL]);
++		con_puts(" sync_fallback="); con_putdec(st[R20_STAT_SYNC_FALLBACK]);
++		con_puts("\n");
++	}
++	for (i = 0; i < JOB_MAX; i++)
++		if (jwait[i] != 0) {
++			con_puts("R20DUMP job="); con_putdec(i);
++			con_puts(" waits="); con_putdec(jwait[i] == NOSPACE_TAG ? 0ul : (unsigned long) (jwait[i] - 1u));
++			con_puts(jwait[i] == NOSPACE_TAG ? " (cache full)" : " (fill)");
++			con_puts(" misses="); con_putdec(misses[i]);
++			con_puts(" giveups="); con_putdec(giveup_job[i]);
++			con_puts("\n");
++		}
++	return (int) nent;
++}
++
++/* Count of VALID entries (diagnostics). */
++unsigned long r20c_used(void)
++{
++	unsigned int e;
++	unsigned long n = 0;
++
++	if (!c_on)
++		return 0;
++	for (e = 0; e < nent; e++)
++		if (ce[e].state == CE_VALID)
++			n++;
++	return n;
++}
++
++/* Remove lba from the cache: a write, before or after the disk write.  A VALID or ERROR entry is freed; a LOADING one
++ * becomes an orphan (its waiters wake and find nothing). */
++static void cache_invalidate(unsigned int lba)
++{
++	int e = cache_find(lba);
++
++	if (e < 0)
++		return;
++	cache_unhash((unsigned int) e);
++	ce[e].gen = next_gen();
++	if (ce[e].state == CE_VALID || ce[e].state == CE_ERROR) {
++		ce[e].state = CE_FREE;
++		ce[e].rmask = 0;             /* a write frees the sector: any reservation of it is void */
++		ce[e].pins = 0;
++	} else {
++		wake_entry((unsigned int) e);
++	}
++	st[R20_STAT_INVALIDATE]++;
++	wake_space();
++}
++
++/* Boot: size the cache from firmware-reported usable RAM, capped at R20C_BUDGET_MAX, and allocate it from the heap. */
++void r20c_init(void)
++{
++	struct mm_summary s;
++	unsigned long budget, per;
++	unsigned int n, i;
++	unsigned long bytes;
++	void *p;
++
++	c_on = 0;
++	memmap_summary(&s);
++	budget = (unsigned long) s.usable_kib * 1024ul * R20C_PCT / 100ul;
++	if (budget > R20C_BUDGET_MAX)
++		budget = R20C_BUDGET_MAX;
++	/* per entry: sector data, metadata, one queue slot, and up to one bucket */
++	per = R20C_SECTOR + sizeof(struct r20_ce) + sizeof(unsigned int) + sizeof(unsigned short);
++	n = (unsigned int) (budget / per);
++	if (n > R20C_MAX_ENT)
++		n = R20C_MAX_ENT;
++	if (n < R20C_MIN_ENT)
++		n = R20C_MIN_ENT;
++#ifdef R20C_TEST_ENT
++	if (n > R20C_TEST_ENT)                   /* TEST ONLY (a separate build): a tiny cache exposes eviction and no-space */
++		n = R20C_TEST_ENT;
++#endif
++	for (; n >= R20C_MIN_ENT; n /= 2) {
++		unsigned int m = 1u;
++
++		while ((m << 1) <= n)                /* buckets: the largest power of two not above n */
++			m <<= 1;
++		p = mem_alloc(n * sizeof(struct r20_ce), R20C_OWNER);
++		if (mem_is_error((unsigned int) p))
++			continue;
++		ce = (struct r20_ce *) p;
++		p = mem_alloc(n * R20C_SECTOR, R20C_OWNER);
++		if (mem_is_error((unsigned int) p)) {
++			mem_free(ce, R20C_OWNER);
++			ce = 0;
++			continue;
++		}
++		cdata = (unsigned char *) p;
++		p = mem_alloc(m * sizeof(unsigned short), R20C_OWNER);
++		if (mem_is_error((unsigned int) p)) {
++			mem_free(ce, R20C_OWNER);
++			mem_free(cdata, R20C_OWNER);
++			ce = 0;
++			cdata = 0;
++			continue;
++		}
++		bucket = (unsigned short *) p;
++		p = mem_alloc(n * sizeof(unsigned int), R20C_OWNER);
++		if (mem_is_error((unsigned int) p)) {
++			mem_free(ce, R20C_OWNER);
++			mem_free(cdata, R20C_OWNER);
++			mem_free(bucket, R20C_OWNER);
++			ce = 0;
++			cdata = 0;
++			bucket = 0;
++			continue;
++		}
++		cq = (unsigned int *) p;
++		nent = n;
++		nb = m;
++		break;
++	}
++	if (ce == 0)
++		return;                               /* no memory for even the minimum: file reads run synchronously */
++	for (i = 0; i < nent; i++) {
++		ce[i].state = CE_FREE;
++		ce[i].hashed = 0;
++		ce[i].queued = 0;
++		ce[i].pins = 0;
++		ce[i].ref = 0;
++		ce[i].hnext = 0;
++	}
++	hand = 0;
++	cq_head = 0;
++	cq_count = 0;
++	c_on = 1;
++	bytes = (unsigned long) nent * (R20C_SECTOR + sizeof(struct r20_ce) + sizeof(unsigned int)) +
++		(unsigned long) nb * sizeof(unsigned short);
++	st[R20_STAT_CACHE_ENTRIES] = nent;
++	st[R20_STAT_CACHE_BYTES] = bytes;
++}
++
++/* Wait (bounded) until the controller is free.  A sync trap holds the BKL; the worker clears the claim without it. */
+ int r20c_wait_dev(void)
+ {
+ 	unsigned long n;
+@@ -437,55 +916,114 @@ int r20c_wait_dev(void)
+ }
+ 
+ /* Any sector read.  A probe answers from the cache or asks for a restart.  A non-probe read (another trap's file
+- * operation, or a directory read) may use the controller itself once the claim is free. */
++ * operation, a mount or directory read) may use the controller itself once the claim is free, and keeps the sector. */
+ int r20c_read(unsigned int lba, unsigned char *buf)
+ {
+-	int e = cache_find(lba);
++	int e;
+ 	unsigned int i;
+ 
++	if (!c_on) {
++		if (r20c_wait_dev() != 0)
++			return FAT_ERR_IO;
++		st[R20_STAT_IDE_READ]++;
++		return disk_read_body(lba, buf);
++	}
++	e = cache_find(lba);
+ 	if (e >= 0 && ce[e].state == CE_VALID) {
+-		for (i = 0; i < FAT_SECTOR_BYTES; i++)
+-			buf[i] = ce[e].buf[i];
+-		ce[e].lru = lru_clock++;
++		for (i = 0; i < R20C_SECTOR; i++)
++			buf[i] = cdata[(unsigned int) e * R20C_SECTOR + i];
++		ce[e].ref = 1;
+ 		st[R20_STAT_HIT]++;
+ 		return 0;
+ 	}
+ 	if (e >= 0 && ce[e].state == CE_ERROR) {
+-		ce[e].state = CE_FREE;               /* reported once; the next read tries the disk again */
++		/* reported once; the next read tries the disk again */
++		cache_unhash((unsigned int) e);
++		ce[e].state = CE_FREE;
++		ce[e].rmask = 0;
++		wake_space();
+ 		return FAT_ERR_IO;
+ 	}
+ 	if (!r20_probe) {
++		int rc, v;
++
+ 		if (r20c_wait_dev() != 0)
+ 			return FAT_ERR_IO;
+-		return disk_read_body(lba, buf);
++		st[R20_STAT_IDE_READ]++;
++		st[R20_STAT_SYNC_READ]++;
++		rc = disk_read_body(lba, buf);
++		if (rc == 0 && e < 0) {            /* keep it: a sync read warms the cache too (no queue, no pin) */
++			v = cache_victim();
++			if (v >= 0) {
++				cache_take((unsigned int) v, lba);
++				ce[v].state = CE_VALID;
++				ce[v].ref = 1;
++				for (i = 0; i < R20C_SECTOR; i++)
++					cdata[(unsigned int) v * R20C_SECTOR + i] = buf[i];
++			}
++		}
++		return rc;
+ 	}
+ 	st[R20_STAT_MISS]++;
++	if (e < 0 && job_current >= 0 && job_current < JOB_MAX && rsv_compact(job_current) > 0 &&
++	    (rsv_n[job_current] >= R20_RSV_MAX || !victim_free())) {
++		/* This reader holds sectors it has not used yet and cannot take another entry.  Waiting for an entry could
++		 * deadlock with other readers in the same position, so this one sector is read directly, uncached.  The read
++		 * completes; the uncached sector is not kept. */
++		st[R20_STAT_SYNC_FALLBACK]++;
++		if (r20c_wait_dev() != 0)
++			return FAT_ERR_IO;
++		st[R20_STAT_IDE_READ]++;
++		return disk_read_body(lba, buf);
++	}
+ 	r20_miss_lba = lba;
+ 	return FAT_ERR_MISS;
+ }
+ 
+-#ifdef QDOS_FS_WRITE
+-/* A write invalidates the sector everywhere it is cached, and never races the storage worker. */
++/* A write invalidates the sector before and after the disk write, whatever the outcome, and never races the worker. */
+ int r20c_write(unsigned int lba, const unsigned char *buf)
+ {
+-	int e;
++	int rc;
+ 
+ 	if (r20c_wait_dev() != 0)
+ 		return -1;
+-	for (e = 0; e < R20_CACHE_N; e++) {
+-		if (ce[e].state != CE_FREE && ce[e].lba == lba) {
++	if (c_on)
++		cache_invalidate(lba);
++	st[R20_STAT_IDE_WRITE]++;
++	rc = disk_write_body(lba, buf);
++	if (c_on)
++		cache_invalidate(lba);
++	return rc;
++}
++
++/* Mount or media change: nothing cached is trusted.  Orphans finish into dead generations. */
++void r20c_invalidate_all(void)
++{
++	unsigned int e, i;
++
++	if (!c_on)
++		return;
++	(void) r20c_wait_dev();
++	for (e = 0; e < nent; e++) {
++		ce[e].gen = next_gen();
++		ce[e].hashed = 0;
++		ce[e].hnext = 0;
++		if (ce[e].state == CE_VALID || ce[e].state == CE_ERROR) {
+ 			ce[e].state = CE_FREE;
+-			ce[e].gen = next_gen();          /* an in-flight fill of the old contents is discarded at its DONE */
+-			st[R20_STAT_INVALIDATE]++;
+-			wake_waiters(e);
++			ce[e].rmask = 0;
++			ce[e].pins = 0;
++		} else if (ce[e].state == CE_LOADING) {
++			wake_entry(e);
+ 		}
+ 	}
+-	return disk_write_body(lba, buf);
++	for (i = 0; i < nb; i++)
++		bucket[i] = 0;
++	st[R20_STAT_INVAL_ALL]++;
++	wake_space();
+ }
+-#endif
+ 
+-/* The file read is blocked on a missing sector: queue its fill (or join the one in flight) and sleep.  The caller is
+- * re-executed from the start when it wakes. */
++/* A probed file read missed: queue the fill (or join the one in flight) and sleep.  The caller re-executes the read
++ * from the start when it wakes.  Bounded per process (R20_MAX_MISS). */
+ static int r20c_block(unsigned int lba)
+ {
+ 	int cur = job_current;
+@@ -496,32 +1034,40 @@ static int r20c_block(unsigned int lba)
+ 	if (misses[cur] >= R20_MAX_MISS) {
+ 		misses[cur] = 0;
+ 		st[R20_STAT_GAVE_UP]++;
++		giveup_job[cur]++;
+ 		return FAT_ERR_IO;                    /* bounded: a process cannot restart forever */
+ 	}
+-	misses[cur]++;
+ 	e = cache_find(lba);
+-	if (e < 0) {
+-		e = cache_alloc();
+-		if (e >= 0) {
+-			ce[e].state = CE_REQ;
+-			ce[e].lba = lba;
+-			ce[e].gen = next_gen();
+-			ce[e].seq = seq_next++;
+-			st[R20_STAT_FILL]++;
+-			if (wstate == R20W_BLOCKED) {
+-				job_wake(wslot);
+-				wstate = R20W_READY;
+-			}
+-		} else {
+-			/* every entry is being filled: sleep on the oldest fill, which ends and wakes us */
+-			e = 0;
+-			for (cur = 1; cur < R20_CACHE_N; cur++)
+-				if (ce[cur].seq < ce[e].seq)
+-					e = cur;
+-			cur = job_current;
++	if (e >= 0 && ce[e].state == CE_LOADING) {
++		misses[cur]++;
++		st[R20_STAT_COALESCED]++;           /* one fill serves every waiter for this sector */
++	} else {
++		int v = cache_victim();
++		if (v < 0) {
++			/* every entry is loading or pinned: wait for any of them to finish (no spinning, no allocation).
++			 * Backpressure is not a failure: it does not use the per-process miss budget, because every wake-up
++			 * means an entry has just finished. */
++			jwait[cur] = (unsigned short) NOSPACE_TAG;
++			jwait_id[cur] = jobs[cur].id;
++			job_sleep(cur);
++			st[R20_STAT_NOSPACE]++;
++			st[R20_STAT_RESTART]++;
++			return R20_RESTART;
++		}
++		misses[cur]++;
++		cache_take((unsigned int) v, lba);
++		e = v;
++		ce[e].queued = 1;
++		ce[e].seq = seq_next++;
++		cq_push((unsigned int) e);
++		st[R20_STAT_FILL]++;
++		if (wstate == R20W_BLOCKED) {
++			job_wake(wslot);
++			wstate = R20W_READY;
+ 		}
+ 	}
+-	jwait[cur] = (unsigned char) (e + 1);
++	jwait[cur] = (unsigned short) (e + 1);
++	jwait_id[cur] = jobs[cur].id;
+ 	job_sleep(cur);
+ 	st[R20_STAT_RESTART]++;
+ 	return R20_RESTART;
+@@ -536,14 +1082,24 @@ int r20_file_read(struct fat16_file *ff, unsigned char *ubuf, unsigned int n)
+ 	unsigned int got = 0, i;
+ 	int rc, cur = job_current;
+ 
++	if (!c_on) {                              /* no cache: the plain synchronous read (Phase 2A without the cache) */
++		rc = fat16_read(ff, ubuf, n, &got);
++		return rc != FAT_OK ? rc : (int) got;
++	}
+ 	if (n > CHAN_MAX_WRITE)
+ 		return FAT_ERR_RANGE;
+ 	tf = *ff;
+ 	r20_probe = 1;
+ 	rc = fat16_read(&tf, kb, n, &got);
+ 	r20_probe = 0;
+-	if (rc == FAT_ERR_MISS)
+-		return r20c_block(r20_miss_lba);
++	if (rc == FAT_ERR_MISS) {
++		int b = r20c_block(r20_miss_lba);
++
++		if (b != R20_RESTART)                 /* a restart keeps the reservations: the next probe uses them */
++			rsv_release(cur);
++		return b;
++	}
++	rsv_release(cur);                         /* the read ends (committed or failed): its sectors may now be evicted */
+ 	if (rc != FAT_OK)
+ 		return rc;
+ 	if (cur >= 0 && cur < JOB_MAX)
+diff --git a/kernel/r20w.h b/kernel/r20w.h
+index 20bf8b0..f565faa 100644
+--- a/kernel/r20w.h
++++ b/kernel/r20w.h
+@@ -1,10 +1,10 @@
+ /*
+- * QDOS/386 R20 (Apollo 16) - the Ring 0 storage worker, its request table and the restartable sector cache.
++ * QDOS/386 R20 (Apollo 16) - the Ring 0 storage worker, its request table and the bounded sector cache.
+  *
+  * Opt-in only (QDOS_R20).  Not a public API: the trap numbers below are internal and exist for the R20 tests (tests/a16).
+- * The worker is an ordinary Ring 0 kernel job (job_alloc, its own supervisor stack from the kernel heap, scheduled by the
+- * existing scheduler).  Its body runs WITHOUT the BKL; every transition of shared state happens inside a trap, under the BKL
+- * with interrupts off, so completion-before-sleep and wakeup-before-sleep cannot be lost.
++ * The worker is an ordinary Ring 0 kernel job (job_alloc, its own supervisor stack, scheduled by the existing scheduler).
++ * Its body runs WITHOUT the BKL; every transition of shared state happens inside a trap (under the BKL, interrupts off),
++ * so completion-before-sleep and wakeup-before-sleep cannot be lost.
+  *
+  * Phase 1 (internal request table):
+  *   R20_SUBMIT(op, arg) -> ticket (>0) or R20_ERR_FULL.  Never sleeps.
+@@ -14,12 +14,17 @@
+  *   R20_DONE(ticket, r) -> worker only: publish the result, wake the waiter, release abandoned slots.
+  *   R20_STAT(index)     -> diagnostic counter (R20_STAT_*).
+  *
+- * Phase 2A (restartable cache miss, kernel/r20w.c and kernel/win1.c):
+- *   A file read (QT_CH_READ on a file channel) is first PROBED on a copy of the channel's file state into a kernel buffer.
+- *   Sector reads during the probe come from the sector cache.  If a sector is missing, nothing has been changed yet:
+- *   the caller is put to sleep on a cache entry that the worker fills, and the trap moves the saved user EIP back over its
+- *   own "int 0x30", so the program re-executes the same call with the same registers when it wakes.  Only a complete,
+- *   successful probe is committed (cursor and data), so a read is never applied twice.  No other call changes.
++ * Phase 2A (restartable cache miss): a file read (QT_CH_READ on a file channel) is PROBED on a copy of the channel state
++ * into a kernel buffer.  A missing sector puts the caller to sleep on a cache entry the worker fills, and the trap rewinds
++ * the saved EIP over its own "int 0x30", so the same call runs again on wake.  Only a complete probe commits.
++ *
++ * Phase 2B (bounded sector cache, kernel/r20w.c):
++ *   - Budget: min(5% of firmware-reported usable RAM, 2 MiB), counting data AND metadata (entries, buckets, queue).
++ *   - Keyed by device identity (one IDE slave: dev 0) and physical LBA (the partition offset is applied before the cache).
++ *   - Hashed lookup, clock (second-chance) eviction, per-entry pins held by the worker, generation numbers.
++ *   - Simultaneous misses to one sector share one fill (coalesced).  LOADING and pinned entries are never evicted.
++ *   - All sector writes invalidate the sector before and after the write (writes stay synchronous).
++ *   - No lock, and no BKL, is held while the worker polls the disk.
+  */
+ #ifndef QDOS386_R20W_H
+ #define QDOS386_R20W_H
+@@ -37,8 +42,17 @@
+ #define R20_OP_SPIN   1           /* synthetic bounded CPU work: arg iterations, result (3*arg+1) & 0x7fffffff */
+ #define R20_SPIN_MAX  4000000u
+ 
+-#define R20_CACHE_N   8           /* sector cache entries (512 bytes each) */
+-#define R20_CACHE_BIT (1u << 30)  /* a TAKE/DONE ticket with this bit is a cache fill, not a user request */
++#define R20_CACHE_BIT    (1u << 30)  /* a TAKE/DONE ticket with this bit is a cache fill, not a user request */
++#define R20C_IDX_BITS    12          /* cache ticket: bit 30 | generation (18 bits, 12..29) | entry index (12 bits) */
++#define R20C_MAX_ENT     4096u       /* index limit; the 2 MiB budget gives about 3,900 entries */
++#define R20C_MIN_ENT     8u          /* below this the cache is disabled and file reads run synchronously */
++#define R20C_BUDGET_MAX  (2u * 1024u * 1024u)
++#define R20C_PCT         5u          /* percent of usable RAM */
++#define R20C_SECTOR      512u
++#define R20C_OWNER       0x7E20u     /* heap owner of the cache blocks (never a job id) */
++#ifndef R20_RSV_MAX
++#define R20_RSV_MAX 4             /* completed sectors one reader may hold reserved at once (a 256-byte read needs at most 3) */
++#endif
+ #define R20_MAX_MISS  64          /* restarts one process may take in a row before its read fails (bounded) */
+ #define R20_DEV_SPIN  100000000ul /* bounded wait for the storage claim (a sync trap polls with the BKL held) */
+ 
+@@ -52,15 +66,27 @@
+ 
+ enum r20_worker_state { R20W_STOPPED = 0, R20W_READY, R20W_RUNNING, R20W_BLOCKED };
+ 
++/* Indices 0..23 are the Phase 1 and 2A counters, unchanged (the tests read them by number). */
+ enum r20_stat {
+ 	R20_STAT_SUBMITS = 0, R20_STAT_FULL, R20_STAT_WAIT_DONE, R20_STAT_WAIT_SLEPT, R20_STAT_WAKE_WORKER,
+ 	R20_STAT_TAKES, R20_STAT_WORKER_SLEPT, R20_STAT_COMPLETIONS, R20_STAT_WAKE_SUBMITTER, R20_STAT_ABANDONED,
+ 	R20_STAT_GONE_FREED, R20_STAT_STALE, R20_STAT_STATE,
+ 	R20_STAT_HIT, R20_STAT_MISS, R20_STAT_FILL, R20_STAT_FILL_OK, R20_STAT_FILL_ERR, R20_STAT_DEV_WAIT,
+ 	R20_STAT_INVALIDATE, R20_STAT_GAVE_UP, R20_STAT_FILL_DISCARDED, R20_STAT_WAKE_CACHE, R20_STAT_RESTART,
++	/* Phase 2B */
++	R20_STAT_COALESCED, R20_STAT_EVICT, R20_STAT_NOSPACE, R20_STAT_IDE_READ, R20_STAT_IDE_WRITE,
++	R20_STAT_SYNC_READ, R20_STAT_CACHE_ENTRIES, R20_STAT_CACHE_BYTES, R20_STAT_CACHE_USED, R20_STAT_INVAL_ALL,
++	R20_STAT_MY_GIVEUP,   /* GAVE_UP accounting for the calling job only (a stat call from a reader) */
++	R20_STAT_DUMP,        /* writes a state dump to the console (entries, waiters, queue); returns the entry count */
++	R20_STAT_RSV_SET,     /* a completed fill reserved for a waiting reader */
++	R20_STAT_RSV_RELEASE, /* a reservation released (commit, error, process end) */
++	R20_STAT_RSV_FULL,    /* a reader already holds R20_RSV_MAX reservations: the read goes direct, uncached */
++	R20_STAT_SYNC_FALLBACK, /* a probe read read one sector directly (no cache entry): reader holds reservations and no entry is free */
+ 	R20_STAT_N
+ };
+ 
++/* Boot: the cache blocks (after mem_init, before the mount: the mount reads through the cache). */
++void r20c_init(void);
+ /* Boot: create the worker job (after the APs are up, so the background CPU is known). */
+ int r20w_start(void);
+ /* Trap entry from trap_dispatch.  Returns the result; *sleep is set when the caller must sleep (schedule). */
+@@ -72,12 +98,13 @@ int r20w_is_worker(int slot);
+ /* Diagnostics. */
+ unsigned long r20w_stat(int idx);
+ 
+-/* Phase 2A: called by the file layer and by the disk driver (platform/pc/disk.c). */
++/* Phase 2A/2B: called by the file layer and by the disk driver (platform/pc/disk.c). */
+ struct fat16_file;
+ int r20_file_read(struct fat16_file *ff, unsigned char *ubuf, unsigned int n);
+-int r20c_read(unsigned int lba, unsigned char *buf);          /* probe: hit or miss; sync: waits, then reads */
++int r20c_read(unsigned int lba, unsigned char *buf);          /* probe: hit or miss; sync: hit, or disk read */
+ int r20c_write(unsigned int lba, const unsigned char *buf);   /* waits for the claim, invalidates, writes */
+ int r20c_wait_dev(void);                                      /* 0 when the storage claim is free */
++void r20c_invalidate_all(void);                               /* mount / media change: nothing cached is trusted */
+ int disk_read_worker(unsigned int lba, unsigned char *buf);   /* the worker's raw read (platform/pc/disk.c) */
+ int disk_read_body(unsigned int lba, unsigned char *buf);
+ int disk_write_body(unsigned int lba, const unsigned char *buf);
+diff --git a/kernel/shellboot.c b/kernel/shellboot.c
+index 74f7343..46cfb50 100644
+--- a/kernel/shellboot.c
++++ b/kernel/shellboot.c
+@@ -117,6 +117,9 @@ int shell_boot(void)
+ #endif
+ #endif
+ 
++#ifdef QDOS_R20
++	r20c_init();                   /* R20 Phase 2B: the bounded sector cache, sized from the memory map (after pg_init) */
++#endif
+ 	if (win1_mount() != FAT_OK)
+ 		boot_fail("WIN1_ volume not mounted");
+ 	con_puts("WIN1_: mounted\n");
+diff --git a/kernel/win1.c b/kernel/win1.c
+index 7343f18..18af822 100644
+--- a/kernel/win1.c
++++ b/kernel/win1.c
+@@ -267,6 +267,9 @@ int win1_mount(void)
+ 	int rc;
+ 	if (mounted)
+ 		return FAT_OK;
++#ifdef QDOS_R20
++	r20c_invalidate_all();               /* R20 Phase 2B: a (re)mount trusts no cached sector */
++#endif
+ #ifdef QDOS_R16
+ 	dev_count = (unsigned int) disk_sector_count();
+ 	if (dev_count == 0)
+diff --git a/scripts/a16-p2b-analyze.py b/scripts/a16-p2b-analyze.py
+new file mode 100644
+index 0000000..b2afd47
+--- /dev/null
++++ b/scripts/a16-p2b-analyze.py
+@@ -0,0 +1,56 @@
++#!/usr/bin/env python3
++# Apollo 16 Phase 2B: summarise the matrix transcripts (R20G pass lines, R20P progress, LEAK heap) into a table.
++#   usage: python3 scripts/a16-p2b-analyze.py MATRIXDIR > summary.txt
++# Transcripts repeat screen snapshots, so every line is de-duplicated (sort -u) before the numbers are read.
++import glob, os, re, sys
++
++D = sys.argv[1]
++PASS = re.compile(r"R20G (\w+) pass=(\d) calls=(\d+) bytes=(\d+) bad=(\d+) t0=(\d+) t1=(\d+) ticks=(\d+)")
++STAT = re.compile(r"R20G (\w+) pass=(\d)((?: \w+=-?\d+)+)")
++PROG = re.compile(r"R20P progress calls=(\d+) tick=(\d+)")
++LEAK = re.compile(r"LEAK heap=(\d+)")
++
++def load(path):
++    lines = sorted(set(l.rstrip() for l in open(path, errors="replace")))
++    return lines
++
++def bg_rate(prog, t0, t1):
++    inside = [(c, t) for c, t in prog if t0 <= t <= t1]
++    before = [(c, t) for c, t in prog if t <= t0]
++    if not inside or t1 <= t0:
++        return None
++    c1, _ = inside[-1]
++    c0 = before[-1][0] if before else 0
++    return (c1 - c0) / float(t1 - t0)
++
++print("%-16s %-6s %-5s %9s %7s %4s %7s %7s %7s %6s %6s %5s %6s %5s %5s %6s" % (
++    "run", "work", "pass", "calls", "ticks", "bad", "hit", "miss", "fill", "coal", "evict", "nosp", "ide", "rst", "used", "bg/tick"))
++for path in sorted(glob.glob(os.path.join(D, "qemu-*.txt"))):
++    tag = os.path.basename(path)[len("qemu-"):-len(".txt")]
++    lines = load(path)
++    prog = sorted(set((int(m.group(1)), int(m.group(2))) for l in lines for m in [PROG.search(l)] if m), key=lambda x: x[1])
++    passes = {}
++    for l in lines:
++        m = PASS.search(l)
++        if m:
++            passes.setdefault((m.group(1), int(m.group(2))), {}).update(
++                calls=int(m.group(3)), bytes=int(m.group(4)), bad=int(m.group(5)),
++                t0=int(m.group(6)), t1=int(m.group(7)), ticks=int(m.group(8)))
++        s = STAT.search(l)
++        if s:
++            kv = dict(x.split("=") for x in s.group(3).split())
++            passes.setdefault((s.group(1), int(s.group(2))), {}).update({k: int(v) for k, v in kv.items()})
++    if not passes:
++        print("%-16s (no pass lines)" % tag)
++        continue
++    for (work, p), r in sorted(passes.items()):
++        rate = bg_rate(prog, r.get("t0", 0), r.get("t1", 0)) if "t0" in r else None
++        def g(k):
++            v = r.get(k)
++            return "-" if v is None or v < 0 else str(v)
++        print("%-16s %-6s %-5s %9s %7s %4s %7s %7s %7s %6s %6s %5s %6s %5s %5s %6s" % (
++            tag, work, p, g("calls"), g("ticks"), g("bad"), g("hit"), g("miss"), g("fill"), g("coal"), g("evict"),
++            g("nospace"), g("ide"), g("restart"), g("used"), "-" if rate is None else "%.0f" % rate))
++    heap = [int(m.group(1)) for l in lines for m in [LEAK.search(l)] if m]
++    if heap:
++        print("%-16s heap first=%d last=%d (LEAK, qd_free_bytes)" % (tag, heap[0], heap[-1]))
+diff --git a/scripts/a16-p2b-build.sh b/scripts/a16-p2b-build.sh
+new file mode 100644
+index 0000000..cc13756
+--- /dev/null
++++ b/scripts/a16-p2b-build.sh
+@@ -0,0 +1,20 @@
++#!/bin/sh
++# Apollo 16 Phase 2B: the cache workloads (tests/a16/r20g.c: stream, small set, large set), the write-coherence test
++# (tests/a16/r20c.c), the background progress program (tests/a16/r20p.c), and their protected copies in build/a16/.
++#   usage: sh scripts/a16-p2b-build.sh
++set -eu
++ROOT=$(cd "$(dirname "$0")/.." && pwd); cd "$ROOT"; : "${QDOS386_TOOLS:?}"
++sh scripts/a14-build-guest.sh > /dev/null
++B=$QDOS386_TOOLS/bin; L=sdk/lib; I="-Isdk/include"
++mkdir -p build/a16
++for v in "R20GS:r20g:-DR20G_KIND=1" "R20GW:r20g:-DR20G_KIND=2" "R20GL:r20g:-DR20G_KIND=3" "R20C:r20c:" "R20P:r20p:" "R20X:r20x:" "R20D:r20d:"; do
++	IFS=: read -r P src extra <<EOT
++$v
++EOT
++	p=$(echo "$P" | tr A-Z a-z)
++	$B/i386-gcc -O $I $extra -c tests/a16/$src.c -o build/a16/$p.o
++	$B/i386-ld -N -T sdk/ld/slot1.ld -e _start -o build/a16/$P.aout build/a13/crt0.o build/a16/$p.o \
++		$L/libc.a $L/libm.a $L/libgcc-qd.a $L/libqdos.a
++	python3 tools/r16-protect-mark.py build/a16/$P.aout build/a16/${P}P.aout > /dev/null
++done
++sha256sum build/a16/R20XP.aout build/a16/R20DP.aout build/a16/R20GSP.aout build/a16/R20GWP.aout build/a16/R20GLP.aout build/a16/R20CP.aout build/a16/R20PP.aout
+diff --git a/scripts/a16-p2b-matrix.sh b/scripts/a16-p2b-matrix.sh
+new file mode 100644
+index 0000000..5bef860
+--- /dev/null
++++ b/scripts/a16-p2b-matrix.sh
+@@ -0,0 +1,22 @@
++#!/bin/sh
++# Apollo 16 Phase 2B: the performance matrix.  Every run is a fresh boot (cold cache), with the background progress
++# program R20P on CPU 0 and one workload (R20GS stream, R20GW small set, R20GL large set) on CPU 0, two passes each.
++#   usage: sh scripts/a16-p2b-matrix.sh OUTDIR [SMP ...]     (kernels: build/a16/kernels/*.img; volume: build/a16/p2b-vol.img)
++set -eu
++ROOT=$(cd "$(dirname "$0")/.." && pwd); cd "$ROOT"
++OUT=${1:?usage: OUTDIR [SMP...]}; shift; SMPS=${*:-1 2}
++mkdir -p "$OUT"
++for smp in $SMPS; do
++	for k in r18 r20-2a r20-2b; do
++		for w in s w l; do
++			tag=$k-smp$smp-$w
++			R11M_QKERNEL=build/a16/kernels/$k-vga.img
++			[ -f "$R11M_QKERNEL" ] || R11M_QKERNEL=build/a16/kernels/$k-vga.img
++			R11M_QKERNEL=build/a16/kernels/$k-vga.img QEMU_EXTRA="-smp $smp" QEMU_CMD_TIMEOUT=900 \
++				timeout 1200 sh scripts/r11m-run-qemu.sh build/a16/p2b-vol.img tests/a16/p2b-w$w.seq "$OUT" "$tag" 1100 \
++				> /dev/null 2>&1 || true
++			echo "done $tag"
++		done
++	done
++done
++echo MATRIX-DONE
+diff --git a/scripts/a16-p2b-serial-summary.py b/scripts/a16-p2b-serial-summary.py
+new file mode 100644
+index 0000000..b138900
+--- /dev/null
++++ b/scripts/a16-p2b-serial-summary.py
+@@ -0,0 +1,55 @@
++#!/usr/bin/env python3
++# Apollo 16 Phase 2B: summarise the serial (debug-port) matrix logs into one table.
++#   usage: python3 scripts/a16-p2b-serial-summary.py MATRIXDIR
++# Each run directory holds serial.txt (debug-port bytes: NULs removed, lines de-duplicated).
++import glob, os, re, sys
++
++D = sys.argv[1]
++PASS = re.compile(r"R20G (\w+) pass=(\d) calls=(\d+) bytes=(\d+) bad=(\d+) t0=(\d+) t1=(\d+) ticks=(\d+)")
++STAT = re.compile(r"R20G (\w+) pass=(\d) hit=(-?\d+) miss=(-?\d+) fill=(-?\d+) restart=(-?\d+) coal=(-?\d+) "
++                  r"evict=(-?\d+) nospace=(-?\d+) ide=(-?\d+) used=(-?\d+)")
++PROG = re.compile(r"R20P progress calls=(\d+) tick=(\d+)")
++
++def rows(path):
++    raw = open(path, "rb").read().replace(b"\x00", b"").decode("latin-1")
++    lines = sorted(set(l.strip() for l in raw.splitlines()))
++    passes, stats, prog = {}, {}, []
++    for l in lines:
++        m = PASS.search(l)
++        if m:
++            passes[int(m.group(2))] = m.groups()
++        m = STAT.search(l)
++        if m:
++            stats[int(m.group(2))] = m.groups()
++        m = PROG.search(l)
++        if m:
++            prog.append((int(m.group(1)), int(m.group(2))))
++    prog.sort(key=lambda x: x[1])
++    return passes, stats, prog
++
++def bg_rate(prog, t0, t1):
++    if t1 <= t0:
++        return None
++    inside = [c for c, t in prog if t0 <= t <= t1]
++    before = [c for c, t in prog if t <= t0]
++    if not inside:
++        return None
++    return (inside[-1] - (before[-1] if before else 0)) / float(t1 - t0)
++
++print("%-16s %-7s %4s %6s %5s %7s %7s %6s %6s %6s %6s %6s %6s" % (
++    "run", "work", "pass", "ticks", "bad", "hit", "miss", "fill", "coal", "evict", "nosp", "ide", "bg/tick"))
++for path in sorted(glob.glob(os.path.join(D, "*", "serial.txt"))):
++    tag = os.path.basename(os.path.dirname(path))
++    passes, stats, prog = rows(path)
++    if not passes:
++        print("%-16s NO RESULT" % tag)
++        continue
++    for p in sorted(passes):
++        what, pn, calls, nbytes, bad, t0, t1, ticks = passes[p]
++        st = stats.get(p)
++        g = (lambda i: st[i]) if st else (lambda i: "-")
++        bg = bg_rate(prog, int(t0), int(t1))
++        print("%-16s %-7s %4s %6s %5s %7s %7s %6s %6s %6s %6s %6s %6s" % (
++            tag, what, pn, ticks, bad,
++            g(2), g(3), g(4), g(6), g(7), g(8), g(9),
++            "%.0f" % bg if bg is not None else "-"))
+diff --git a/scripts/a16-p2b-sysvol.sh b/scripts/a16-p2b-sysvol.sh
+new file mode 100644
+index 0000000..6401251
+--- /dev/null
++++ b/scripts/a16-p2b-sysvol.sh
+@@ -0,0 +1,17 @@
++#!/bin/sh
++# Apollo 16 Phase 2B test volume: a copy of BASE (BASE itself is not modified) with WIN1:/PAT2.BIN (1572864 bytes,
++# P(i) = (i*37 + (i>>8)*11 + (i>>16)) & 0xff) and the protected R20GS, R20GW, R20GL, R20C, R20P in /BIN.
++#   usage: sh scripts/a16-p2b-sysvol.sh OUT.img BASE.img
++set -eu
++ROOT=$(cd "$(dirname "$0")/.." && pwd); cd "$ROOT"; export MTOOLS_SKIP_CHECK=1
++OUT=${1:?}; BASE=${2:?}; cp "$BASE" "$OUT"
++T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
++python3 -c "
++import sys
++open(sys.argv[1],'wb').write(bytes(((i*37)+((i>>8)*11)+(i>>16))&0xff for i in range(1572864)))" "$T/pat2.bin"
++mcopy -o -m -i "$OUT" "$T/pat2.bin" "::/PAT2.BIN"
++for p in R20GS R20GW R20GL R20C R20P; do
++	cp build/a16/${p}P.aout "$T/x"; touch -d '2026-10-31 08:00:00' "$T/x"; mcopy -o -m -i "$OUT" "$T/x" "::/BIN/$p.AOU"
++done
++fsck.fat -n "$OUT" > /dev/null
++echo "$OUT"
+diff --git a/tests/a16/p2b-c.seq b/tests/a16/p2b-c.seq
+new file mode 100644
+index 0000000..cae8066
+--- /dev/null
++++ b/tests/a16/p2b-c.seq
+@@ -0,0 +1,3 @@
++LEAK
++R20C W
++LEAK
+diff --git a/tests/a16/p2b-k.seq b/tests/a16/p2b-k.seq
+new file mode 100644
+index 0000000..d8c541b
+--- /dev/null
++++ b/tests/a16/p2b-k.seq
+@@ -0,0 +1,3 @@
++LEAK
++R20C K
++LEAK
+diff --git a/tests/a16/p2b-stress.seq b/tests/a16/p2b-stress.seq
+new file mode 100644
+index 0000000..80bf272
+--- /dev/null
++++ b/tests/a16/p2b-stress.seq
+@@ -0,0 +1,11 @@
++LEAK
++!START R20GL
++!START R20GL
++!START R20GL
++!START R20GL
++!START R20GL
++!START R20GL
++!START R20GL
++!START R20GL
++%sleep 300
++LEAK
+diff --git a/tests/a16/p2b-wl.seq b/tests/a16/p2b-wl.seq
+new file mode 100644
+index 0000000..61b96f5
+--- /dev/null
++++ b/tests/a16/p2b-wl.seq
+@@ -0,0 +1,5 @@
++LEAK
++!START R20P
++%sleep 1
++R20GL
++LEAK
+diff --git a/tests/a16/p2b-ws.seq b/tests/a16/p2b-ws.seq
+new file mode 100644
+index 0000000..27bcd19
+--- /dev/null
++++ b/tests/a16/p2b-ws.seq
+@@ -0,0 +1,5 @@
++LEAK
++!START R20P
++%sleep 1
++R20GS
++LEAK
+diff --git a/tests/a16/p2b-ww.seq b/tests/a16/p2b-ww.seq
+new file mode 100644
+index 0000000..9c605fa
+--- /dev/null
++++ b/tests/a16/p2b-ww.seq
+@@ -0,0 +1,5 @@
++LEAK
++!START R20P
++%sleep 1
++R20GW
++LEAK
+diff --git a/tests/a16/r20c.c b/tests/a16/r20c.c
+new file mode 100644
+index 0000000..fdcb623
+--- /dev/null
++++ b/tests/a16/r20c.c
+@@ -0,0 +1,169 @@
++/* R20C - Apollo 16 Phase 2B: write coherence through the sector cache.  Internal test program.
++ *   R20C W   read -> write -> read on the same sectors, truncate and recreate, cluster reuse, partial overwrite and
++ *            extend.  Every read-back is checked byte for byte against what was last written.
++ *   R20C K   readback: the file RB.BIN left by an earlier boot (run W, then reboot on its final image) must read back.
++ * Prints "R20C W PASS" or "R20C W FAIL step=...".
++ */
++#include <stdio.h>
++#include "qdos386.h"
++
++#define T_SMP 0x3Eu
++
++static unsigned char wbuf[4096];
++static unsigned char ebuf[8192];
++
++static unsigned int val(unsigned long i, unsigned int salt)
++{
++	return (unsigned int) (((i * 37ul) + (unsigned long) salt * 101ul + ((i >> 8) * 11ul)) & 0xffu);
++}
++
++static int put(const char *name, unsigned long n, unsigned int salt, unsigned int flags)
++{
++	int ch, rc;
++	unsigned long i;
++
++	for (i = 0; i < n; i++)
++		wbuf[i < sizeof(wbuf) ? i : 0] = (unsigned char) val(i, salt);
++	ch = qd_open_ex(name, flags);
++	if (ch <= 0)
++		return -1;
++	rc = qd_write_all(ch, wbuf, (unsigned int) n);
++	qd_close(ch);
++	return rc == (int) n ? 0 : -2;
++}
++
++/* Compare the whole file with the expected image: the first n bytes of exp[]. */
++static int get(const char *name, const unsigned char *exp, unsigned long n)
++{
++	int ch, r, bad = 0;
++	unsigned char b[QD_READ_MAX];
++	unsigned long pos = 0, k;
++
++	ch = qd_open(name);
++	if (ch <= 0)
++		return -1;
++	if (qd_fsize(ch) != (long) n) {
++		printf("R20C size of %s is %ld, want %lu\n", name, qd_fsize(ch), n);
++		bad++;
++	}
++	while (pos < n) {
++		r = qd_read(ch, b, QD_READ_MAX);
++		if (r <= 0)
++			break;
++		for (k = 0; k < (unsigned long) r; k++)
++			if (pos + k < n && b[k] != exp[pos + k]) {
++				if (bad < 4)
++					printf("R20C %s byte %lu got %u want %u\n", name, pos + k, (unsigned int) b[k],
++					       (unsigned int) exp[pos + k]);
++				bad++;
++			}
++		pos += (unsigned long) r;
++	}
++	qd_close(ch);
++	if (pos != n)
++		bad++;
++	return bad;
++}
++
++static void fillexp(unsigned char *e, unsigned long n, unsigned int salt)
++{
++	unsigned long i;
++
++	for (i = 0; i < n; i++)
++		e[i] = (unsigned char) val(i, salt);
++}
++
++static int run_w(void)
++{
++	int bad = 0;
++	unsigned char exp[8192];
++	int ch;
++	unsigned long i;
++
++	qd_remove("WIN1:/CW.BIN");
++	qd_remove("WIN1:/CW2.BIN");
++	qd_remove("WIN1:/CW3.BIN");
++
++	/* 1. create and read back (the reads populate the cache) */
++	if (put("WIN1:/CW.BIN", 4096, 1, QD_O_WRITE | QD_O_CREATE | QD_O_TRUNC) != 0) {
++		printf("R20C W FAIL step=create\n");
++		return 1;
++	}
++	fillexp(exp, 4096, 1);
++	if (get("WIN1:/CW.BIN", exp, 4096) != 0) { printf("R20C W FAIL step=read1\n"); return 1; }
++	if (get("WIN1:/CW.BIN", exp, 4096) != 0) { printf("R20C W FAIL step=read1b\n"); return 1; }
++
++	/* 2. rewrite in place with a new salt (truncate + rewrite): read after write must see the new data */
++	if (put("WIN1:/CW.BIN", 4096, 2, QD_O_WRITE | QD_O_TRUNC) != 0) { printf("R20C W FAIL step=rewrite\n"); return 1; }
++	fillexp(exp, 4096, 2);
++	bad += get("WIN1:/CW.BIN", exp, 4096);
++	if (bad) { printf("R20C W FAIL step=stale-after-rewrite bad=%d\n", bad); return 1; }
++
++	/* 3. partial overwrite at offset 1000 (crosses a sector boundary), then read back */
++	ch = qd_open_ex("WIN1:/CW.BIN", QD_O_WRITE);
++	if (ch <= 0 || qd_seek(ch, 1000ul) < 0) { printf("R20C W FAIL step=seek\n"); return 1; }
++	for (i = 0; i < 300; i++)
++		wbuf[i] = (unsigned char) val(i, 3);
++	if (qd_write_all(ch, wbuf, 300u) != 300) { printf("R20C W FAIL step=partial\n"); qd_close(ch); return 1; }
++	qd_close(ch);
++	for (i = 0; i < 300; i++)
++		exp[1000 + i] = (unsigned char) val(i, 3);
++	bad += get("WIN1:/CW.BIN", exp, 4096);
++	if (bad) { printf("R20C W FAIL step=stale-after-partial bad=%d\n", bad); return 1; }
++
++	/* 4. remove, then create another file: its clusters are the ones just freed (cluster reuse) */
++	if (qd_remove("WIN1:/CW.BIN") != 0) { printf("R20C W FAIL step=remove\n"); return 1; }
++	if (put("WIN1:/CW2.BIN", 4096, 4, QD_O_WRITE | QD_O_CREATE | QD_O_TRUNC) != 0) { printf("R20C W FAIL step=create2\n"); return 1; }
++	fillexp(exp, 4096, 4);
++	bad += get("WIN1:/CW2.BIN", exp, 4096);
++	bad += get("WIN1:/CW2.BIN", exp, 4096);
++	if (bad) { printf("R20C W FAIL step=reuse bad=%d\n", bad); return 1; }
++
++	/* 5. extend with zeros (truncate to 8192 on a write channel), then the old part must still be intact */
++	ch = qd_open_ex("WIN1:/CW2.BIN", QD_O_WRITE);
++	if (ch <= 0 || qd_truncate(ch, 8192ul) != 0) { printf("R20C W FAIL step=extend\n"); return 1; }
++	qd_close(ch);
++	{
++		unsigned char e2[8192];
++		unsigned long k;
++
++		for (k = 0; k < 8192; k++)
++			e2[k] = k < 4096 ? (unsigned char) val(k, 4) : 0;
++		bad += get("WIN1:/CW2.BIN", e2, 8192);
++	}
++	if (bad) { printf("R20C W FAIL step=extend-check bad=%d\n", bad); return 1; }
++
++	/* 6. a third file, then remove both: nothing from them may survive in the cache as data of a new file */
++	if (put("WIN1:/CW3.BIN", 2048, 5, QD_O_WRITE | QD_O_CREATE | QD_O_TRUNC) != 0) { printf("R20C W FAIL step=create3\n"); return 1; }
++	fillexp(exp, 2048, 5);
++	bad += get("WIN1:/CW3.BIN", exp, 2048);
++	if (bad) { printf("R20C W FAIL step=create3-check\n"); return 1; }
++	qd_remove("WIN1:/CW2.BIN");
++	qd_remove("WIN1:/CW3.BIN");
++
++	/* 7. the readback file for the reboot check: 3000 bytes of salt 9 */
++	if (put("WIN1:/RB.BIN", 3000, 9, QD_O_WRITE | QD_O_CREATE | QD_O_TRUNC) != 0) { printf("R20C W FAIL step=rb\n"); return 1; }
++	fillexp(exp, 3000, 9);
++	bad += get("WIN1:/RB.BIN", exp, 3000);
++	printf("%s bad=%d\n", bad == 0 ? "R20C W PASS" : "R20C W FAIL", bad);
++	return bad != 0;
++}
++
++static int run_k(void)
++{
++	unsigned char exp[3000];
++	int bad;
++
++	fillexp(exp, 3000, 9);
++	bad = get("WIN1:/RB.BIN", exp, 3000);
++	printf("%s bad=%d\n", bad == 0 ? "R20C K PASS" : "R20C K FAIL", bad);
++	return bad != 0;
++}
++
++int main(int argc, char **argv)
++{
++	qtrap(T_SMP, 1u, (unsigned int) qd_self(), 0u);
++	if (argc >= 2 && argv[1][0] == 'K')
++		return run_k();
++	return run_w();
++}
+diff --git a/tests/a16/r20d.c b/tests/a16/r20d.c
+new file mode 100644
+index 0000000..d7b61a0
+--- /dev/null
++++ b/tests/a16/r20d.c
+@@ -0,0 +1,17 @@
++/* R20D - Apollo 16 Phase 2B: waits R20D_WAIT timer ticks, then prints the cache state dump (R20_STAT_DUMP).  Test. */
++#include <stdio.h>
++#include "qdos386.h"
++#define T_STAT 0x45u
++#define QT_SUSPEND_T 0x08u
++#define R20_STAT_DUMP 35u
++#ifndef R20D_WAIT
++#define R20D_WAIT 3000
++#endif
++int main(void)
++{
++	int n;
++	qtrap(QT_SUSPEND_T, (unsigned int) R20D_WAIT, 0u, 0u);
++	n = qtrap(T_STAT, R20_STAT_DUMP, 0u, 0u);
++	printf("R20D DUMP done entries=%d\n", n);
++	return 0;
++}
+diff --git a/tests/a16/r20g.c b/tests/a16/r20g.c
+new file mode 100644
+index 0000000..9965d91
+--- /dev/null
++++ b/tests/a16/r20g.c
+@@ -0,0 +1,156 @@
++/* R20G - Apollo 16 Phase 2B: cache workloads.  Internal test program, not a public API.
++ * The file WIN1:/PAT2.BIN (1572864 bytes, P(i) = (i*37 + (i>>8)*11 + (i>>16)) & 0xff) is read in 256-byte calls,
++ * pinned to CPU 0, two passes per run:
++ *   R20G_KIND 1  stream: the whole file, sequentially, twice (larger than the cache: streaming thrashes an LRU-like cache)
++ *   R20G_KIND 2  small:  1000 random reads inside the first 64 KiB, twice (a small constant working set)
++ *   R20G_KIND 3  large:  1500 random reads over the whole file, twice (a working set larger than the cache)
++ * Every byte is verified.  Each pass prints its ticks and, under an R20 kernel, the cache counter deltas (under R18 the
++ * counter calls return -1 and the deltas are meaningless).
++ */
++#include <stdio.h>
++#include "qdos386.h"
++
++#define T_SMP   0x3Eu
++#define T_TICKS 0x20u
++#define T_STAT  0x45u
++#define FILE_N  1572864ul
++#define SMALL_N 65536ul
++#define NAME    "WIN1:/PAT2.BIN"
++
++#ifndef R20G_KIND
++#define R20G_KIND 2
++#endif
++
++/* R20 stat indices (kernel/r20w.h): hit, miss, fill, restart, coalesced, evict, nospace, ide reads, cache used */
++static const int sidx[9] = { 13, 14, 15, 23, 24, 25, 26, 27, 32 };
++static const char *snam[9] = { "hit", "miss", "fill", "restart", "coal", "evict", "nospace", "ide", "used" };
++
++static unsigned int pat(unsigned long i)
++{
++	return (unsigned int) (((i * 37ul) + ((i >> 8) * 11ul) + (i >> 16)) & 0xffu);
++}
++
++static unsigned long bad = 0;
++
++static void check(const unsigned char *buf, int n, unsigned long pos)
++{
++	int k;
++
++	for (k = 0; k < n; k++)
++		if (buf[k] != pat(pos + (unsigned long) k)) {
++			bad++;
++			if (bad <= 4)
++				printf("R20G mismatch at %lu\n", pos + (unsigned long) k);
++		}
++}
++
++static void snap(int *v)
++{
++	int i;
++
++	for (i = 0; i < 9; i++)
++		v[i] = qtrap(T_STAT, (unsigned int) sidx[i], 0u, 0u);
++}
++
++static void report(int pass, const char *what, unsigned long calls, unsigned long bytes, unsigned int t0,
++		   unsigned int t1, const int *a, const int *b)
++{
++	int i;
++
++	printf("R20G %s pass=%d calls=%lu bytes=%lu bad=%lu t0=%u t1=%u ticks=%u\n", what, pass, calls, bytes, bad, t0,
++	       t1, t1 - t0);
++	printf("R20G %s pass=%d", what, pass);
++	for (i = 0; i < 9; i++) {
++		if (i == 8)
++			printf(" %s=%d", snam[i], b[i]);
++		else
++			printf(" %s=%d", snam[i], b[i] - a[i]);
++	}
++	printf("\n");
++}
++
++static int pass_stream(int ch, int p)
++{
++	unsigned char buf[QD_READ_MAX];
++	unsigned long pos = 0, calls = 0;
++	unsigned int t0, t1;
++	int a[9], b[9], r;
++
++	if (p > 1)
++		qd_seek(ch, 0);
++	snap(a);
++	t0 = (unsigned int) qtrap(T_TICKS, 0u, 0u, 0u);
++	while (pos < FILE_N) {
++		r = qd_read(ch, buf, QD_READ_MAX);
++		if (r <= 0) {
++			printf("R20G short read %d at %lu\n", r, pos);
++			bad++;
++			break;
++		}
++		check(buf, r, pos);
++		pos += (unsigned long) r;
++		calls++;
++	}
++	t1 = (unsigned int) qtrap(T_TICKS, 0u, 0u, 0u);
++	snap(b);
++	report(p, "stream", calls, pos, t0, t1, a, b);
++	return pos == FILE_N ? 0 : 1;
++}
++
++static int pass_random(int ch, int p, unsigned long span, unsigned long n)
++{
++	unsigned char buf[QD_READ_MAX];
++	unsigned long seed = 4242ul + (unsigned long) p * 7ul, pos, bytes = 0, calls = 0, k;
++	unsigned int t0, t1;
++	int a[9], b[9], r;
++
++	snap(a);
++	t0 = (unsigned int) qtrap(T_TICKS, 0u, 0u, 0u);
++	for (k = 0; k < n; k++) {
++		seed = (seed * 1103515245ul + 12345ul) & 0x7fffffffu;
++		pos = seed % span;
++		if (pos + QD_READ_MAX > FILE_N)
++			pos = FILE_N - QD_READ_MAX;
++		if (qd_seek(ch, pos) < 0) {
++			bad++;
++			continue;
++		}
++		r = qd_read(ch, buf, QD_READ_MAX);
++		if (r != QD_READ_MAX) {
++			printf("R20G short random read %d at %lu\n", r, pos);
++			bad++;
++			continue;
++		}
++		check(buf, r, pos);
++		bytes += (unsigned long) r;
++		calls++;
++	}
++	t1 = (unsigned int) qtrap(T_TICKS, 0u, 0u, 0u);
++	snap(b);
++	report(p, R20G_KIND == 2 ? "small" : "large", calls, bytes, t0, t1, a, b);
++	return bad == 0 ? 0 : 1;
++}
++
++int main(void)
++{
++	int ch, p, rc = 0;
++
++	qtrap(T_SMP, 1u, (unsigned int) qd_self(), 0u);   /* pinned to CPU 0; the storage worker runs elsewhere */
++	ch = qd_open(NAME);
++	if (ch <= 0) {
++		printf("R20G FAIL open rc=%d\n", ch);
++		return 1;
++	}
++	for (p = 1; p <= 2; p++) {
++#if R20G_KIND == 1
++		rc |= pass_stream(ch, p);
++#elif R20G_KIND == 2
++		rc |= pass_random(ch, p, SMALL_N, 1000ul);
++#else
++		rc |= pass_random(ch, p, FILE_N, 1500ul);
++#endif
++	}
++	qd_close(ch);
++	printf("%s bad=%lu\n", (rc == 0 && bad == 0) ? "R20G PASS" : "R20G FAIL", bad);
++	return rc;
++}
+diff --git a/tests/a16/r20k.c b/tests/a16/r20k.c
+new file mode 100644
+index 0000000..9b4acfd
+--- /dev/null
++++ b/tests/a16/r20k.c
+@@ -0,0 +1,25 @@
++/* R20K - Apollo 16 Phase 2B: process termination during cache I/O.  Test program.
++ * Usage: R20K ID [ID ...]   (tagged job ids of running R20X readers).  Waits R20K_WAIT ticks so the readers are in the
++ * middle of their reads (queued, active and waiting fills), then ends each named job with QT_JOB_KILL (0x2E). */
++#include <stdio.h>
++#include "qdos386.h"
++#define T_STAT 0x45u
++#define QT_SUSPEND_T 0x08u
++#define QT_JOB_KILL_T 0x2Eu
++#ifndef R20K_WAIT
++#define R20K_WAIT 300
++#endif
++int main(int argc, char **argv)
++{
++	int i, rc;
++	unsigned int id;
++
++	qtrap(QT_SUSPEND_T, (unsigned int) R20K_WAIT, 0u, 0u);
++	(void) qtrap(0x45u, 35u, 0u, 0u);      /* cache state at the moment of the kills (R20_STAT_DUMP) */
++	for (i = 1; i < argc; i++) {
++		id = (unsigned int) strtoul(argv[i], 0, 10);
++		rc = qtrap(QT_JOB_KILL_T, id, 0u, 0u);
++		printf("R20K kill id=%u rc=%d\n", id, rc);
++	}
++	return 0;
++}
+diff --git a/tests/a16/r20x.c b/tests/a16/r20x.c
+new file mode 100644
+index 0000000..b802aef
+--- /dev/null
++++ b/tests/a16/r20x.c
+@@ -0,0 +1,77 @@
++/* R20X - Apollo 16 Phase 2B: bounded contention reader.  Test program, not a public API.
++ * Each reader performs R20X_N random 256-byte reads of WIN1:/PAT2.BIN (pinned to CPU 0), verifies every byte, and
++ * prints ONE summary line at the end (a single write, so concurrent readers cannot interleave inside a record):
++ *   R20X READER id=I expected=E ok=O short=S mismatch=M ioerr=X giveup=G status=DONE|INCOMPLETE
++ * ok      reads that returned 256 bytes (all verified)     short    reads that returned 1..255 bytes
++ * ioerr   reads that returned an error (negative)           giveup   GAVE_UP events charged to this job
++ * A reader that never reaches its summary line is a stall; the STARTUP dump (R20_STAT_DUMP) then shows the state.
++ */
++#include <stdio.h>
++#include "qdos386.h"
++
++#define T_SMP   0x3Eu
++#define T_STAT  0x45u
++#define T_TICKS 0x20u
++#define FILE_N  1572864ul
++#define NAME    "WIN1:/PAT2.BIN"
++#ifndef R20X_GIVEUP_IDX
++#define R20X_GIVEUP_IDX 34u      /* R20_STAT_MY_GIVEUP in the Phase 2B enum; 24u in the Phase 2A diagnostic copy */
++#endif
++
++#ifndef R20X_N
++#define R20X_N 200ul
++#endif
++
++static unsigned int pat(unsigned long i)
++{
++	return (unsigned int) (((i * 37ul) + ((i >> 8) * 11ul) + (i >> 16)) & 0xffu);
++}
++
++int main(void)
++{
++	unsigned char buf[QD_READ_MAX];
++	unsigned long seed, pos, k, ok = 0, shortr = 0, mismatch = 0, ioerr = 0, done = 0;
++	unsigned int id, j, giveup;
++	int ch, r;
++
++	id = (unsigned int) qd_self();
++	qtrap(T_SMP, 1u, id, 0u);
++	ch = qd_open(NAME);
++	if (ch <= 0) {
++		printf("R20X READER id=%u expected=%lu ok=0 short=0 mismatch=0 ioerr=0 giveup=0 status=OPENFAIL rc=%d\n",
++		       id, R20X_N, ch);
++		return 1;
++	}
++	seed = 4242ul + (unsigned long) id * 7919ul;
++	for (k = 0; k < R20X_N; k++) {
++		seed = (seed * 1103515245ul + 12345ul) & 0x7fffffffu;
++		pos = seed % FILE_N;
++		if (pos + QD_READ_MAX > FILE_N)
++			pos = FILE_N - QD_READ_MAX;
++		if (qd_seek(ch, pos) < 0) {
++			ioerr++;
++			done++;
++			continue;
++		}
++		r = qd_read(ch, buf, QD_READ_MAX);
++		done++;
++		if (r < 0) {
++			ioerr++;
++			continue;
++		}
++		if (r != QD_READ_MAX) {
++			shortr++;
++			continue;
++		}
++		ok++;
++		for (j = 0; j < (unsigned int) r; j++)
++			if (buf[j] != pat(pos + j))
++				mismatch++;
++	}
++	qd_close(ch);
++	giveup = (unsigned int) qtrap(T_STAT, R20X_GIVEUP_IDX, 0u, 0u);
++	(void) qtrap(T_TICKS, 0u, 0u, 0u);
++	printf("R20X READER id=%u expected=%lu completed=%lu ok=%lu short=%lu mismatch=%lu ioerr=%lu giveup=%u status=%s\n",
++	       id, R20X_N, done, ok, shortr, mismatch, ioerr, giveup, done == R20X_N ? "DONE" : "INCOMPLETE");
++	return mismatch == 0 && ioerr == 0 && shortr == 0 ? 0 : 1;
++}

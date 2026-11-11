@@ -1,0 +1,46 @@
+Start SeaVGABIOS (version 1.16.3-debian-1.16.3-2)
+VGABUILD: gcc: (Ubuntu 13.2.0-7ubuntu1) 13.2.0 binutils: (GNU Binutils for Ubuntu) 2.41
+enter vga_post:
+   a=00000010  b=0000ffff  c=00000000  d=0000ffff ds=0000 es=f000 ss=0000
+  si=00000000 di=000075b0 bp=00000000 sp=00006da2 cs=f000 ip=d15b  f=0000
+VBE DISPI: bdf 00:02.0, bar 0
+VBE DISPI: lfb_addr=fd000000, size 16 MB
+Removing mode 19a
+Removing mode 19b
+Removing mode 19c
+Removing mode 19d
+Removing mode 19e
+Attempting to allocate 512 bytes lowmem via pmm call to f000:d200
+VGA stack allocated at eeb20
+set VGA mode 3
+QDOS/386 R7
+Native i386 kernel
+
+FPU: x87 OK
+SMP: ACPI MADT: 2 CPU(s), BSP 0
+MEMMAP: E820 6 records
+  0000000000000000 +000000000009fc00 type 1
+  000000000009fc00 +0000000000000400 type 2
+  00000000000f0000 +0000000000010000 type 2
+  0000000000100000 +0000000000ee0000 type 1
+  0000000000fe0000 +0000000000020000 type 2
+  00000000fffc0000 +0000000000040000 type 2
+MEMMAP: usable 15232 KiB below the 256 MiB ceiling, top 00fe0000
+PAGING: R17 dynamic processes, ram 16256 KiB (E820), identity 0..16 MiB, pool 3104 frames (0 above 16 MiB), template cr3 00142000
+WIN1_: mounted
+SHELL: started as a process
+SYSTASK: task selector on Ctrl+Esc
+SURFACES R13A: 320x200x256, 640x480x16 text, fonts built in
+PRESENTER shadow 0x00129f54
+CLOCK: CMOS RTC (UTC) read at boot [cc yy mm dd hh mi ss B = 20 26 11 02 00 13 54 02], 1793578434 s since 1970
+SERIAL: SER1 COM1 0x3f8 IRQ4 16550A
+SERIAL: SER2 COM2 0x2f8 IRQ3 absent
+SMP: 2 of 2 CPU(s) online; topology unknown - flat, no SMT siblings proven, HT mode ALL; CPU 0 keeps the devices
+SHELL: running
+
+STARTUP: /ETC/STARTUP.CMD - press ESC within 2 seconds to skip it
+R20C K PASS bad=0
+exit status 0
+STARTUP: done (1 commands)
+QDOS/386 R13B shell. Type HELP.
+/> 

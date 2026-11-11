@@ -1,0 +1,95 @@
+#!/bin/sh
+# qdos386-gcc - build a QDOS/386 R8/R9 application (an i386 a.out, OMAGIC 0407)
+# with the historical toolchain: GCC 1.40 (C89), GAS 1.38, i386-ld 1.94.
+#
+# Usage:  qdos386-gcc [-O] [-I dir] [-D name[=value]] -o out.aout src.c ...
+#
+#   (no -slot) the canonical origin 0x240000.  This is the only origin new programs need: on R12A
+#             kernels (QDOS_DYNPROC) every program runs in its own address space, so any number of
+#             programs linked at 0x240000 run at once (docs/R12A-PROCESS-ABI.md).
+#   -slot N   COMPATIBILITY ONLY: link for historical profile N.  Origins: 0 = 0x200000,
+#             1 = 0x240000, 2 = 0x380000 and 3 = 0x500000 (R11H; profiles 2 and 3 are
+#             1 MiB and exist only on the R9 memory map).  Slot 1 is 1 MiB on the R9 map and
+#             256 KiB on the default map.  The argument block sits at the top of the profile.
+#             Kept for the shell (slot 0) and the R11H profile tests; R12A runs such images unchanged.
+#   -O        pass -O to GCC 1.40 (the only optimisation level it has)
+#   -I, -D    as GCC 1.40
+#   -o        output a.out file (required)
+#
+# Environment:
+#   QDOS386_TOOLS   the historical tree: $QDOS386_TOOLS/bin has i386-gcc, as,
+#                   i386-ld (required; no default, so no path is assumed)
+#   QDOS386_SDK     this SDK directory (default: the directory above bin/)
+#
+# Refused, because the historical compiler cannot honour them and a silent
+# difference would produce a wrong image: -m* (other machine models), -std=c99
+# and later, -fpic/-fPIC, -shared, -pie, -static, -nostdlib, -nostartfiles,
+# -g and any option not listed above.  Only C89 sources (.c) are accepted.
+set -eu
+
+die() { echo "qdos386-gcc: $*" >&2; exit 2; }
+
+[ -n "${QDOS386_TOOLS:-}" ] || die "set QDOS386_TOOLS to the GCC 1.40 / GAS / i386-ld tree"
+for t in i386-gcc as i386-ld; do
+	[ -x "$QDOS386_TOOLS/bin/$t" ] || die "missing $QDOS386_TOOLS/bin/$t"
+done
+SDK=${QDOS386_SDK:-$(cd "$(dirname "$0")/.." && pwd)}
+
+slot=1
+out=
+optO=
+incs=
+defs=
+srcs=
+while [ $# -gt 0 ]; do
+	case "$1" in
+	-slot)  [ $# -ge 2 ] || die "-slot needs 0, 1, 2 or 3"; slot=$2; shift ;;
+	-O)     optO=-O ;;
+	-I)     [ $# -ge 2 ] || die "-I needs a directory"; incs="$incs -I$2"; shift ;;
+	-I*)    incs="$incs $1" ;;
+	-D)     [ $# -ge 2 ] || die "-D needs a name"; defs="$defs -D$2"; shift ;;
+	-D*)    defs="$defs $1" ;;
+	-o)     [ $# -ge 2 ] || die "-o needs a file"; out=$2; shift ;;
+	-m*|-std=c99|-std=c11|-std=c17|-std=gnu99|-std=gnu11|-fpic|-fPIC|-shared|-pie|-static|-nostdlib|-nostartfiles|-g|-g*)
+		die "refused option: $1 (see the header of this script)" ;;
+	-*)     die "unknown option: $1" ;;
+	*.c)    [ -f "$1" ] || die "no such source: $1"; srcs="$srcs $1" ;;
+	*)      die "unsupported input (only .c sources): $1" ;;
+	esac
+	shift
+done
+case "$slot" in 0|1|2|3) ;; *) die "-slot must be 0, 1, 2 or 3" ;; esac
+[ "$slot" = 1 ] || echo "qdos386-gcc: note: -slot $slot is a compatibility option; new programs use the default origin 0x240000" >&2
+[ -n "$out" ] || die "-o is required"
+[ -n "$srcs" ] || die "no source files"
+
+work=$(mktemp -d "${TMPDIR:-/tmp}/qdos386-gcc.XXXXXX")
+trap 'rm -rf "$work"' EXIT
+objs=
+for s in $srcs; do
+	base=$(basename "$s" .c)
+	"$QDOS386_TOOLS/bin/i386-gcc" -c $optO $incs -I"$SDK/include" $defs \
+		"$s" -o "$work/$base.o" || die "compile failed: $s"
+	objs="$objs $work/$base.o"
+done
+# Startup: crt0_libc.s flushes the libc stdout buffer when main returns; it is
+# used only when libc.a is linked (it calls _qd_flush_std).  Otherwise crt0.s.
+libc="$SDK/lib/libc.a"
+if [ -f "$libc" ]; then crt0src="$SDK/lib/crt0_libc.s"; else crt0src="$SDK/lib/crt0.s"; libc=; fi
+"$QDOS386_TOOLS/bin/as" -o "$work/crt0.o" "$crt0src" || die "assemble crt0"
+# Link order: crt0, the objects, libc.a (the C89 subset, R9), libqdos.a (the
+# QDOS trap wrappers that libc uses).  libc.a is optional: an R8-style program
+# that uses only qd_* still links without it, and the archive is only read for
+# the symbols it needs.
+lib="$SDK/lib/libqdos.a"
+[ -f "$lib" ] || die "missing $lib (run: make -C $SDK/lib)"
+# Math (R11C): libm.a sets errno, which is in libc.a, so it comes before libc.
+# Compiler support (R11C): the GCC 1.40 helpers for double <-> integer
+# conversions, from sdk/compiler, after libc.a and before libqdos.a.
+libm="$SDK/lib/libm.a"
+[ -f "$libm" ] || libm=
+gcclib="$SDK/lib/libgcc-qd.a"
+[ -f "$gcclib" ] || gcclib=
+"$QDOS386_TOOLS/bin/i386-ld" -N -T "$SDK/ld/slot$slot.ld" -e _start -o "$out" \
+	"$work/crt0.o" $objs $libm $libc $gcclib "$lib" || die "link failed"
+echo "qdos386-gcc: $out (slot $slot)"
