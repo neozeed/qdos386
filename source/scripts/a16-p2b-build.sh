@@ -1,13 +1,15 @@
 #!/bin/sh
 # Apollo 16 Phase 2B: the cache workloads (tests/a16/r20g.c: stream, small set, large set), the write-coherence test
 # (tests/a16/r20c.c), the background progress program (tests/a16/r20p.c), and their protected copies in build/a16/.
+# R20D waits 40000 ticks before its dump (the shipped R20DP was built with -DR20D_WAIT=40000).  R20K (process kill
+# helper) and R20XK (1000-read reader for the termination tests, -DR20X_N=1000) are built here too.
 #   usage: sh scripts/a16-p2b-build.sh
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd); cd "$ROOT"; : "${QDOS386_TOOLS:?}"
 sh scripts/a14-build-guest.sh > /dev/null
 B=$QDOS386_TOOLS/bin; L=sdk/lib; I="-Isdk/include"
 mkdir -p build/a16
-for v in "R20GS:r20g:-DR20G_KIND=1" "R20GW:r20g:-DR20G_KIND=2" "R20GL:r20g:-DR20G_KIND=3" "R20C:r20c:" "R20P:r20p:" "R20X:r20x:" "R20D:r20d:"; do
+for v in "R20GS:r20g:-DR20G_KIND=1" "R20GW:r20g:-DR20G_KIND=2" "R20GL:r20g:-DR20G_KIND=3" "R20C:r20c:" "R20P:r20p:" "R20X:r20x:" "R20XK:r20x:-DR20X_N=1000" "R20D:r20d:-DR20D_WAIT=40000" "R20K:r20k:"; do
 	IFS=: read -r P src extra <<EOT
 $v
 EOT
@@ -17,4 +19,4 @@ EOT
 		$L/libc.a $L/libm.a $L/libgcc-qd.a $L/libqdos.a
 	python3 tools/r16-protect-mark.py build/a16/$P.aout build/a16/${P}P.aout > /dev/null
 done
-sha256sum build/a16/R20XP.aout build/a16/R20DP.aout build/a16/R20GSP.aout build/a16/R20GWP.aout build/a16/R20GLP.aout build/a16/R20CP.aout build/a16/R20PP.aout
+sha256sum build/a16/R20XP.aout build/a16/R20XKP.aout build/a16/R20DP.aout build/a16/R20KP.aout build/a16/R20GSP.aout build/a16/R20GWP.aout build/a16/R20GLP.aout build/a16/R20CP.aout build/a16/R20PP.aout

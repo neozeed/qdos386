@@ -237,11 +237,7 @@ void smp_ap_main(void)
 	fpu_reset();
 	lw(LAPIC_SVR, 0x1FFu);                 /* software-enable the LAPIC, spurious vector 0xFF */
 	lw(LAPIC_TDCR, 0x3u);
-#ifdef QDOS_R16_APNOTIMER
-	lw(LAPIC_LVTT, AP_TIMER_VEC | 0x20000u | 0x10000u);   /* DIAG: masked - AP dormant */
-#else
 	lw(LAPIC_LVTT, AP_TIMER_VEC | 0x20000u);   /* periodic */
-#endif
 	lw(LAPIC_TICR, lvt_count);
 	g_jobcur[1] = g_jobidle[1];
 	jobs[g_jobidle[1]].running_on = 1;

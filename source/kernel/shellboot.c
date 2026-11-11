@@ -193,7 +193,7 @@ int shell_boot(void)
 			con_puts("CLOCK: unavailable - ");
 			con_puts(rtc_reason(cs));
 		}
-#if !defined(QDOS_CLOCK_EPOCH) && !defined(QDOS_NO_RTC)
+#if !defined(QDOS_CLOCK_EPOCH)
 		{
 			extern struct rtc_raw clock_raw;
 			static const char hx[] = "0123456789abcdef";

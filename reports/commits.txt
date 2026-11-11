@@ -1,0 +1,6 @@
+ba47006 2026-11-02 R20C: canonical documentation and inventories (no code change)
+c5a41fc 2026-11-02 R20C: repair the Phase 2B test-tool recipes; fix the Phase 2A scratch path
+b7cc3fa 2026-11-02 R20C: drop never-defined PC console diagnostics
+9783802 2026-11-02 R20C: remove the R11I spare-RAM self-test (QDOS_TEST_SPARE)
+b97bfb5 2026-11-02 R20C: drop never-defined R16/R17 diagnostic hooks
+d992905 2026-11-02 R20C: drop the never-defined QDOS_NO_RTC clock switch

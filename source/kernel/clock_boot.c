@@ -11,7 +11,7 @@ static struct clock_state kclock;
 static int clock_src;
 #endif
 
-#if defined(QDOS_R13B) && !defined(QDOS_CLOCK_EPOCH) && !defined(QDOS_NO_RTC)
+#if defined(QDOS_R13B) && !defined(QDOS_CLOCK_EPOCH)
 #include "rtc.h"
 struct rtc_raw clock_raw;                    /* R13B: the registers read at boot (shown on the boot line) */
 #endif
@@ -33,7 +33,7 @@ void clock_boot(int timer_running)
 	 * yet, so sched_ticks is 0 here, and the clock counts from that point. */
 	clock_set(&kclock, (unsigned long) QDOS_CLOCK_EPOCH, sched_ticks,
 	          num, den, pinned);
-#elif defined(QDOS_R13B) && !defined(QDOS_NO_RTC)
+#elif defined(QDOS_R13B)
 	/* R13B: the CMOS RTC, read once now; from here the clock advances with the timer (wall time and scheduler ticks
 	 * stay separate).  An RTC that cannot be read or decoded leaves the clock NONE: nothing is guessed. */
 	unsigned long num, den, t = 0;

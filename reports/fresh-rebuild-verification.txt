@@ -1,0 +1,23 @@
+Fresh-extraction rebuild verification of the final tarball (qdos386-R20C-CANONICAL-SOURCE.tar.gz), extracted into an empty directory
+toolchain env: scratchpad env-r11c.sh (QDOS386_TOOLS = i386VM tree, outside the repository)
+date: 2026-11-02T09:01:30Z
+r20 make rc=0
+r18 make rc=0
+fresh outputs: 250
+BASELINE: 250/250 IDENTICAL
+r18-vga cmp: IDENTICAL to freeze
+r20-2b-vga cmp: IDENTICAL to freeze
+test tools rc=0
+R20XP IDENTICAL
+R20XKP IDENTICAL
+R20DP IDENTICAL
+R20KP IDENTICAL
+R20GSP IDENTICAL
+R20GWP IDENTICAL
+R20GLP IDENTICAL
+R20CP IDENTICAL
+R20PP IDENTICAL
+DONE
+
+baseline comparison: docs/R20C-BASELINE-HASHES.txt vs fresh build/ hashes (250 lines): differing lines 0
+make logs and tool log are kept outside this package

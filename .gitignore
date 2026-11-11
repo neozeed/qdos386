@@ -4,6 +4,7 @@ apps/gwbasic32/logs/
 apps/gwbasic32/tests/
 aout/
 artifacts/
+binaries/
 build/
 control/
 disk/

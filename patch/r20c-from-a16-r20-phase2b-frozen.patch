@@ -1,0 +1,1283 @@
+diff --git a/docs/A16-PHASE2A.md b/docs/A16-PHASE2A.md
+index 715de80..47f29e8 100644
+--- a/docs/A16-PHASE2A.md
++++ b/docs/A16-PHASE2A.md
+@@ -1,7 +1,8 @@
+ # Apollo 16 / R20 - Phase 2A: restartable sector-cache miss
+ 
+ Status: implemented and measured on the R20 PC targets (2 CPUs and 1 CPU). Opt-in (`make qdos386-r20-pc`). Frozen R18
+-images are byte-identical to `scratchpad/r20-ident/r18-baseline.sha256`.
++images are byte-identical to the R18 VGA reference, SHA-256 `d42497d51da87909e0cb0e52259d2bfd42807923e710d9945285db166a228e97`
++(`binaries/r18-vga.img` in the Phase 2B release; the earlier scratch-directory hash list is no longer kept).
+ 
+ ## What was built
+ 
+diff --git a/docs/ABI.md b/docs/ABI.md
+new file mode 100644
+index 0000000..394d55d
+--- /dev/null
++++ b/docs/ABI.md
+@@ -0,0 +1,33 @@
++# Application and kernel ABI (canonical baseline)
++
++Source of truth: `sdk/include/qdos386.h` (application side), `kernel/jobs.h` and the per-subsystem headers (service
++numbers and error codes), `kernel/channel.h`, `kernel/surface.h`. This file summarises the rules; the headers are
++authoritative.
++
++## Entry
++
++- Applications enter the kernel with `int 0x30`. The SDK trap entry (`sdk/include/qdos386.h`, `lib/qtrap.s`) loads
++  `EAX` = service number, `EBX` = `a`, `ECX` = `b`, `EDX` = `c`. The result is read back as the SDK wrapper defines it;
++  do not assume a register beyond what that header states.
++- Service numbers are the `QT_*` constants. Ranges in use: `QT_CH_*` 0x14..0x17 (channels), `QT_SURFACE` 0x3B,
++  `QT_SYNC` 0x39, `QT_SMP` 0x3E, the R20 storage traps 0x40..0x45 (internal, not an application ABI; `kernel/r20w.h`).
++- Errors are negative integers; each subsystem header names its own codes (`CHAN_ERR_*`, `PROC_ERR_*`, `SURF_ERR_*`,
++  `SMP_ERR_*`, `PATH_ERR_*`). Codes can overlap between subsystems, so a code is meaningful only with its service.
++
++## Fixed values that applications may rely on
++
++| value | where | meaning |
++|---|---|---|
++| `QD_READ_MAX` = 256 | `sdk/include/qdos386.h` | the largest single file read. Unchanged in R20; the cache must not change it. |
++| `CHAN_MAX_WRITE` = 256 | `kernel/channel.h` | the largest single channel write. |
++| `SURF_VERSION` = 1 | `kernel/surface.h` | the version of `QT_SURFACE`; `SURF_OP_CAPS` reports it. |
++| `SMP_INFO_WORDS` = 24 | `kernel/smp.h` | size of the `SMP_OP_INFO` buffer. |
++| channel id = `(tag << 16) | index` | `kernel/channel.h` | opaque to applications; the tag wraps to 1 at 0x7fff. |
++
++## Stability rules
++
++- Adding a service number, an error code or a field is an ABI change: it needs a version bump in the subsystem header and an
++  entry in the subsystem's design document.
++- The R20 traps are internal (kernel tests only). Applications must not call them.
++- Changing `QD_READ_MAX`, `CHAN_MAX_WRITE`, the channel id layout, or the trap vector is out of scope for the canonical
++  baseline. Such a change would need a new branch and a new release.
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+new file mode 100644
+index 0000000..ca5e9c3
+--- /dev/null
++++ b/docs/ARCHITECTURE.md
+@@ -0,0 +1,50 @@
++# QDOS/386 architecture (canonical R18/R20 PC baseline)
++
++This is the map for the supported PC kernels (R18 and R20, headless and VGA; see `docs/CONFIGURATION.md` and
++`docs/BUILD.md`). Each subsystem's contract is in its header or source file header; the table below names them and
++`docs/SOURCE-INVENTORY.csv` lists every file with its purpose and its history. Design rationale stays in the dated
++documents linked from each section.
++
++## Layers
++
++| layer | files | role |
++|---|---|---|
++| platform (PC) | `platform/pc/*.c`, `platform/pc/*.s` | boot hand-over, PIC and PIT, the IDE disk (polled PIO, `disk.c`), VGA and the debug port 0x402, keyboard, RTC. |
++| trap and context | `kernel/context.s`, `kernel/kctx.s`, `kernel/kctx17.s` | save and restore of a job's stack frame; the trap entry used by the service traps. |
++| jobs and scheduler | `kernel/jobs.c|h`, `kernel/taskmgr.c`, `kernel/jobctl.c`, `kernel/smp*.c` | the job table, the ring-0 and CPL3 jobs, time-slicing, foreground-first placement on R16B and later. |
++| memory | `kernel/memory.c`, `kernel/memmap.c`, `kernel/frames.c`, `kernel/pheap.c`, `kernel/paging.c`, `kernel/vas.c`, `kernel/proc.c` | the kernel heap, the firmware memory map (R17), the frame pool, paging and per-process address spaces. |
++| applications | `kernel/aout.c`, `kernel/imgload.c`, `kernel/appmap.h`, `kernel/env.c` | loading of a.out images into the application slots, the environment block. |
++| channels and files | `kernel/channel.c`, `kernel/win1.c`, `kernel/fat16.c`, `kernel/pathres.c`, `kernel/sync.c` | the channel table (`QT_CH_*`), the `WIN1_` FAT16 driver, the FAT16 and VFAT code, storage sync. |
++| storage worker and cache (R20) | `kernel/r20w.c|h` | the ring-0 disk worker, its request table and the bounded sector cache. See `docs/STORAGE.md`. |
++| consoles and display | `kernel/vcon.c|h`, `kernel/surface.c|h`, `kernel/gsurf.c|h`, `kernel/font*.c|h`, `kernel/kev.c|h`, `kernel/kbd.c|h` | virtual consoles, sessions and surfaces, fonts, key events. See `docs/DISPLAY.md`. |
++| clock and timers | `kernel/clock.c|h`, `kernel/clock_boot.c`, `kernel/rtc.c|h`, `kernel/irq.c|h` | the kernel clock, the CMOS RTC at boot, the interrupt classification of the 8259 pair. |
++| shell and boot | `kernel/shellboot.c`, `kernel/mbr.c`, `kernel/win1.c`, `kernel/main.c` | boot order, the built-in shell job, the first mount. |
++
++## Boot order (PC)
++
++1. The platform boot sector loads the kernel and the transfer area. On R17 and later the QBOOT3 sector also stores the
++   E820 map at `0x504` (`kernel/memmap.h`).
++2. `kernel/main.c` and `platform/pc/platform.c` bring up the platform: the debug port, the PIC and PIT, the VGA console when
++   built with `QDOS_CON_VGA`.
++3. Memory: the memory map is captured and validated (R17), the frame pool and paging are set up, then the kernel heap.
++4. On R20, `r20c_init()` sizes and allocates the cache before the mount, because the mount reads through the cache.
++   `r20w_start()` creates the worker job after the application processors are up (`docs/A16-CACHE-DESIGN.md`).
++5. `win1_mount()` mounts the FAT16 volume; a mount or media change calls `r20c_invalidate_all()`.
++6. The shell job starts; `STARTUP.CMD` on the volume runs before the first prompt.
++
++## Process and job model
++
++- A *job* is a kernel schedulable unit. A *process* is a job with an application image and a private address space when
++  paging is on. Job ids are tagged: the slot index and a tag that changes when the slot is reused.
++- Application code runs at CPL3 on R16 and later when marked or flagged. Ring-0 jobs (the storage worker, the AP idle jobs)
++  have their own supervisor stacks.
++- Channels, virtual consoles and surfaces belong to the job that opened them, or to the session it runs on. Reclamation of a
++  job releases its channels, heap blocks and cache reservations (`r20w_job_gone`).
++
++## Where to read more
++
++- Scheduler and CPL3 policy: `docs/R16-ARCHITECTURE.md`, `docs/R16B-SCHEDULER-POLICY.md`, `docs/R16-CPL3-ABI.md`.
++- Memory map and frames: `docs/APOLLO13-MEMORY-MAP.md`, `docs/R13-MEMORY-BUDGET.md`.
++- Display: `docs/R13-DISPLAY-ABI.md`, `docs/R13A-GRAPHICS-ABI.md`, `docs/APOLLO14-DISPLAY-ABI.md`.
++- Storage sync: `docs/R12C-SYNC-DURABILITY.md`. Cache: `docs/A16-CACHE-DESIGN.md`, `docs/A16-CACHE-RESULTS.md`.
++- Context switch history: `docs/KCTX-FIX2-IMPLEMENTATION.md`.
+diff --git a/docs/BUILD.md b/docs/BUILD.md
+new file mode 100644
+index 0000000..9836584
+--- /dev/null
++++ b/docs/BUILD.md
+@@ -0,0 +1,66 @@
++# Build (canonical R18/R20 PC baseline)
++
++## Toolchain
++
++The kernel and the test programs are built with the historical GCC 1.40 / GAS 1.38 / binutils 1.94 i386 toolchain that
++lives in an i386VM tree outside this repository. Set `QDOS386_TOOLS` (and `I386VM`) to that tree. The Makefile default
++`I386VM ?= $(HOME)/i386vm` applies when it is not set.
++
++Pinned identities used for the freeze (`docs/R20C-BASELINE-HASHES.txt` is the output side; these are the tool side):
++
++| tool | path in the i386VM tree | SHA-256 |
++|---|---|---|
++| assembler | `bin/as` (GNU assembler 1.38) | `47369dd54851448080ce6836304829ea6ae98fbcb8efa944386c0ec0239d1009` |
++| compiler driver | `bin/i386-gcc` | `3567f3beab83e17d7f7b5ff5844ee1dd85fd452b84128bdc0a7d46bb103d7904` |
++| compiler proper | `bin/cc1` | `1dd52eeb51191b0f1e6f92fcc9ed0be9e5fb80a97f28e41ddddb479f7399effb` |
++| linker | `bin/i386-ld` | `dfdb396514559958d9bd1ed651337abded3565f6665d8bad05dcaeec92d07c20` |
++
++The compiler driver does not accept `--version`; its identity is the binary hash. Python 3 (3.13 used) runs the image tools.
++
++## Supported targets
++
++    make qdos386-r18-pc       # R18 frozen kernel: build/qdos386-r18/pc/ and pc-vga/
++    make qdos386-r20-pc       # R20 kernel:        build/qdos386-r20/pc/ and pc-vga/
++
++The VGA images are `qdos386-r18-vga.img` and `qdos386-r20-vga.img`. Their SHA-256 values are in
++`docs/R20C-BASELINE-HASHES.txt` (`d42497d5…` and `dd4c9129…`).
++
++Other targets (`make` default, `qdos386-smp-pc`, `qdos386-r16b-pc`, `qdos386-r17-pc`, the `i386vm` targets) still exist in the
++Makefile. They are not supported on this branch and are not verified by it.
++
++## Test programs
++
++`scripts/a16-p2b-build.sh` builds the nine R20 test programs (`R20GS`, `R20GW`, `R20GL`, `R20C`, `R20P`, `R20X`, `R20XK`,
++`R20D`, `R20K`) and their protected copies in `build/a16/`. It needs `QDOS386_TOOLS` and the guest-tool chain below.
++
++Verified against the release binaries: all nine outputs are byte-identical with the corrected script (`R20DP` needs
++`-DR20D_WAIT=40000`; `R20KP` and `R20XKP` need the `R20K` and `R20X_N=1000` recipes in the script).
++
++## Guest-tool chain (external to the release archive)
++
++The test programs need the guest-tool chain, which the release archive does not contain:
++
++    scripts/a16-p2b-build.sh
++      -> scripts/a14-build-guest.sh   (tests/a14/planar.c, view.c)
++           -> scripts/a13-build-guest.sh   (tests/a13/*.c, sdk libraries, BOUNCE.aout)
++                -> scripts/r16b-build-guest.sh   (tests/r16b/*.c: TOP, CPUSET)
++      SDK libraries: sdk/lib, sdk/libc, sdk/libm, sdk/compiler, sdk/examples
++
++The full chain is in this repository's git history at the freeze tag. The release archive
++`qdos386-APOLLO16-R20-PHASE2B-CACHE.tar.gz` does not include it, so a rebuild of the test programs from the archive alone
++is NOT VERIFIED. A rebuild from the repository is verified for the nine programs.
++
++## Test volume (external)
++
++The R20 runtime tests need a FAT16 volume with the test programs and `STARTUP.CMD`. `scripts/a16-p2b-sysvol.sh` derives it
++from a base volume that is not part of this repository or the release. Without that base volume the runtime tests cannot be
++run; the kernel build does not need it.
++
++## Verifying a build
++
++    . <toolchain env>                       # sets QDOS386_TOOLS
++    make qdos386-r20-pc && make qdos386-r18-pc
++    cd build && find qdos386-r20 qdos386-r18 -type f \( -name '*.o' -o -name '*.img' -o -name '*.bin' -o -name '*.raw' -o -name '*.aout' \) | sort | xargs sha256sum > /tmp/hashes.txt
++    diff docs/R20C-BASELINE-HASHES.txt /tmp/hashes.txt   # run from the repository root, paths as in the baseline file
++
++The baseline file lists 250 outputs. A clean build of this branch reproduces all 250 (verified at the final head).
+diff --git a/docs/CONFIGURATION.md b/docs/CONFIGURATION.md
+new file mode 100644
+index 0000000..6112145
+--- /dev/null
++++ b/docs/CONFIGURATION.md
+@@ -0,0 +1,52 @@
++# Configuration (canonical R18/R20 PC baseline)
++
++A build is a set of `-D` macros plus a platform (PC headless or PC VGA). Options are cumulative: each release flag
++includes the previous one through `Makefile` variables (`R13A_OPTS` → `R13B_OPTS` → `R14_OPTS` → … → `R18_OPTS` →
++`R20_OPTS`). The macro set of each supported build is in `docs/R20C-CONDITIONAL-INVENTORY.md`.
++
++## Supported builds
++
++| target | added macros | output |
++|---|---|---|
++| `make qdos386-r18-pc` | `-DQDOS_CON_VGA` for the VGA output only, plus the R18 chain | `build/qdos386-r18/pc/`, `build/qdos386-r18/pc-vga/` |
++| `make qdos386-r20-pc` | the R18 chain plus `-DQDOS_R20` | `build/qdos386-r20/pc/`, `build/qdos386-r20/pc-vga/` |
++
++Both targets pass `-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE`. `QDOS_CON_VGA` selects the VGA console and presentation; without it
++the console writes only to the debug port 0x402.
++
++## Flags in the supported builds
++
++| macro | selected by | meaning | defined in / documented in |
++|---|---|---|---|
++| `QDOS_LAYOUT_R9` | both | memory layout of the R9 application slots | `kernel/appmap.h` |
++| `R7_SHELL_MODE` | both | the built-in shell job | `kernel/shellboot.c` |
++| `QDOS_CON_VGA` | VGA builds | VGA text console and presentation | `platform/pc/vga.c`, `docs/DISPLAY.md` |
++| `QDOS_APP_STACK=65536u` | both | application stack size | build flag |
++| `QDOS_FS_WRITE` | both | FAT16 write support (required by VCON, SYNC, VFAT) | `kernel/fat16.h`, `kernel/channel.h` |
++| `QDOS_VFAT` | both | VFAT long file names | `kernel/fat16.h` |
++| `QDOS_VCON` | both | virtual text consoles (needs `QDOS_FS_WRITE`) | `kernel/vcon.h` |
++| `QDOS_JOBCTL` | both | job control records and kill | `kernel/jobctl.h`, `docs/R11M-JOB-CONTROL-ABI.md` |
++| `QDOS_TITLES` | both | job titles | `kernel/jobctl.h` |
++| `QDOS_TASKMGR` | both | the task manager job | `kernel/taskmgr.c` |
++| `QDOS_SURFACES` | both | display surfaces, `QT_SURFACE` (needs `QDOS_VCON`, `QDOS_JOBCTL`, `QDOS_TASKMGR`) | `kernel/surface.h`, `docs/R13-DISPLAY-ABI.md` |
++| `QDOS_SYNC` | both | storage sync (needs `QDOS_FS_WRITE`) | `kernel/sync.h`, `docs/R12C-SYNC-DURABILITY.md` |
++| `QDOS_ENV` | both | per-process environment | `kernel/env.h`, `docs/R12B-ENV-PROCESS-ABI.md` |
++| `QDOS_PAGING` | both | paging and per-process address spaces | `kernel/paging.h` |
++| `QDOS_DYNPROC`, `QDOS_DYNPROC_SHELL` | both | dynamic process table (`JOB_MAX` 16, then 24 with R17) | `kernel/jobs.h`, `kernel/proc.h` |
++| `QDOS_R13A`, `QDOS_R13B` | both | R13 graphics and clock ABI | `docs/R13A-GRAPHICS-ABI.md`, `docs/R13B-CLOCK-ABI.md` |
++| `QDOS_R14` | both | serial port (UART) support and R14 channel behaviour | `kernel/uart.h`, `docs/R14-SERIAL-ABI.md` |
++| `QDOS_R16`, `QDOS_R16B` | both | CPL3 jobs, the BKL, two-CPU scheduling; per-CPU accounting and migration | `docs/R16-ARCHITECTURE.md`, `docs/R16B-SCHEDULER-POLICY.md` |
++| `QDOS_R17` | both | E820 memory map, up to 8 CPUs (`KX_NCPU` 8), `JOB_MAX` 24 | `docs/APOLLO13-MEMORY-MAP.md` |
++| `QDOS_R18` | both | 640×480×16 planar presentation views (`GS_VIEW_VGA12`, `GS_VIEW_VGA12W`) | `kernel/gsurf.h`, `docs/APOLLO14-DISPLAY-ABI.md` |
++| `QDOS_R20` | R20 only | the Ring 0 storage worker and the bounded sector cache | `docs/A16-CACHE-DESIGN.md` |
++| `QDOS_KCTX_PTRBITS` | not set | historical context-switch encoding of the older `kctx.o` targets only | `Makefile` (`PCKCTX`) |
++
++R20 test-only switches (not set in any build): `R20C_INJECT_EVERY` (device failure injection), `R20C_TEST_ENT` (cache entry
++count for contention tests), `R20_RSV_MAX` (reservations per reader; the default 4 is used), `R20X_N`, `R20X_GIVEUP_IDX`,
++`R20D_WAIT`, `R20K_WAIT` (test program parameters, set only by `scripts/a16-p2b-build.sh` and its variants).
++
++## Rules
++
++- A new option is a new macro with its own `#if` and a default that keeps the supported builds unchanged.
++- A flag that another flag needs must be checked in the code that uses it (for example `QDOS_SYNC` needs `QDOS_FS_WRITE`).
++- Changing the flag list of a supported build is a functional change: it needs its own branch and its own identity checks.
+diff --git a/docs/DISPLAY.md b/docs/DISPLAY.md
+new file mode 100644
+index 0000000..0706997
+--- /dev/null
++++ b/docs/DISPLAY.md
+@@ -0,0 +1,30 @@
++# Display (canonical R18/R20 PC baseline)
++
++Files: `kernel/vcon.c|h` (virtual consoles and sessions), `kernel/surface.c|h` (surfaces, `QT_SURFACE`), `kernel/gsurf.c|h`
++(graphics surfaces), `kernel/fontreg.c|h`, `kernel/font*.c` (fonts), `kernel/kev.c|h` (key events), `kernel/kbd.c|h`
++(keyboard), `platform/pc/vga*.c` (VGA output), `platform/pc/platform.c` (console output: debug port 0x402, and VGA when
++built with `QDOS_CON_VGA`). Full ABI notes: `docs/R13-DISPLAY-ABI.md`, `docs/R13A-GRAPHICS-ABI.md`,
++`docs/APOLLO14-DISPLAY-ABI.md`.
++
++## Model
++
++- **Virtual consoles** (`QDOS_VCON`): 80×25 text consoles with their own cells, cursor, attribute, scroll region and input
++  queue. Exactly one is foreground: the display shows it and keyboard input goes to it. Output to a background console
++  updates only its buffer.
++- **Sessions** (`VSESS_MAX` = 20): slots 0–3 are the legacy consoles, 4–19 private sessions. A session owns a key queue
++  (`KEV_QSIZE` 64; oldest kept, newest dropped and counted).
++- **Surfaces** (`QT_SURFACE`, version `SURF_VERSION` = 1): `TEXT80x25` is the session's cells (the console API); `INDEX8` is
++  an optional framebuffer the session can show instead (at most `SURF_GFX_MAX` = 4 at once). Only the foreground session is
++  presented and receives keys.
++- **Presentation**: the platform shows the foreground session. VGA text is used by the VGA build; the debug port carries
++  the diagnostic text in both builds.
++
++## Interrupt discipline
++
++Every display function is called with interrupts off: from a trap, from an interrupt handler (keyboard), or from boot. The
++keyboard handler may switch the foreground console and queue input; traps write output and read input. They never interleave,
++so the display code takes no lock (`docs/LOCKING.md`).
++
++## Limits
++
++See `docs/R20C-LIMITS-INVENTORY.md` (sessions, surfaces, fonts, key-queue size).
+diff --git a/docs/LOCKING.md b/docs/LOCKING.md
+new file mode 100644
+index 0000000..655ee95
+--- /dev/null
++++ b/docs/LOCKING.md
+@@ -0,0 +1,40 @@
++# Locking, interrupts and blocking (canonical baseline)
++
++Source of truth: `kernel/bkl.h` (the big kernel lock), `kernel/sync.h`, `kernel/r20w.h`, the interrupt notes in
++`kernel/irq.h` and `kernel/vcon.h`. Design history: `docs/R16-ARCHITECTURE.md`, `docs/R16B-SCHEDULER-POLICY.md`,
++`docs/A16-CACHE-DESIGN.md` (reservations and deadlock rules).
++
++## The big kernel lock (BKL)
++
++- One spinlock (`bkl_word`) serialises all shared-kernel execution on R16 and later. It is recursive per CPU
++  (`bkl_depth[cpu]`); `bkl_leave` releases only at depth 0 and is a no-op on a CPU that does not own it.
++- Held with interrupts off. Never held across an `iret` to user code (`resume_dispatch` releases it first).
++- Never held while waiting for a device. A blocking service schedules another job, and that job releases the lock.
++- Acquisition is a locked `xchg` spin. Deadlock is excluded because the owner releases without needing the waiter's CPU.
++
++## Interrupts
++
++- Every trap, every interrupt handler and boot code run with interrupts off. Virtual-console and surface code relies on this
++  instead of locks (`kernel/vcon.h`).
++- Device IRQs are on CPU 0 (the BSP). On the PC the IDE path is polled PIO: no IRQ14 and no DMA are used.
++- Spurious IRQ7 handling is in `kernel/irq.h`.
++
++## Blocking and scheduling
++
++- A service that must wait sleeps the caller and returns a restart or wait code; the caller re-executes the trap when woken.
++  The wake-before-sleep and completion-before-sleep orderings are fixed by the trap that does both (`r20w_trap`).
++- `QT_SUSPEND` sleeps for a tick count; `QT_JOB_KILL` and `QT_PROC_KILL` are the termination paths.
++
++## Storage worker (R20)
++
++- The worker body runs WITHOUT the BKL. Every transition of shared worker state happens inside a trap, under the BKL with
++  interrupts off.
++- The storage claim is a single owner for the IDE controller. A sync trap waits for it with the BKL held, bounded by
++  `R20_DEV_SPIN` polls; the worker clears the claim without the BKL.
++- No lock and no BKL is held while the worker polls the disk or sleeps.
++
++## Rules for new code
++
++1. Take the BKL only through `bkl_enter`/`bkl_leave`; never write the lock word directly.
++2. Do not block while holding the BKL. Sleep through the scheduler, and re-check state after the wake.
++3. Any state shared between a trap and the worker is changed only in a trap.
+diff --git a/docs/R20C-BASELINE-HASHES.txt b/docs/R20C-BASELINE-HASHES.txt
+new file mode 100644
+index 0000000..aabdcd6
+--- /dev/null
++++ b/docs/R20C-BASELINE-HASHES.txt
+@@ -0,0 +1,250 @@
++dff8637c6be5c19013ca02fe279a291d457c330e4189f0aa0d6a6c7e619bdaed  qdos386-r18/pc-vga/aout.o
++dd66d08a300818b74be69bc468079ae01468e35cafc35e6634bb1e09501cc3f0  qdos386-r18/pc-vga/bkl.o
++b6f957822694a071e7c7d41b66efd5995d61f746ffe7a0c80f4ff457318d6684  qdos386-r18/pc-vga/bkl_s.o
++dacb306a6d213c1c49618c18b18f80d1305f44eed4ee5b7e2cab7badd851acc3  qdos386-r18/pc-vga/channel.o
++ee450444ac033f8d8c33baba4f69fdf7b5132134a565b8aa492d4b3459b28ddb  qdos386-r18/pc-vga/cin.o
++3b5744c4dffe315db144484e96b2f4e91a7a6496a073418dbf6f8bdf22438eeb  qdos386-r18/pc-vga/clock.o
++b5bf20496cb39dcec5205dfa8134d371fc3cfd71742851acfb55ffdd24546e1e  qdos386-r18/pc-vga/clock_boot.o
++6d0f9c5d0c7c14e0e7c6d39679d3a83db2fe8107b750a9528e9d278c5dcc41e9  qdos386-r18/pc-vga/descriptors.o
++07b3adcfb81cfd63c48467fedadf3bf8e9979cae1c785c9f37726a02eab5b435  qdos386-r18/pc-vga/disk.o
++6cdb9bc468d4cf21f27fea877c3f4cd94bc14133e5284033f8813819c2b97948  qdos386-r18/pc-vga/entry.o
++bfe319dba35ef07230ba2556fe0add49fa0735d6dde9d1b7ca0709b6f3546663  qdos386-r18/pc-vga/env.o
++3a90afbb51fdc481a679d99bdc1d1d6590eeb0235f0f47fe7a890e0e9d25226a  qdos386-r18/pc-vga/fat16.o
++8b875ddea993ed8254d4557c75085581e3ec4cca54b34e8fc5d337a50d0a5363  qdos386-r18/pc-vga/font_console.o
++f3917db4342cd6262eda7306557f290ed376d8c28f55583891fa2d628fd5ba7e  qdos386-r18/pc-vga/font_recovery.o
++cf8e60cc5828c41410cffeaff7eec21baffba6843fd54848bdd63febf62787d2  qdos386-r18/pc-vga/fontreg.o
++bed3726da195fddb4a7952aef076e3bd39f141e93e1356435890338d1cdb2cd1  qdos386-r18/pc-vga/fpu.o
++5e080470b888ffc060d5f370b32681039712d9cf86e2a2bef5d74319cc893d7c  qdos386-r18/pc-vga/frames.o
++65b93d6ee4d3fa7373b63c25f38574580ebac396dbfcb5b941bd66d4f51d8a2f  qdos386-r18/pc-vga/gsurf.o
++a02cb5312394dd7f09a2bb15c69256937bdd6da93b738d1030c646439a91daa9  qdos386-r18/pc-vga/i8042.o
++5aa211cee82fb2a38bc9c5b9261f6db251049d2fadda036a0cdda19befbf0c9e  qdos386-r18/pc-vga/imgload.o
++4a36ccfa484a2effadb042f94c0ff5669d1862aaf3979351da70e436930428c5  qdos386-r18/pc-vga/irq.o
++c902f879dc6259a70064af008c3342604a6d6576de58a4ad558cd9ebe2c56c1c  qdos386-r18/pc-vga/jobctl.o
++7bc4d120b07e27f4d205b371278123de6d5bd4690a621fb4f64415c9f4f4fffe  qdos386-r18/pc-vga/jobs.o
++e87868c8f95836a2f06f99f626a5ede11474583586d77292912eba205924de90  qdos386-r18/pc-vga/kbd.o
++8d0a56e72dd161dc6f6ac7806af11955d97707bf3025d976b8cd5ccd5fa5b0aa  qdos386-r18/pc-vga/kctx17.o
++cba04dcc6a273db4c5fd3e9989a69985b72c116d3ad9219595532fdbc5119c4a  qdos386-r18/pc-vga/kernel.aout
++53ae7fb6da56bf0ffeda2f06d5174e5ef79af5344bb52ec255553bdba6025e7c  qdos386-r18/pc-vga/kernel.raw
++726c4d7d17d770eab3848aa1d007dc35a037f42bee6d4bddb19829889b69b8b6  qdos386-r18/pc-vga/kev.o
++5c42ff63d3cbf18d52f5a5c984577a7525b2c33f61062c582d78a58646c69916  qdos386-r18/pc-vga/main.o
++2ea613239b45adc2eb8b00c74b8d8b8abd7fa29af68e9818b60ee80e9101a786  qdos386-r18/pc-vga/mbr.o
++c23c4a9ae23457428a50b5122a1f3747ff0a0b72619d5f62cf08f9b59bb43bbe  qdos386-r18/pc-vga/memmap.o
++d228ffef30b8259b99d3c68f17231a81d8dee8f7e381d732e4c34fe9db81a6c3  qdos386-r18/pc-vga/memory.o
++cd0c2331450a64987fc5d7794dbeffb640626817bc4ecdb9e1671750f9aee85a  qdos386-r18/pc-vga/pathres.o
++b5c89fc55f0416f19d5e2286f507084bfa4853058eca032089155fef2adf7d83  qdos386-r18/pc-vga/pheap.o
++5261ad2900529d36c8e3b63c848b5a0b5af8215146461ab4f33ef7c50fe329c2  qdos386-r18/pc-vga/platform.o
++0dfceed7543ef50549dcf18fb0d7815f6d359b14439055034628e44dbffbf74e  qdos386-r18/pc-vga/proc.o
++d42497d51da87909e0cb0e52259d2bfd42807923e710d9945285db166a228e97  qdos386-r18/pc-vga/qdos386-r18-vga.img
++af32f5d6dc2f7d3f2fac21482b2d2e01f422191b5f222a5314c3ead2edaf7563  qdos386-r18/pc-vga/r16b_s.o
++6d90af75c904d85b98de5b97e29df6efd140ac03c2de83452ece624e89d674f3  qdos386-r18/pc-vga/region.o
++39c03fbad5c7b6c530ce142c44ae6223bc744a99de2c1fa3deb0b6f51ab9e753  qdos386-r18/pc-vga/rtc.o
++bbae24c6b2a42fd865bf5fa02f8b1e20a10fc2dcd55c9c7fa020a39d7750c91c  qdos386-r18/pc-vga/shellboot.o
++0a54c1319d1c0841202a56cea4f6ffd6a677635a1f74c5bacb8d40b658ebf45a  qdos386-r18/pc-vga/smp17.o
++f5784fe9fe1f2087fc401aaea531400acc876984379586b00c251d9238d2ec85  qdos386-r18/pc-vga/smp_s17.o
++d29a2e3adbefb992ecf92d3b5ebf62b254e3d21ec591ee1bb4a84d1098ed1b0c  qdos386-r18/pc-vga/surface.o
++1998571ac905efd56e5de5e66d2c727cd8590d5ad4f4f3dcd2fc1e81d56516b1  qdos386-r18/pc-vga/sync.o
++d350ae1c9b995a441af8ac8b7e9a3b29a138fdfab33fc45517574a3dba69baa0  qdos386-r18/pc-vga/taskmgr.o
++8ec433f000ebd832995000d435dd1de84a0e7b16f6e0fbb93795c98fa32eac2b  qdos386-r18/pc-vga/test_app.o
++2fadc00797968f60d867d3672ba10ee601a24b44f9bc1f9d89fc8aeacccd2459  qdos386-r18/pc-vga/test_channels.o
++43f4869b0befed63e1caf88c107a13f9cead681f67a3570f07e2863896186a5a  qdos386-r18/pc-vga/test_console.o
++61f0204e8c4088a9190e290b7ec717f944b57f8b65554b57f8a1da519238f17c  qdos386-r18/pc-vga/test_dir.o
++fc1182113b3b30d41ec83c62cf6c97d0be10ac0ff513a3236441be87a31ccb0f  qdos386-r18/pc-vga/test_fs.o
++e8af448c65cc92c74cd79dedd809c1b24ba1943f4d7c2b364797520ffff3f772  qdos386-r18/pc-vga/test_jobs.o
++b587ab0ca44179c6709aa143c52e8cf86ecf291590c677bb50f362be9c603877  qdos386-r18/pc-vga/test_memory.o
++38887908597b0d5fb77e87f1df6e2d1a4c5fbcec5a9b68ebe7ebd21b222bbb8d  qdos386-r18/pc-vga/test_r8.o
++a87c93a558411fc22569e351b7da0c18d7ecedce550733bcd7a973d6c038eed7  qdos386-r18/pc-vga/test_shell.o
++5855ea92b1b1fb4ece46dd24c964478c02ce8eaa2e48c9714a77e5720d6dd8a2  qdos386-r18/pc-vga/uart.o
++71f92caf85e33dee25b3faeb2629d452b8dfc2ce843739514563078cd8e7f176  qdos386-r18/pc-vga/uart_s17.o
++95bfac3eafd77fe04c952787e98d58a39ff126c854b5de7ba6c21f5e1484a72e  qdos386-r18/pc-vga/vas.o
++3468a7491663d3627ca609fd1314ead70e0ebae12a11366b2eaad4cd6d1b5cf2  qdos386-r18/pc-vga/vcon.o
++c8aba7d5df16f3fe7fa7ef1fa68d0489c5c9fe153448280678cde713a88e03b7  qdos386-r18/pc-vga/vga.o
++a4f3de4876416e3dd361576f9db002246a0baf00cbd33a05f59e0b8e32a3e8ec  qdos386-r18/pc-vga/vgapres13a.o
++7b57f3ddc0a5f0a233b4215be735a945c7b6f2aa87d0aae70fc9f3bc971c4159  qdos386-r18/pc-vga/win1.o
++dff8637c6be5c19013ca02fe279a291d457c330e4189f0aa0d6a6c7e619bdaed  qdos386-r18/pc/aout.o
++dd66d08a300818b74be69bc468079ae01468e35cafc35e6634bb1e09501cc3f0  qdos386-r18/pc/bkl.o
++b6f957822694a071e7c7d41b66efd5995d61f746ffe7a0c80f4ff457318d6684  qdos386-r18/pc/bkl_s.o
++dacb306a6d213c1c49618c18b18f80d1305f44eed4ee5b7e2cab7badd851acc3  qdos386-r18/pc/channel.o
++ee450444ac033f8d8c33baba4f69fdf7b5132134a565b8aa492d4b3459b28ddb  qdos386-r18/pc/cin.o
++3b5744c4dffe315db144484e96b2f4e91a7a6496a073418dbf6f8bdf22438eeb  qdos386-r18/pc/clock.o
++b5bf20496cb39dcec5205dfa8134d371fc3cfd71742851acfb55ffdd24546e1e  qdos386-r18/pc/clock_boot.o
++6d0f9c5d0c7c14e0e7c6d39679d3a83db2fe8107b750a9528e9d278c5dcc41e9  qdos386-r18/pc/descriptors.o
++07b3adcfb81cfd63c48467fedadf3bf8e9979cae1c785c9f37726a02eab5b435  qdos386-r18/pc/disk.o
++6cdb9bc468d4cf21f27fea877c3f4cd94bc14133e5284033f8813819c2b97948  qdos386-r18/pc/entry.o
++bfe319dba35ef07230ba2556fe0add49fa0735d6dde9d1b7ca0709b6f3546663  qdos386-r18/pc/env.o
++3a90afbb51fdc481a679d99bdc1d1d6590eeb0235f0f47fe7a890e0e9d25226a  qdos386-r18/pc/fat16.o
++8b875ddea993ed8254d4557c75085581e3ec4cca54b34e8fc5d337a50d0a5363  qdos386-r18/pc/font_console.o
++f3917db4342cd6262eda7306557f290ed376d8c28f55583891fa2d628fd5ba7e  qdos386-r18/pc/font_recovery.o
++cf8e60cc5828c41410cffeaff7eec21baffba6843fd54848bdd63febf62787d2  qdos386-r18/pc/fontreg.o
++bed3726da195fddb4a7952aef076e3bd39f141e93e1356435890338d1cdb2cd1  qdos386-r18/pc/fpu.o
++5e080470b888ffc060d5f370b32681039712d9cf86e2a2bef5d74319cc893d7c  qdos386-r18/pc/frames.o
++65b93d6ee4d3fa7373b63c25f38574580ebac396dbfcb5b941bd66d4f51d8a2f  qdos386-r18/pc/gsurf.o
++a02cb5312394dd7f09a2bb15c69256937bdd6da93b738d1030c646439a91daa9  qdos386-r18/pc/i8042.o
++5aa211cee82fb2a38bc9c5b9261f6db251049d2fadda036a0cdda19befbf0c9e  qdos386-r18/pc/imgload.o
++4a36ccfa484a2effadb042f94c0ff5669d1862aaf3979351da70e436930428c5  qdos386-r18/pc/irq.o
++c902f879dc6259a70064af008c3342604a6d6576de58a4ad558cd9ebe2c56c1c  qdos386-r18/pc/jobctl.o
++7bc4d120b07e27f4d205b371278123de6d5bd4690a621fb4f64415c9f4f4fffe  qdos386-r18/pc/jobs.o
++e87868c8f95836a2f06f99f626a5ede11474583586d77292912eba205924de90  qdos386-r18/pc/kbd.o
++8d0a56e72dd161dc6f6ac7806af11955d97707bf3025d976b8cd5ccd5fa5b0aa  qdos386-r18/pc/kctx17.o
++b2436a2b81822e033f4c977177879a30a4d9833d4ae5b491fdae7dc5cbf326c7  qdos386-r18/pc/kernel.aout
++a89d4b6c58e4b11327bd71dd3c8a4a192b96dce523ebd69c1084b759846467b6  qdos386-r18/pc/kernel.raw
++726c4d7d17d770eab3848aa1d007dc35a037f42bee6d4bddb19829889b69b8b6  qdos386-r18/pc/kev.o
++5c42ff63d3cbf18d52f5a5c984577a7525b2c33f61062c582d78a58646c69916  qdos386-r18/pc/main.o
++2ea613239b45adc2eb8b00c74b8d8b8abd7fa29af68e9818b60ee80e9101a786  qdos386-r18/pc/mbr.o
++c23c4a9ae23457428a50b5122a1f3747ff0a0b72619d5f62cf08f9b59bb43bbe  qdos386-r18/pc/memmap.o
++d228ffef30b8259b99d3c68f17231a81d8dee8f7e381d732e4c34fe9db81a6c3  qdos386-r18/pc/memory.o
++cd0c2331450a64987fc5d7794dbeffb640626817bc4ecdb9e1671750f9aee85a  qdos386-r18/pc/pathres.o
++b5c89fc55f0416f19d5e2286f507084bfa4853058eca032089155fef2adf7d83  qdos386-r18/pc/pheap.o
++f3c85964e7605c8efbab2485ec0da5e5d10492f54ce2ee164b379240b87f67e2  qdos386-r18/pc/platform.o
++0dfceed7543ef50549dcf18fb0d7815f6d359b14439055034628e44dbffbf74e  qdos386-r18/pc/proc.o
++a392c77e4dc285b7d4dfc47a7ecf563a092259129ef448d882bf76dda382439a  qdos386-r18/pc/qdos386-r18.img
++af32f5d6dc2f7d3f2fac21482b2d2e01f422191b5f222a5314c3ead2edaf7563  qdos386-r18/pc/r16b_s.o
++6d90af75c904d85b98de5b97e29df6efd140ac03c2de83452ece624e89d674f3  qdos386-r18/pc/region.o
++39c03fbad5c7b6c530ce142c44ae6223bc744a99de2c1fa3deb0b6f51ab9e753  qdos386-r18/pc/rtc.o
++bbae24c6b2a42fd865bf5fa02f8b1e20a10fc2dcd55c9c7fa020a39d7750c91c  qdos386-r18/pc/shellboot.o
++0a54c1319d1c0841202a56cea4f6ffd6a677635a1f74c5bacb8d40b658ebf45a  qdos386-r18/pc/smp17.o
++f5784fe9fe1f2087fc401aaea531400acc876984379586b00c251d9238d2ec85  qdos386-r18/pc/smp_s17.o
++d29a2e3adbefb992ecf92d3b5ebf62b254e3d21ec591ee1bb4a84d1098ed1b0c  qdos386-r18/pc/surface.o
++1998571ac905efd56e5de5e66d2c727cd8590d5ad4f4f3dcd2fc1e81d56516b1  qdos386-r18/pc/sync.o
++9ee00197dcb0c52303b502b2d99f4a6f25e1d3cd741e8381213e303ae33f5be9  qdos386-r18/pc/taskmgr.o
++8ec433f000ebd832995000d435dd1de84a0e7b16f6e0fbb93795c98fa32eac2b  qdos386-r18/pc/test_app.o
++2fadc00797968f60d867d3672ba10ee601a24b44f9bc1f9d89fc8aeacccd2459  qdos386-r18/pc/test_channels.o
++43f4869b0befed63e1caf88c107a13f9cead681f67a3570f07e2863896186a5a  qdos386-r18/pc/test_console.o
++61f0204e8c4088a9190e290b7ec717f944b57f8b65554b57f8a1da519238f17c  qdos386-r18/pc/test_dir.o
++fc1182113b3b30d41ec83c62cf6c97d0be10ac0ff513a3236441be87a31ccb0f  qdos386-r18/pc/test_fs.o
++e8af448c65cc92c74cd79dedd809c1b24ba1943f4d7c2b364797520ffff3f772  qdos386-r18/pc/test_jobs.o
++b587ab0ca44179c6709aa143c52e8cf86ecf291590c677bb50f362be9c603877  qdos386-r18/pc/test_memory.o
++38887908597b0d5fb77e87f1df6e2d1a4c5fbcec5a9b68ebe7ebd21b222bbb8d  qdos386-r18/pc/test_r8.o
++a87c93a558411fc22569e351b7da0c18d7ecedce550733bcd7a973d6c038eed7  qdos386-r18/pc/test_shell.o
++5855ea92b1b1fb4ece46dd24c964478c02ce8eaa2e48c9714a77e5720d6dd8a2  qdos386-r18/pc/uart.o
++71f92caf85e33dee25b3faeb2629d452b8dfc2ce843739514563078cd8e7f176  qdos386-r18/pc/uart_s17.o
++95bfac3eafd77fe04c952787e98d58a39ff126c854b5de7ba6c21f5e1484a72e  qdos386-r18/pc/vas.o
++3468a7491663d3627ca609fd1314ead70e0ebae12a11366b2eaad4cd6d1b5cf2  qdos386-r18/pc/vcon.o
++d00042843dc3cf2bc014ace23e90404b6416fa111e90398654a1726cdf1181f7  qdos386-r18/pc/vga.o
++78809e7949a972e5431396ac97b647a88e114c60242ad25f5f6034744f32c4fa  qdos386-r18/pc/vgapres13a.o
++7b57f3ddc0a5f0a233b4215be735a945c7b6f2aa87d0aae70fc9f3bc971c4159  qdos386-r18/pc/win1.o
++dff8637c6be5c19013ca02fe279a291d457c330e4189f0aa0d6a6c7e619bdaed  qdos386-r20/pc-vga/aout.o
++dd66d08a300818b74be69bc468079ae01468e35cafc35e6634bb1e09501cc3f0  qdos386-r20/pc-vga/bkl.o
++b6f957822694a071e7c7d41b66efd5995d61f746ffe7a0c80f4ff457318d6684  qdos386-r20/pc-vga/bkl_s.o
++dacb306a6d213c1c49618c18b18f80d1305f44eed4ee5b7e2cab7badd851acc3  qdos386-r20/pc-vga/channel.o
++ee450444ac033f8d8c33baba4f69fdf7b5132134a565b8aa492d4b3459b28ddb  qdos386-r20/pc-vga/cin.o
++3b5744c4dffe315db144484e96b2f4e91a7a6496a073418dbf6f8bdf22438eeb  qdos386-r20/pc-vga/clock.o
++b5bf20496cb39dcec5205dfa8134d371fc3cfd71742851acfb55ffdd24546e1e  qdos386-r20/pc-vga/clock_boot.o
++6d0f9c5d0c7c14e0e7c6d39679d3a83db2fe8107b750a9528e9d278c5dcc41e9  qdos386-r20/pc-vga/descriptors.o
++71b7397e0673fe5432d05b0ec004763e96ba99a45776c8b7a7a7e158f12bb0d1  qdos386-r20/pc-vga/disk.o
++6cdb9bc468d4cf21f27fea877c3f4cd94bc14133e5284033f8813819c2b97948  qdos386-r20/pc-vga/entry.o
++bfe319dba35ef07230ba2556fe0add49fa0735d6dde9d1b7ca0709b6f3546663  qdos386-r20/pc-vga/env.o
++9a85a62f256161eb462d4009b81c6a8e01c4fadd34ad9d5e6cb9fb383497e81c  qdos386-r20/pc-vga/fat16.o
++8b875ddea993ed8254d4557c75085581e3ec4cca54b34e8fc5d337a50d0a5363  qdos386-r20/pc-vga/font_console.o
++f3917db4342cd6262eda7306557f290ed376d8c28f55583891fa2d628fd5ba7e  qdos386-r20/pc-vga/font_recovery.o
++cf8e60cc5828c41410cffeaff7eec21baffba6843fd54848bdd63febf62787d2  qdos386-r20/pc-vga/fontreg.o
++bed3726da195fddb4a7952aef076e3bd39f141e93e1356435890338d1cdb2cd1  qdos386-r20/pc-vga/fpu.o
++5e080470b888ffc060d5f370b32681039712d9cf86e2a2bef5d74319cc893d7c  qdos386-r20/pc-vga/frames.o
++65b93d6ee4d3fa7373b63c25f38574580ebac396dbfcb5b941bd66d4f51d8a2f  qdos386-r20/pc-vga/gsurf.o
++a02cb5312394dd7f09a2bb15c69256937bdd6da93b738d1030c646439a91daa9  qdos386-r20/pc-vga/i8042.o
++5aa211cee82fb2a38bc9c5b9261f6db251049d2fadda036a0cdda19befbf0c9e  qdos386-r20/pc-vga/imgload.o
++4a36ccfa484a2effadb042f94c0ff5669d1862aaf3979351da70e436930428c5  qdos386-r20/pc-vga/irq.o
++c902f879dc6259a70064af008c3342604a6d6576de58a4ad558cd9ebe2c56c1c  qdos386-r20/pc-vga/jobctl.o
++3c12fb4dc031d71c6f7f46d507567a8e28e5f8a009415bc6d9ec03dc62f0670d  qdos386-r20/pc-vga/jobs.o
++e87868c8f95836a2f06f99f626a5ede11474583586d77292912eba205924de90  qdos386-r20/pc-vga/kbd.o
++8d0a56e72dd161dc6f6ac7806af11955d97707bf3025d976b8cd5ccd5fa5b0aa  qdos386-r20/pc-vga/kctx17.o
++b4ca0a9473fc29f29b675553e8a2c19345340f76811f62388f4fd6560fae036f  qdos386-r20/pc-vga/kernel.aout
++c8c95fd9d30c0637286961865316ba2da6baa9a4f93755f52934b5665ddd694c  qdos386-r20/pc-vga/kernel.raw
++726c4d7d17d770eab3848aa1d007dc35a037f42bee6d4bddb19829889b69b8b6  qdos386-r20/pc-vga/kev.o
++5c42ff63d3cbf18d52f5a5c984577a7525b2c33f61062c582d78a58646c69916  qdos386-r20/pc-vga/main.o
++2ea613239b45adc2eb8b00c74b8d8b8abd7fa29af68e9818b60ee80e9101a786  qdos386-r20/pc-vga/mbr.o
++c23c4a9ae23457428a50b5122a1f3747ff0a0b72619d5f62cf08f9b59bb43bbe  qdos386-r20/pc-vga/memmap.o
++d228ffef30b8259b99d3c68f17231a81d8dee8f7e381d732e4c34fe9db81a6c3  qdos386-r20/pc-vga/memory.o
++cd0c2331450a64987fc5d7794dbeffb640626817bc4ecdb9e1671750f9aee85a  qdos386-r20/pc-vga/pathres.o
++b5c89fc55f0416f19d5e2286f507084bfa4853058eca032089155fef2adf7d83  qdos386-r20/pc-vga/pheap.o
++5261ad2900529d36c8e3b63c848b5a0b5af8215146461ab4f33ef7c50fe329c2  qdos386-r20/pc-vga/platform.o
++0dfceed7543ef50549dcf18fb0d7815f6d359b14439055034628e44dbffbf74e  qdos386-r20/pc-vga/proc.o
++dd4c9129c476b6da8abf8b657df65543c9300355686d7a9b30d5ea43b49f5bca  qdos386-r20/pc-vga/qdos386-r20-vga.img
++af32f5d6dc2f7d3f2fac21482b2d2e01f422191b5f222a5314c3ead2edaf7563  qdos386-r20/pc-vga/r16b_s.o
++80e289bb4cedda0f5258dd321ca5558ec793bd35c939e91d110e8835667b25c7  qdos386-r20/pc-vga/r20w.o
++6d90af75c904d85b98de5b97e29df6efd140ac03c2de83452ece624e89d674f3  qdos386-r20/pc-vga/region.o
++39c03fbad5c7b6c530ce142c44ae6223bc744a99de2c1fa3deb0b6f51ab9e753  qdos386-r20/pc-vga/rtc.o
++da9ff52e66c9eaebf1c80ddea66218dfc7180c5b3531660caf52445f0d868143  qdos386-r20/pc-vga/shellboot.o
++0a54c1319d1c0841202a56cea4f6ffd6a677635a1f74c5bacb8d40b658ebf45a  qdos386-r20/pc-vga/smp17.o
++f5784fe9fe1f2087fc401aaea531400acc876984379586b00c251d9238d2ec85  qdos386-r20/pc-vga/smp_s17.o
++d29a2e3adbefb992ecf92d3b5ebf62b254e3d21ec591ee1bb4a84d1098ed1b0c  qdos386-r20/pc-vga/surface.o
++1998571ac905efd56e5de5e66d2c727cd8590d5ad4f4f3dcd2fc1e81d56516b1  qdos386-r20/pc-vga/sync.o
++d350ae1c9b995a441af8ac8b7e9a3b29a138fdfab33fc45517574a3dba69baa0  qdos386-r20/pc-vga/taskmgr.o
++8ec433f000ebd832995000d435dd1de84a0e7b16f6e0fbb93795c98fa32eac2b  qdos386-r20/pc-vga/test_app.o
++2fadc00797968f60d867d3672ba10ee601a24b44f9bc1f9d89fc8aeacccd2459  qdos386-r20/pc-vga/test_channels.o
++43f4869b0befed63e1caf88c107a13f9cead681f67a3570f07e2863896186a5a  qdos386-r20/pc-vga/test_console.o
++61f0204e8c4088a9190e290b7ec717f944b57f8b65554b57f8a1da519238f17c  qdos386-r20/pc-vga/test_dir.o
++fc1182113b3b30d41ec83c62cf6c97d0be10ac0ff513a3236441be87a31ccb0f  qdos386-r20/pc-vga/test_fs.o
++e8af448c65cc92c74cd79dedd809c1b24ba1943f4d7c2b364797520ffff3f772  qdos386-r20/pc-vga/test_jobs.o
++b587ab0ca44179c6709aa143c52e8cf86ecf291590c677bb50f362be9c603877  qdos386-r20/pc-vga/test_memory.o
++38887908597b0d5fb77e87f1df6e2d1a4c5fbcec5a9b68ebe7ebd21b222bbb8d  qdos386-r20/pc-vga/test_r8.o
++a87c93a558411fc22569e351b7da0c18d7ecedce550733bcd7a973d6c038eed7  qdos386-r20/pc-vga/test_shell.o
++5855ea92b1b1fb4ece46dd24c964478c02ce8eaa2e48c9714a77e5720d6dd8a2  qdos386-r20/pc-vga/uart.o
++71f92caf85e33dee25b3faeb2629d452b8dfc2ce843739514563078cd8e7f176  qdos386-r20/pc-vga/uart_s17.o
++95bfac3eafd77fe04c952787e98d58a39ff126c854b5de7ba6c21f5e1484a72e  qdos386-r20/pc-vga/vas.o
++3468a7491663d3627ca609fd1314ead70e0ebae12a11366b2eaad4cd6d1b5cf2  qdos386-r20/pc-vga/vcon.o
++c8aba7d5df16f3fe7fa7ef1fa68d0489c5c9fe153448280678cde713a88e03b7  qdos386-r20/pc-vga/vga.o
++a4f3de4876416e3dd361576f9db002246a0baf00cbd33a05f59e0b8e32a3e8ec  qdos386-r20/pc-vga/vgapres13a.o
++82ad1caf7e0fdd1d7e7664457bccaab2fa583db73e528859bc751225d1d6ec1a  qdos386-r20/pc-vga/win1.o
++dff8637c6be5c19013ca02fe279a291d457c330e4189f0aa0d6a6c7e619bdaed  qdos386-r20/pc/aout.o
++dd66d08a300818b74be69bc468079ae01468e35cafc35e6634bb1e09501cc3f0  qdos386-r20/pc/bkl.o
++b6f957822694a071e7c7d41b66efd5995d61f746ffe7a0c80f4ff457318d6684  qdos386-r20/pc/bkl_s.o
++dacb306a6d213c1c49618c18b18f80d1305f44eed4ee5b7e2cab7badd851acc3  qdos386-r20/pc/channel.o
++ee450444ac033f8d8c33baba4f69fdf7b5132134a565b8aa492d4b3459b28ddb  qdos386-r20/pc/cin.o
++3b5744c4dffe315db144484e96b2f4e91a7a6496a073418dbf6f8bdf22438eeb  qdos386-r20/pc/clock.o
++b5bf20496cb39dcec5205dfa8134d371fc3cfd71742851acfb55ffdd24546e1e  qdos386-r20/pc/clock_boot.o
++6d0f9c5d0c7c14e0e7c6d39679d3a83db2fe8107b750a9528e9d278c5dcc41e9  qdos386-r20/pc/descriptors.o
++71b7397e0673fe5432d05b0ec004763e96ba99a45776c8b7a7a7e158f12bb0d1  qdos386-r20/pc/disk.o
++6cdb9bc468d4cf21f27fea877c3f4cd94bc14133e5284033f8813819c2b97948  qdos386-r20/pc/entry.o
++bfe319dba35ef07230ba2556fe0add49fa0735d6dde9d1b7ca0709b6f3546663  qdos386-r20/pc/env.o
++9a85a62f256161eb462d4009b81c6a8e01c4fadd34ad9d5e6cb9fb383497e81c  qdos386-r20/pc/fat16.o
++8b875ddea993ed8254d4557c75085581e3ec4cca54b34e8fc5d337a50d0a5363  qdos386-r20/pc/font_console.o
++f3917db4342cd6262eda7306557f290ed376d8c28f55583891fa2d628fd5ba7e  qdos386-r20/pc/font_recovery.o
++cf8e60cc5828c41410cffeaff7eec21baffba6843fd54848bdd63febf62787d2  qdos386-r20/pc/fontreg.o
++bed3726da195fddb4a7952aef076e3bd39f141e93e1356435890338d1cdb2cd1  qdos386-r20/pc/fpu.o
++5e080470b888ffc060d5f370b32681039712d9cf86e2a2bef5d74319cc893d7c  qdos386-r20/pc/frames.o
++65b93d6ee4d3fa7373b63c25f38574580ebac396dbfcb5b941bd66d4f51d8a2f  qdos386-r20/pc/gsurf.o
++a02cb5312394dd7f09a2bb15c69256937bdd6da93b738d1030c646439a91daa9  qdos386-r20/pc/i8042.o
++5aa211cee82fb2a38bc9c5b9261f6db251049d2fadda036a0cdda19befbf0c9e  qdos386-r20/pc/imgload.o
++4a36ccfa484a2effadb042f94c0ff5669d1862aaf3979351da70e436930428c5  qdos386-r20/pc/irq.o
++c902f879dc6259a70064af008c3342604a6d6576de58a4ad558cd9ebe2c56c1c  qdos386-r20/pc/jobctl.o
++3c12fb4dc031d71c6f7f46d507567a8e28e5f8a009415bc6d9ec03dc62f0670d  qdos386-r20/pc/jobs.o
++e87868c8f95836a2f06f99f626a5ede11474583586d77292912eba205924de90  qdos386-r20/pc/kbd.o
++8d0a56e72dd161dc6f6ac7806af11955d97707bf3025d976b8cd5ccd5fa5b0aa  qdos386-r20/pc/kctx17.o
++55aef44f2b798e0a76701a4453cc6341887487fa3143910d8056f584f4fcb966  qdos386-r20/pc/kernel.aout
++5df0b5843914e36737c9850a716299ef9d63e1f20bbe7ab8236f079eb335d79f  qdos386-r20/pc/kernel.raw
++726c4d7d17d770eab3848aa1d007dc35a037f42bee6d4bddb19829889b69b8b6  qdos386-r20/pc/kev.o
++5c42ff63d3cbf18d52f5a5c984577a7525b2c33f61062c582d78a58646c69916  qdos386-r20/pc/main.o
++2ea613239b45adc2eb8b00c74b8d8b8abd7fa29af68e9818b60ee80e9101a786  qdos386-r20/pc/mbr.o
++c23c4a9ae23457428a50b5122a1f3747ff0a0b72619d5f62cf08f9b59bb43bbe  qdos386-r20/pc/memmap.o
++d228ffef30b8259b99d3c68f17231a81d8dee8f7e381d732e4c34fe9db81a6c3  qdos386-r20/pc/memory.o
++cd0c2331450a64987fc5d7794dbeffb640626817bc4ecdb9e1671750f9aee85a  qdos386-r20/pc/pathres.o
++b5c89fc55f0416f19d5e2286f507084bfa4853058eca032089155fef2adf7d83  qdos386-r20/pc/pheap.o
++f3c85964e7605c8efbab2485ec0da5e5d10492f54ce2ee164b379240b87f67e2  qdos386-r20/pc/platform.o
++0dfceed7543ef50549dcf18fb0d7815f6d359b14439055034628e44dbffbf74e  qdos386-r20/pc/proc.o
++a32727a02cf7e734f10e8e3e2bf48d426801fd0c70618c3d794f85341605889c  qdos386-r20/pc/qdos386-r20.img
++af32f5d6dc2f7d3f2fac21482b2d2e01f422191b5f222a5314c3ead2edaf7563  qdos386-r20/pc/r16b_s.o
++80e289bb4cedda0f5258dd321ca5558ec793bd35c939e91d110e8835667b25c7  qdos386-r20/pc/r20w.o
++6d90af75c904d85b98de5b97e29df6efd140ac03c2de83452ece624e89d674f3  qdos386-r20/pc/region.o
++39c03fbad5c7b6c530ce142c44ae6223bc744a99de2c1fa3deb0b6f51ab9e753  qdos386-r20/pc/rtc.o
++da9ff52e66c9eaebf1c80ddea66218dfc7180c5b3531660caf52445f0d868143  qdos386-r20/pc/shellboot.o
++0a54c1319d1c0841202a56cea4f6ffd6a677635a1f74c5bacb8d40b658ebf45a  qdos386-r20/pc/smp17.o
++f5784fe9fe1f2087fc401aaea531400acc876984379586b00c251d9238d2ec85  qdos386-r20/pc/smp_s17.o
++d29a2e3adbefb992ecf92d3b5ebf62b254e3d21ec591ee1bb4a84d1098ed1b0c  qdos386-r20/pc/surface.o
++1998571ac905efd56e5de5e66d2c727cd8590d5ad4f4f3dcd2fc1e81d56516b1  qdos386-r20/pc/sync.o
++9ee00197dcb0c52303b502b2d99f4a6f25e1d3cd741e8381213e303ae33f5be9  qdos386-r20/pc/taskmgr.o
++8ec433f000ebd832995000d435dd1de84a0e7b16f6e0fbb93795c98fa32eac2b  qdos386-r20/pc/test_app.o
++2fadc00797968f60d867d3672ba10ee601a24b44f9bc1f9d89fc8aeacccd2459  qdos386-r20/pc/test_channels.o
++43f4869b0befed63e1caf88c107a13f9cead681f67a3570f07e2863896186a5a  qdos386-r20/pc/test_console.o
++61f0204e8c4088a9190e290b7ec717f944b57f8b65554b57f8a1da519238f17c  qdos386-r20/pc/test_dir.o
++fc1182113b3b30d41ec83c62cf6c97d0be10ac0ff513a3236441be87a31ccb0f  qdos386-r20/pc/test_fs.o
++e8af448c65cc92c74cd79dedd809c1b24ba1943f4d7c2b364797520ffff3f772  qdos386-r20/pc/test_jobs.o
++b587ab0ca44179c6709aa143c52e8cf86ecf291590c677bb50f362be9c603877  qdos386-r20/pc/test_memory.o
++38887908597b0d5fb77e87f1df6e2d1a4c5fbcec5a9b68ebe7ebd21b222bbb8d  qdos386-r20/pc/test_r8.o
++a87c93a558411fc22569e351b7da0c18d7ecedce550733bcd7a973d6c038eed7  qdos386-r20/pc/test_shell.o
++5855ea92b1b1fb4ece46dd24c964478c02ce8eaa2e48c9714a77e5720d6dd8a2  qdos386-r20/pc/uart.o
++71f92caf85e33dee25b3faeb2629d452b8dfc2ce843739514563078cd8e7f176  qdos386-r20/pc/uart_s17.o
++95bfac3eafd77fe04c952787e98d58a39ff126c854b5de7ba6c21f5e1484a72e  qdos386-r20/pc/vas.o
++3468a7491663d3627ca609fd1314ead70e0ebae12a11366b2eaad4cd6d1b5cf2  qdos386-r20/pc/vcon.o
++d00042843dc3cf2bc014ace23e90404b6416fa111e90398654a1726cdf1181f7  qdos386-r20/pc/vga.o
++78809e7949a972e5431396ac97b647a88e114c60242ad25f5f6034744f32c4fa  qdos386-r20/pc/vgapres13a.o
++82ad1caf7e0fdd1d7e7664457bccaab2fa583db73e528859bc751225d1d6ec1a  qdos386-r20/pc/win1.o
+diff --git a/docs/R20C-CONDITIONAL-INVENTORY.md b/docs/R20C-CONDITIONAL-INVENTORY.md
+new file mode 100644
+index 0000000..a1956ec
+--- /dev/null
++++ b/docs/R20C-CONDITIONAL-INVENTORY.md
+@@ -0,0 +1,121 @@
++# R20C conditional inventory
++
++Scope: every preprocessor conditional in `kernel/` and `platform/` (613 conditional openers in 84 files now;
++621 in 84 files at the freeze tag `a16-r20-phase2b-frozen`). Source-only; the production images are byte-identical
++(see `docs/R20C-BASELINE-HASHES.txt`).
++
++## Supported builds (this branch)
++
++Only the four R18 and R20 PC builds that the freeze, the release archive and the baseline hashes cover are supported
++here. Every other Makefile target (`qdos386-pc`, `qdos386-smp-pc`, `qdos386-r16b-pc`, `qdos386-r17-pc`, the i386VM
++targets, the R9–R16 historical images) is NOT supported on this branch: it may still compile, but nothing verifies it, and
++its conditionals are kept, not removed.
++
++| build | Makefile target | output (baseline SHA-256 in `R20C-BASELINE-HASHES.txt`) |
++|---|---|---|
++| R20 headless | `make qdos386-r20-pc` | `build/qdos386-r20/pc/qdos386-r20.img` |
++| R20 VGA | `make qdos386-r20-pc` | `build/qdos386-r20/pc-vga/qdos386-r20-vga.img` (= `binaries/r20-2b-vga.img`) |
++| R18 headless | `make qdos386-r18-pc` | `build/qdos386-r18/pc/qdos386-r18.img` |
++| R18 VGA | `make qdos386-r18-pc` | `build/qdos386-r18/pc-vga/qdos386-r18-vga.img` (= `binaries/r18-vga.img`) |
++
++Compile-time macros of the R20 headless build (`-D`, from `make -n qdos386-r20-pc`); the VGA build adds `-DQDOS_CON_VGA`;
++R18 is the same list without `-DQDOS_R20`:
++
++`-DQDOS_APP_STACK=65536u`, `-DQDOS_DYNPROC`, `-DQDOS_DYNPROC_SHELL`, `-DQDOS_ENV`, `-DQDOS_FS_WRITE`, `-DQDOS_JOBCTL`, `-DQDOS_LAYOUT_R9`, `-DQDOS_PAGING`, `-DQDOS_R13A`, `-DQDOS_R13B`, `-DQDOS_R14`, `-DQDOS_R16`, `-DQDOS_R16B`, `-DQDOS_R17`, `-DQDOS_R18`, `-DQDOS_R20`, `-DQDOS_SURFACES`, `-DQDOS_SYNC`, `-DQDOS_TASKMGR`, `-DQDOS_TITLES`, `-DQDOS_VCON`, `-DQDOS_VFAT`, `-DR7_SHELL_MODE`
++
++The `R20` and `R18` builds select `kctx17.o` as the context switcher, so `-DQDOS_KCTX_PTRBITS` is not passed (it is used by
++the older `kctx.o` targets only, see the Makefile comment at `PCKCTX`).
++
++## Method
++
++1. Every `#if`, `#ifdef`, `#ifndef`, `#elif` in `kernel/` and `platform/` was extracted with its macro names.
++2. Each macro was classified against the matrix above:
++   - **ACTIVE**: passed by the R20 or R18 build (the list above, plus `QDOS_CON_VGA` for the VGA build). Its branches are
++     kept, because they are selected in a supported build. The `#if` of an ACTIVE macro is still a conditional but its
++     selection is fixed by the build.
++   - **HDR-DEFINED**: header include guards and the `APP_*`/`DEVICE_*` layout macros, defined unconditionally in a header.
++     Kept.
++   - **INACTIVE**: not passed by any supported build and not defined unconditionally anywhere. Its branches are dead in
++     all four supported builds.
++3. For INACTIVE macros the disposition below records whether the branch was removed, kept as a guarded default, or kept
++   because a non-supported target or a historical script still names it.
++
++The classification is a worklist, not a proof: it does not evaluate arbitrary `#if` expressions. Removals were made by
++hand, one site at a time, and each removal group was checked by rebuilding all four supported builds and comparing every
++output (250 files: every object, image and boot binary) with the baseline.
++
++## Removals in this branch
++
++| commit | file | removed condition | selected branch | active variants | evidence |
++|---|---|---|---|---|---|
++| `d992905` | `kernel/shellboot.c`, `kernel/clock_boot.c` | `QDOS_NO_RTC` (term in 3 conditions) | the remaining terms | R18 and R20, headless and VGA | 250/250 output hashes identical |
++| `b97bfb5` | `kernel/smp.c` | `#ifdef QDOS_R16_APNOTIMER` (its `#else` kept) | the `#else` line | R18 and R20 | 250/250 identical |
++| `b97bfb5` | `kernel/smp17.c` | `#ifdef QDOS_R17_TEST_APFAIL` (2 sites, `apfail_done` state) | the default path (no suppression) | R18 and R20 | 250/250 identical |
++| `9783802` | `kernel/aout.c` | `#if defined(QDOS_I386VM_BLOCK) && defined(QDOS_TEST_SPARE)` (the R11I self-test, 110 lines, and its call) | none (dead) | none | 250/250 identical |
++| `b7cc3fa` | `platform/pc/platform.c` | `#ifdef QDOS_CON_SERIAL` (2 sites), `#ifdef QDOS_HALT_DEBUG_EXIT` | the default path | R18 and R20 | 250/250 identical |
++
++Eight conditional openers were removed (621 → 613). Commit messages for the first two groups state the 250/250 result of
++the final head, not of each intermediate commit; the intermediate states were not rebuilt separately.
++
++## Disposition of every INACTIVE macro
++
++| macro | conditional sites | disposition |
++|---|---|---|
++| `ENV_HOST` | 2 | KEPT: named by a historical or non-supported target (env.h, run.sh, test_env.c) |
++| `G12_ROWS` | 1 | KEPT: default selected by #ifndef in the defining file (`platform/pc/vgapres13a.c`); live branch |
++| `KFONT_HOST_TEST` | 1 | KEPT: named by a historical or non-supported target (run-host.sh) |
++| `PH_HOST` | 1 | KEPT: named by a historical or non-supported target (pheap.h, run.sh) |
++| `QDOS_AMP` | 7 | KEPT: named by a historical or non-supported target (Makefile, amp.c, amp.h) |
++| `QDOS_AMP_TEST_BURN` | 3 | KEPT: named by a historical or non-supported target (r15-package.sh, r15-verify-package.sh) |
++| `QDOS_AMP_TEST_LATE` | 1 | KEPT: named by a historical or non-supported target (r15-package.sh, r15-verify-package.sh) |
++| `QDOS_AMP_TEST_NOSIPI` | 1 | KEPT: named by a historical or non-supported target (r15-package.sh, r15-verify-package.sh) |
++| `QDOS_CLOCK_EPOCH` | 4 | KEPT: named by a historical or non-supported target (Makefile, README.md, clock_boot.h, r11f-images.sh) |
++| `QDOS_CLOCK_PINNED` | 1 | KEPT: named by a historical or non-supported target (Makefile, README.md, clock_boot.h, r11f-images.sh) |
++| `QDOS_CON_SERIAL` | 2 | REMOVED in this branch (commits d992905, b97bfb5, 9783802, b7cc3fa) |
++| `QDOS_FONT_QDOS5X9` | 1 | KEPT: named by a historical or non-supported target (Makefile, font.h, run-host.sh) |
++| `QDOS_FS_STAMP_DATE` | 1 | KEPT: default selected by #ifndef in the defining file (`kernel/fat16.c`); live branch |
++| `QDOS_FS_STAMP_TIME` | 1 | KEPT: default selected by #ifndef in the defining file (`kernel/fat16.c`); live branch |
++| `QDOS_HALT_DEBUG_EXIT` | 1 | REMOVED in this branch (commits d992905, b97bfb5, 9783802, b7cc3fa) |
++| `QDOS_I386VM_BLOCK` | 7 | KEPT: named by a historical or non-supported target (Makefile, layout_test.c, r11j-images.sh, r11k-images.sh, r11l-default-check.sh, run.sh) |
++| `QDOS_KCTX_CHECK` | 2 | KEPT: named by a historical or non-supported target (Makefile) |
++| `QDOS_KCTX_PTRBITS` | 2 | KEPT: named by a historical or non-supported target (Makefile, kctx.s, mismatch.mk, r11h-maps-link.sh) |
++| `QDOS_NO_RTC` | 3 | REMOVED in this branch (commits d992905, b97bfb5, 9783802, b7cc3fa) |
++| `QDOS_NO_TIMER` | 2 | KEPT: named by a historical or non-supported target (Makefile) |
++| `QDOS_PAGING_POC` | 1 | KEPT: named by a historical or non-supported target (r11j-images.sh) |
++| `QDOS_PG_WIN3` | 2 | KEPT: named by a historical or non-supported target (Makefile) |
++| `QDOS_R16_APNOTIMER` | 1 | REMOVED in this branch (commits d992905, b97bfb5, 9783802, b7cc3fa) |
++| `QDOS_R17_TEST_APFAIL` | 2 | REMOVED in this branch (commits d992905, b97bfb5, 9783802, b7cc3fa) |
++| `QDOS_R17_TEST_RESERVE` | 5 | KEPT: named by a historical or non-supported target (memmap.c) |
++| `QDOS_TEST_BIGK` | 2 | KEPT: named by a historical or non-supported target (bigk_check.c, r11k-boot-images.sh, r11k-images.sh) |
++| `QDOS_TEST_FAULT_LAUNCH` | 5 | KEPT: named by a historical or non-supported target (fault.c, r11j-images.sh, r11k-images.sh, samelnch.c, twicet.c) |
++| `QDOS_TEST_FAULT_READ` | 1 | KEPT: default selected by #ifndef in the defining file (`kernel/aout.c`); live branch |
++| `QDOS_TEST_PG_INT_AROUND_CR3` | 2 | KEPT: named by a historical or non-supported target (r11j-images.sh, r11k-images.sh) |
++| `QDOS_TEST_PG_POOL_BYTES` | 1 | KEPT: named by a historical or non-supported target (r11j-images.sh, r11k-images.sh) |
++| `QDOS_TEST_PG_SHARE_FRAMES` | 1 | KEPT: named by a historical or non-supported target (r11j-images.sh, r11k-images.sh) |
++| `QDOS_TEST_PG_TASKS` | 4 | KEPT: named by a historical or non-supported target (r11k-images.sh, twicet.c) |
++| `QDOS_TEST_SPARE` | 2 | REMOVED in this branch (commits d992905, b97bfb5, 9783802, b7cc3fa) |
++| `R16B_POLICY_DEFAULT` | 2 | KEPT: default selected by #ifndef in the defining file (`kernel/smp17.c`); live branch |
++| `R16B_POL_RESIDENCY` | 2 | KEPT: default selected by #ifndef in the defining file (`kernel/smp17.c`); live branch |
++| `R16B_POL_SWEEP` | 2 | KEPT: default selected by #ifndef in the defining file (`kernel/smp17.c`); live branch |
++| `R20C_INJECT_EVERY` | 1 | KEPT: test-only switch; archived injection and contention evidence depends on it |
++| `R20C_TEST_ENT` | 1 | KEPT: test-only switch; archived injection and contention evidence depends on it |
++| `RTC_HOST_TEST` | 1 | KEPT: named by a historical or non-supported target (run-host.sh) |
++| `VAS_HOST` | 1 | KEPT: named by a historical or non-supported target (run.sh, vas.h) |
++
++Kept entries are not dead code on this branch in the sense of the mission: each is named by a non-supported target,
++a historical script, a host test or a guarded default. They are documented so that their removal can be decided per target.
++Entries marked "test-only switch" must stay for the archived evidence to be reproducible.
++
++## ACTIVE macros (selected in the supported builds)
++
++`QDOS_APP_STACK`, `QDOS_DYNPROC`, `QDOS_DYNPROC_SHELL`, `QDOS_ENV`, `QDOS_FS_WRITE`, `QDOS_JOBCTL`, `QDOS_LAYOUT_R9`, `QDOS_PAGING`, `QDOS_R13A`, `QDOS_R13B`, `QDOS_R14`, `QDOS_R16`, `QDOS_R16B`, `QDOS_R17`, `QDOS_R18`, `QDOS_R20`, `QDOS_SURFACES`, `QDOS_SYNC`, `QDOS_TASKMGR`, `QDOS_TITLES`, `QDOS_VCON`, `QDOS_VFAT`, `R7_SHELL_MODE`
++
++## Still unresolved
++
++- The remaining INACTIVE conditionals named only by non-supported targets (about 30 macros: AMP, host tests, i386VM
++  blocks, the R9–R16 switches). They can be removed once each target is retired or moved to a frozen checkout.
++- Arbitrary compound expressions (`#if X > n`, mixed `#if`/`#elif` chains) were not simplified mechanically; none of the
++  removals touched such an expression.
++- The ACTIVE `#if`s (for example the `QDOS_R16`/`QDOS_R17` chains in `kernel/jobs.h`, `kernel/bkl.h`, `kernel/smp.c`) are
++  kept: they select code in every supported build, so simplifying them needs a per-option byte-identity check that was not
++  run in this branch.
+diff --git a/docs/R20C-LIMITS-INVENTORY.md b/docs/R20C-LIMITS-INVENTORY.md
+new file mode 100644
+index 0000000..e807688
+--- /dev/null
++++ b/docs/R20C-LIMITS-INVENTORY.md
+@@ -0,0 +1,76 @@
++# R20C limits inventory
++
++Every hardcoded bound that matters for the supported R18/R20 PC builds, recorded as it is in the source. Nothing here was
++changed by the consolidation; the values are the ones the frozen Phase 2B images use. "R20 value" is the value that the
++supported build selects, worked out from the `#if` chain shown; the other values are the ones other targets select.
++
++Counting rules used below: a *job slot* is an entry of the kernel job table (`jobs[]`); a *session* is a text or graphics
++session of the virtual-console layer (`vcon`); a *channel* is an entry of the channel table; a *CPU* is a logical processor
++of the topology; a *generation* is a counter bit field inside a handle, not a count of objects.
++
++## Jobs, processes and CPUs
++
++| bound | where | R20 value | other values | note |
++|---|---|---|---|---|
++| job table `JOB_MAX` | `kernel/jobs.h:25-31` | **24** (`R17_JOB_MAX`, selected by `QDOS_DYNPROC && QDOS_R17`) | 16 (DYNPROC without R17), 6 (R10 table) | The mission text says "16 job slots". In the R20 build 16 are the ordinary slots and up to 8 more are AP idle jobs (one per CPU beyond the BSP; `dead_mask < 32`). |
++| `R17_JOB_MAX` | `kernel/jobs.h:25` | 24 (overridable with `-DR17_JOB_MAX`) | | Do not raise without a `dead_mask` check. |
++| CPU slots `KX_NCPU` | `kernel/jobs.h:36-38` | **8** (`QDOS_R17`) | 2 | R17 targets up to 8 CPUs. There is no configurable 1/4/8/32-CPU build. |
++| AMP worker count `MAXCPU` | `kernel/amp.c:56` | 16 | | AMP is not in the supported builds. |
++| process child limit `PROC_CHILD_LIMIT` | `kernel/proc.h:50` | 8 unreaped children per parent | | `PROC_ERR_LIMIT` (-69) when exceeded. |
++| private page tables per space `VAS_MAX_TABLES` | `kernel/vas.h:27-29` | 16 or 32 (see the `#if`) | | 16 private tables plus the directory. |
++| paged processes `PG_PROC_MAX` | `kernel/paging.h:55` | 3 | | Live paged processes. |
++| per-process heap `QDOS_PROC_HEAP_MAX` | `kernel/proc.h:21-24` | 64 MiB (R17) | 8 MiB | Virtual heap, frames are the real limit. |
++| console job tracking `VCON_JOBS` | `kernel/vcon.c:20-22` | **16** (`QDOS_DYNPROC`) | 8 | Must match the job table (`JOB_MAX`). |
++| R20 request table `R20_NQ` | `kernel/r20w.h:41` | 8 | | Fixed. |
++
++## Channels, sessions and surfaces
++
++| bound | where | R20 value | other values | note |
++|---|---|---|---|---|
++| channel table `CHAN_MAX` | `kernel/channel.h:17-24` | **16** (`QDOS_FS_WRITE`) | 8 | Channel ids are `(tag << 16) | index`; tags wrap to 1 at `CHAN_TAG_MAX` (0x7fff). |
++| bytes per channel write `CHAN_MAX_WRITE` | `kernel/channel.h:25` | 256 | | |
++| channel name `CHAN_NAME_MAX` | `kernel/channel.h:27-29` | 72 (R11M) | 18 | |
++| virtual sessions `VSESS_MAX` | `kernel/vcon.h:103` | 20 (0..3 legacy consoles, 4..19 private sessions) | | Each has a key queue `KEV_QSIZE` (below). |
++| key events per session `KEV_QSIZE` | `kernel/kev.h:12` | 64 (oldest kept, newest dropped and counted) | | |
++| INDEX8 surfaces `SURF_GFX_MAX` | `kernel/surface.h:90` | 4 | | Zombie surfaces `ZOMBIE_MAX` = `SURF_GFX_MAX + 4`. |
++| registered fonts `KFONT_SLOTS` | `kernel/fontreg.h:17` | 8 (2 built in) | | |
++| max font file `QFNT_MAX_FILE` | `kernel/fontreg.h:14` | 33,344 bytes | | |
++| app profile/slot sizes | `kernel/appmap.h` | `APP_SLOTS` 2; slot sizes and profile sizes per `#if` | | |
++| app image transfer entries `XFER_MAX_IMAGES` | `kernel/aout.h:18` | 4 | | |
++| environment `ENV_MAX_VARS` / `ENV_BYTES_MAX` | `kernel/env.h:15-18` | 32 variables, 2048 bytes; name 31, value 255 | | |
++| path candidates `PATH_CAND_MAX` | `kernel/pathres.h:19` | 128 | | |
++| directory entries per FAT16 directory `DIR_MAX_ENTRIES` | `kernel/fat16.c:1155` | 65536 (FAT limit) | | |
++| FAT16 clusters `FAT16_MAX_CLUSTERS` | `kernel/fat16.c:10` | 65524 | | Above this the volume is not FAT16. |
++
++## Memory and frames
++
++| bound | where | R20 value | other values | note |
++|---|---|---|---|---|
++| firmware memory map ceiling `MM_CEILING` | `kernel/memmap.h` | 256 MiB (`0x10000000`) | | `memmap.h` states the identity spans 0..63 (4 MiB units). |
++| frame limit `FR_LIMIT` / frames `FR_NFRAMES` | `kernel/frames.h:15-19` | 256 MiB, 65,536 frames (R17) | 16 MiB, 4,096 frames | |
++| memory-map records `MM_MAX` | `kernel/memmap.h:15` (`kernel/memmap.c`) | 32 | | |
++| identity-mapped range | boot line of the R20 smoke run (16 MiB guest) | `identity 0..16 MiB, pool 3104 frames (0 above 16 MiB)` | | The R20 build reads the E820 map, so the pool grows with installed RAM up to `MM_CEILING`. |
++| **R20 cache budget** `R20C_BUDGET_MAX` | `kernel/r20w.h:49` | min(5 % of usable RAM (`R20C_PCT`), **2 MiB**), counting entries, buckets and queue | | Measured sizes are in `docs/A16-CACHE-RESULTS.md`. |
++| **R20 cache entry index** `R20C_MAX_ENT` | `kernel/r20w.h:47` | 4096 indices (12 bits); the budget gives about 3,900 entries | | |
++| R20 minimum cache | `kernel/r20w.h:48` | 8 entries; below that the cache is disabled | | |
++| **R20 completion reservations** `R20_RSV_MAX` | `kernel/r20w.h:54` | 4 per reader | | A 256-byte read needs at most 3 sectors. |
++| **R20 restarts** `R20_MAX_MISS` | `kernel/r20w.h:56` | 64 in a row per process, then the read fails (bounded) | | Must not be raised to hide a stall. |
++| R20 owner tag `R20C_OWNER` | `kernel/r20w.h:52` | 0x7E20 (heap owner, never a job id) | | |
++| R20 storage claim wait `R20_DEV_SPIN` | `kernel/r20w.h:57` | 100,000,000 polls (sync trap, BKL held) | | |
++
++## Application ABI and I/O
++
++| bound | where | R20 value | note |
++|---|---|---|---|
++| one file read `QD_READ_MAX` | `sdk/include/qdos386.h:55` | **256 bytes** | Application ABI. Unchanged. |
++| application stack `QDOS_APP_STACK` | build flag | 65536 bytes | `-DQDOS_APP_STACK=65536u` |
++| trap vector | `kernel/r20w.h` (R20 comment) and the trap dispatcher | `int 0x30` (service traps `QT_*`) | |
++| R20 trap numbers | `kernel/r20w.h:34-39` | `QT_R20_SUBMIT`..`QT_R20_STAT` = 0x40..0x45 | Internal; not an application ABI. |
++| test-only switches | `kernel/r20w.c` | `R20C_INJECT_EVERY`, `R20C_TEST_ENT` | Off by default; used by the archived injection and contention runs. |
++
++## Candidates for a future change (documentation only; not authorised here)
++
++- Make the job-table bound a single documented constant that the console table (`VCON_JOBS`) derives from.
++- Derive `KX_NCPU` from the topology instead of the `QDOS_R17` switch (only after the AP and dead-mask invariants are
++  written down).
++- Remove the `R20_MAX_MISS` ceiling only with a stall-detection design, not by raising it.
+diff --git a/docs/SOURCE-INVENTORY.csv b/docs/SOURCE-INVENTORY.csv
+new file mode 100644
+index 0000000..9627b6d
+--- /dev/null
++++ b/docs/SOURCE-INVENTORY.csv
+@@ -0,0 +1,136 @@
++path,subsystem,"purpose (leading comment, verbatim)",key local dependencies (#include),introduced tag (first tag containing the adding commit),"last touching commit (short hash, date)",verification status,compiled in the supported R20 PC build (yes/no)
++kernel/amp.c,other,"QDOS/386 R15 AMP0 - CPU 0 (BSP) side of the master/worker service (docs/R15-AMP-ARCHITECTURE.md).  -DQDOS_AMP only. Boot (amp_boot, called by shell_boot BEFORE paging is enabled, so LAPIC MMIO and the ACPI/MP tables are ",amp.h channel.h jobs.h paging.h platform.h,r15-amp0,38c20e2 2026-10-30,VERIFIED (git history),no
++kernel/amp.h,other,"QDOS/386 R15 AMP0 - master/worker multiprocessing, shared definitions (docs/R15-AMP-MAILBOX-ABI.md). CPU 0 (the BSP) owns the whole QDOS/386 kernel and every device.  CPU 1 (one application processor, the WORKER) runs on",../sdk/include/qdos386amp.h,r15-amp0,bb7153c 2026-10-30,VERIFIED (git history),no
++kernel/amp_ap.c,other,"QDOS/386 R15 AMP0 - the WORKER CPU's code and the memory it owns (docs/R15-AMP-ARCHITECTURE.md). Runs ONLY on the application processor: flat protected mode, paging off, IF clear, its own stack, GDT and IDT (kernel/amp_a",amp.h,r15-amp0,48f4957 2026-10-30,VERIFIED (git history),no
++kernel/amp_ap_s.s,other,"QDOS/386 R15 AMP0 - WORKER (application processor) assembly.  Runs only on the worker CPU, never on CPU 0, except that CPU 0 COPIES amp_trampoline to AMP_TRAMP_PA and reads ap_exc_table to fill the AP IDT before the star",,r15-amp0,48f4957 2026-10-30,VERIFIED (git history),no
++kernel/amp_s.s,other,"QDOS/386 R15 AMP0 - CPU 0 (BSP) primitives for kernel/amp.c.  Separate from the worker's own copies in amp_ap_s.s, so that neither side's objects reference the other's code (tests/r15/check-ap-objects.py).  Each shared-m",,r15-amp0,48f4957 2026-10-30,VERIFIED (git history),no
++kernel/aout.c,application loading,QDOS/386 R5 - guest-side OMAGIC a.out loader.  See aout.h. Every check reads the image through the unsigned byte pointer and compares sizes without overflow.  The file is accepted only when its length equals the end of i,aout.h jobs.h memory.h paging.h region.h,r10-fpu-frozen,9783802 2026-11-02,VERIFIED (git history),yes
++kernel/aout.h,application loading,QDOS/386 R5 - guest-side a.out loader and transfer-area reader. The transfer area (XFER_BASE) holds a directory and exact a.out payloads. Both targets present the same bytes at the same address.  aout_check is pure: it r,appmap.h,r10-fpu-frozen,a52a247 2026-10-30,VERIFIED (git history),no
++kernel/appmap.h,application loading,UNKNOWN (no leading comment),,r10-fpu-frozen,6a54fb9 2026-10-28,VERIFIED (git history),no
++kernel/bkl.c,SMP and CPU topology,"QDOS/386 R16 - BKL state and the recursive, owner-checked acquire/release (kernel/bkl.h).",bkl.h,r16-bkl-up,4badb5c 2026-10-31,VERIFIED (git history),yes
++kernel/bkl.h,SMP and CPU topology,QDOS/386 R16 - Big Kernel Lock (docs/R16-ARCHITECTURE.md).  One spinlock serializes all shared-kernel execution. Recursive and owner-checked so the irregular entry boundaries are safe: bkl_enter on a CPU that already own,,r16-bkl-up,4badb5c 2026-10-31,VERIFIED (git history),no
++kernel/bkl_s.s,SMP and CPU topology,QDOS/386 R16 - BKL primitives (out of line: a compiler barrier for GCC 1.40).,,r16-bkl-up,d606338 2026-10-31,VERIFIED (git history),yes
++kernel/channel.c,channels and drivers,QDOS/386 R4 - native channel manager (see channel.h). Table: CHAN_MAX slots.  A slot holds a pointer to its open channel object (NULL when free) and the last tag issued for it.  Opening takes the lowest free slot and the,channel.h cin.h jobs.h memory.h paging.h platform.h vcon.h,r10-fpu-frozen,f1201eb 2026-10-30,VERIFIED (git history),yes
++kernel/channel.h,channels and drivers,"QDOS/386 R4 - native channel manager. Three concepts are kept separate: - struct chan_object: the kernel's internal channel, heap-allocated and owned by the opening job's tagged id.  Job code never sees it. - the QDOS ch",fat16.h,r10-fpu-frozen,3ed0579 2026-10-30,VERIFIED (git history),no
++kernel/cin.c,keyboard and events,QDOS/386 R7 - console input ring.  See cin.h.,cin.h platform.h vcon.h,r10-fpu-frozen,68ada72 2026-10-28,VERIFIED (git history),yes
++kernel/cin.h,keyboard and events,"QDOS/386 R7 - console input: a fixed ring of decoded bytes. Producers: the PC IRQ1 handler (platform/pc/i8042.c) and, when polling is enabled, the timer tick on i386VM (cin_poll_tick).  A producer stores one byte under i",,r10-fpu-frozen,68ada72 2026-10-28,VERIFIED (git history),no
++kernel/clock.c,clock and timers,"clock.c - QDOS/386 wall clock arithmetic (R11F).  See clock.h. Pure C89, 32-bit unsigned arithmetic only (the historical compiler has no long long).  No kernel dependencies.",clock.h,kctx-fix2-mainline,d614fa6 2026-10-27,VERIFIED (git history),yes
++kernel/clock.h,clock and timers,clock.h - QDOS/386 wall clock (R11F). Model: wall time = anchor + elapsed seconds.  The anchor is an epoch value (seconds since 1970-01-01 00:00:00 UTC) supplied at build time or at boot. Elapsed seconds come from the ti,,kctx-fix2-mainline,d614fa6 2026-10-27,VERIFIED (git history),no
++kernel/clock_boot.c,clock and timers,clock_boot.c - kernel wall-clock service (R11F).  See clock_boot.h.,clock.h clock_boot.h jobs.h platform.h rtc.h,kctx-fix2-mainline,d992905 2026-11-02,VERIFIED (git history),yes
++kernel/clock_boot.h,clock and timers,"clock_boot.h - kernel wall-clock service (R11F).  See clock.h for the model. Build variants (chosen with -D on the kernel build, in I386FLAGS or PCFLAGS): (none)                           no anchor: wall time is unavaila",,kctx-fix2-mainline,fe70cac 2026-10-29,VERIFIED (git history),no
++kernel/context.s,context switch,"QDOS/386 R1 - architecture-specific assembly (shared by both platforms). Two saved-state formats exist for a job's stack: fmt 0 (cooperative): callee-saved registers pushed by yield_asm, then the return address.  Restore",,r10-fpu-frozen,533ee57 2026-10-26,VERIFIED (git history),no
++kernel/descriptors.c,other,"QDOS/386 R1 - flat GDT and IDT (shared by both platforms). GDT: null, code 0x08 (flat 4 GiB, DPL 0), data 0x10 (flat 4 GiB). IDT: IRQ0 at vector 0x20, IRQ7 at 0x27, IRQ15 at 0x2F, and the service trap at 0x30 (interrupt ",jobs.h,r10-fpu-frozen,4badb5c 2026-10-31,VERIFIED (git history),yes
++kernel/env.c,environment,QDOS/386 R12B - per-process environment.  See env.h.  Strict C89.,channel.h env.h jobs.h memory.h,kctx-fix2-mainline,5158880 2026-10-29,VERIFIED (git history),yes
++kernel/env.h,environment,"QDOS/386 R12B - per-process environment (QDOS_ENV kernels).  See docs/R12B-ENV-PROCESS-ABI.md. An environment is a block of entries ""NAME=value\0"", sorted by NAME, owned by one job and kept in the kernel heap (owner = th",,kctx-fix2-mainline,8b647d6 2026-10-29,VERIFIED (git history),no
++kernel/fat16.c,filesystem (FAT16/VFAT),"QDOS/386 R6 - shared FAT16 reader.  See fat16.h. Sector buffers are 512-byte locals; at most one is live per function, so the stack use stays small and no state is shared between channels.",fat16.h,r10-fpu-frozen,cf1cbcc 2026-11-01,VERIFIED (git history),yes
++kernel/fat16.h,filesystem (FAT16/VFAT),"QDOS/386 R6 - shared FAT16 reader. One implementation serves every platform.  The sector source is a callback (fat_read_fn): the Tiny386 IDE backend, the i386VM RAM disk, and the test wrappers that substitute single sect",,r10-fpu-frozen,cf1cbcc 2026-11-01,VERIFIED (git history),no
++kernel/font.c,fonts and text,"QDOS/386 R13 - bitmap font renderer.  See font.h.  Freestanding C89, no display hardware.",font.h,kctx-fix2-mainline,b0a58e4 2026-10-29,VERIFIED (git history),no
++kernel/font.h,fonts and text,"QDOS/386 R13 - bitmap font renderer (independent of the display hardware).  See docs/R13-FONT-PROVENANCE.md. Two fonts, chosen at build time; both are glyphs 5 pixels wide and 9 rows tall, drawn in a 6x10 cell: default  ",,kctx-fix2-mainline,b0a58e4 2026-10-29,VERIFIED (git history),no
++kernel/font5x9.c,fonts and text,"QDOS/386 R13 - the QDOS5x9 fallback font (original glyphs, tools/r13-font/qdos5x9.txt; generated by tools/r13-font/mkfont.py - do not edit).  Codes 0x20..0x7F, 9 rows of 5 pixels, bit 7 = leftmost pixel; 0x7F is the miss",font.h,kctx-fix2-mainline,2ced9ad 2026-10-29,VERIFIED (git history),no
++kernel/font_console.c,fonts and text,"Generated by tools/r13a-font/qfnt.py from fonts/CON8X16.FNT - do not edit.  QFNT v1 image (docs/R13A-FONT-FORMAT.md), validated by the kernel's loader rules at build time.  SHA-256 3b483c71cbe90a874d4c9d59a6f94cbe5dd6996",fontreg.h,kctx-fix2-mainline,6e691b8 2026-10-29,VERIFIED (git history),yes
++kernel/font_minerva.c,fonts and text,"QDOS/386 R13 - the Minerva 1.98 QL fonts (tb_f0 $1F..$7F, tb_f1 $80..$11F) as one 256-code table. Generated by tools/r13-font/minerva-font.py from the GAS source modules third_party/minerva/src/tb_f0.s and tb_f1.s, cross",font.h,kctx-fix2-mainline,b0a58e4 2026-10-29,VERIFIED (git history),no
++kernel/font_recovery.c,fonts and text,"Generated by tools/r13a-font/qfnt.py from fonts/RECOVERY.FNT - do not edit.  QFNT v1 image (docs/R13A-FONT-FORMAT.md), validated by the kernel's loader rules at build time.  SHA-256 79c07a6a4d999eea7295cdf5e8b14b19c862d6",fontreg.h,kctx-fix2-mainline,6e691b8 2026-10-29,VERIFIED (git history),yes
++kernel/fontreg.c,fonts and text,"QDOS/386 R13A - the font registry and QFNT v1 loader.  See fontreg.h and docs/R13A-FONT-FORMAT.md.  Freestanding C89.  Callers run with interrupts off (traps) except kfont_poll (the SYSTEM job), which masks them itself.",fontreg.h memory.h,kctx-fix2-mainline,6e691b8 2026-10-29,VERIFIED (git history),yes
++kernel/fontreg.h,fonts and text,"QDOS/386 R13A - loadable bitmap fonts (QFNT v1, docs/R13A-FONT-FORMAT.md) and the font registry.  Opt-in with -DQDOS_R13A (R13 builds keep kernel/font.h).  A font is immutable once registered; surfaces, sessions, the sys",,kctx-fix2-mainline,6e691b8 2026-10-29,VERIFIED (git history),no
++kernel/fpu.c,FPU,"QDOS/386 R10 - x87 support for the job scheduler. The scheduler is the only code that saves or restores x87 state.  The kernel itself never uses floating point, so the x87 state seen by a job is the state that job left, ",fpu.h,r10-fpu-frozen,533ee57 2026-10-26,VERIFIED (git history),yes
++kernel/fpu.h,FPU,"QDOS/386 R10 - per-job x87 state. Each job keeps an FNSAVE image (108 bytes, 27 words) of its x87 state: control word, status word, tag word, instruction and operand pointers and the eight register slots.  The scheduler ",,r10-fpu-frozen,533ee57 2026-10-26,VERIFIED (git history),no
++kernel/frames.c,memory and heap,QDOS/386 R12A - physical frame allocator.  See frames.h.,frames.h,kctx-fix2-mainline,a9eaca9 2026-10-29,VERIFIED (git history),yes
++kernel/frames.h,memory and heap,QDOS/386 R12A - physical frame allocator (QDOS_DYNPROC kernels).  See docs/R12A-MEMORY-MAP.md. One bit per 4 KiB frame below FR_LIMIT.  A frame can be handed out only if it was added to the pool (fr_add_range) and is not,,kctx-fix2-mainline,b74c06b 2026-10-31,VERIFIED (git history),no
++kernel/gsurf.c,surfaces and presentation,QDOS/386 R13 - INDEX8 surfaces.  See gsurf.h.  Freestanding C89 (no library calls).,font.h fontreg.h gsurf.h,kctx-fix2-mainline,6e691b8 2026-10-29,VERIFIED (git history),yes
++kernel/gsurf.h,surfaces and presentation,"QDOS/386 R13 - INDEX8 surfaces: an 8-bit indexed framebuffer with a 256-entry RGB palette, dirty rows and a QL-style text stream drawn with the bitmap font (kernel/font.h).  Pure memory operations: no display hardware, n",,kctx-fix2-mainline,8146a4e 2026-10-31,VERIFIED (git history),no
++kernel/imgload.c,application loading,QDOS/386 R8 - streaming RUN and boot loads.  See imgload.h.,aout.h channel.h env.h fat16.h imgload.h jobctl.h jobs.h paging.h pathres.h proc.h win1.h,r10-fpu-frozen,4f5c422 2026-10-29,VERIFIED (git history),yes
++kernel/imgload.h,application loading,"QDOS/386 R8 - QT_IMG_LOAD: the RUN service, and the kernel boot load. img_load_request(name, args, args_len) loads the named WIN1_ root file into slot 1 by streaming it: the header and symbols are checked by reading, the",,r10-fpu-frozen,4f5c422 2026-10-29,VERIFIED (git history),no
++kernel/irq.c,interrupts,QDOS/386 R4 - hardware interrupt classification (see irq.h).,irq.h platform.h,r10-fpu-frozen,f815b23 2026-10-26,VERIFIED (git history),yes
++kernel/irq.h,interrupts,"QDOS/386 R4 - hardware interrupt classification for the cascaded 8259 pair. Vector 0x27 is master IRQ7, vector 0x2F is slave IRQ7 (IRQ15).  A real IRQ is in service (its ISR bit is set) when the handler runs.  A spurious",,r10-fpu-frozen,f815b23 2026-10-26,VERIFIED (git history),no
++kernel/jobctl.c,scheduler and jobs,QDOS/386 R11M - native job control.  Empty unless QDOS_JOBCTL is defined.  Freestanding C89.,channel.h jobctl.h jobs.h paging.h vcon.h,kctx-fix2-mainline,e587c8b 2026-10-30,VERIFIED (git history),yes
++kernel/jobctl.h,scheduler and jobs,"QDOS/386 R11M - native job control (opt-in: -DQDOS_JOBCTL). A bounded, versioned view of the job table for programs (PS) and a safe way to end a job that was launched through QT_IMG_LOAD / QT_IMG_START / QT_PG_START (KIL",,kctx-fix2-mainline,4f5c422 2026-10-29,VERIFIED (git history),no
++kernel/jobs.c,scheduler and jobs,"QDOS/386 R4 - job table, scheduler, service traps and job memory. Scheduling follows the JS ROM (system_asm.s), as in R2: - Timer interrupt (l00900): SV.POLLM is incremented, then the poll list runs, then the scheduler (",amp.h aout.h bkl.h channel.h cin.h clock_boot.h env.h fpu.h imgload.h jobctl.h jobs.h memory.h paging.h proc.h r20w.h smp.h surface.h sync.h taskmgr.h uart.h vc,r10-fpu-frozen,cf1cbcc 2026-11-01,VERIFIED (git history),yes
++kernel/jobs.h,scheduler and jobs,"QDOS/386 R4 - native job model, service traps and scheduler interface. R3 changes from R2: - job stacks come from the kernel heap (kernel/memory.c), not a static array; each stack has a canary at its base and a high-wate",fpu.h,r10-fpu-frozen,4badb5c 2026-10-31,VERIFIED (git history),no
++kernel/kbd.c,keyboard and events,QDOS/386 R7 - scancode set 1 decoder.  See kbd.h. The tables are indexed by make code (0x00..0x39).  Unused codes are NUL. Each string literal below is a separate piece so that \0 escapes never run into a following digit,kbd.h,r10-fpu-frozen,11b17ee 2026-10-29,VERIFIED (git history),yes
++kernel/kbd.h,keyboard and events,"QDOS/386 R7 - keyboard scancode decoder (pure, shared by all platforms). Input is scancode set 1, the form the i8042 delivers with its translation bit set (command byte bit 6).  Only what the shell needs is decoded: prin",,r10-fpu-frozen,11b17ee 2026-10-29,VERIFIED (git history),no
++kernel/kctx.s,context switch,"QDOS/386 - architecture assembly for the DYNPROC kernels (R12A onward), the CURRENT context switcher (KCTX-FIX2). RESUME CONVENTION (exact stack pointer).  Every C function that returns to resume_dispatch returns the FUL",,kctx-fix2-mainline,aa8f87f 2026-10-30,VERIFIED (git history),no
++kernel/kctx17.s,context switch,"R17 Apollo 13 copy (make qdos386-r17-pc only; the R16/R16A/R16B file is unchanged): every ""TR -> per-CPU block"" computation is generalised from {0x38 -> 16, else 0} to {TR >= 0x38 -> (TR - 0x30) * 2 = 16 * cpu, else 0}, ",,kctx-fix2-mainline,4badb5c 2026-10-31,VERIFIED (git history),yes
++kernel/kctx3.s,context switch,"QDOS/386 R16 - architecture assembly for the opt-in protected/SMP kernel (make qdos386-smp-pc, -DQDOS_R16). Derived mechanically from kernel/kctx.s (unchanged, the ordinary kernel's file).  Three groups of changes: (a) C",,kctx-fix2-mainline,f1201eb 2026-10-30,VERIFIED (git history),no
++kernel/kev.c,keyboard and events,QDOS/386 R13A - native keyboard events.  See kev.h.,kev.h present.h vcon.h,kctx-fix2-mainline,6e691b8 2026-10-29,VERIFIED (git history),yes
++kernel/kev.h,keyboard and events,QDOS/386 R13A - native keyboard events (opt-in per session; docs/R13A-GRAPHICS-ABI.md).  The keyboard IRQ hands every scancode here; a session that enabled events gets key-down / key-up records while it is the foreground,,kctx-fix2-mainline,6e691b8 2026-10-29,VERIFIED (git history),no
++kernel/main.c,other,"QDOS/386 R4 - SYSTEM job, idle job and final validation. Boot.  Initialise the descriptors and scheduler, then the kernel heap, then run the heap-only tests (no jobs, no timer). Job 0 SYSTEM  boot context.  Creates TEST-",aout.h channel.h clock_boot.h fpu.h irq.h jobs.h memory.h platform.h shellboot.h test_app.h test_channels.h test_console.h test_fs.h test_jobs.h test_memory.h t,r10-fpu-frozen,d614fa6 2026-10-27,VERIFIED (git history),yes
++kernel/mbr.c,boot and shell,QDOS/386 R16A - the pure FAT16 volume locator (kernel/mbr.h).  No kernel dependencies.,mbr.h,r16a-mbr-cpu-taskmanager,c95acaf 2026-10-31,VERIFIED (git history),yes
++kernel/mbr.h,boot and shell,"QDOS/386 R16A - decide where a FAT16 volume lives on a block device, from its sector 0.  Pure: it inspects only the 512-byte buffer and a device sector count, so it is unit-testable on the host.  The block-volume adapter",,r16a-mbr-cpu-taskmanager,c95acaf 2026-10-31,VERIFIED (git history),no
++kernel/memmap.c,memory map and page allocator,"QDOS/386 R17 Apollo 13 - firmware memory map (see memmap.h, docs/APOLLO13-MEMORY-MAP.md).",memmap.h platform.h,a13-gate1,b74c06b 2026-10-31,VERIFIED (git history),yes
++kernel/memmap.h,memory map and page allocator,QDOS/386 R17 Apollo 13 - firmware memory map (docs/APOLLO13-MEMORY-MAP.md).  -DQDOS_R17 kernels only. The QBOOT3 boot sector stores the BIOS INT 15h E820 records at 0x504 (24 bytes each) and the end pointer at 0x500. mem,,a13-gate1,b74c06b 2026-10-31,VERIFIED (git history),no
++kernel/memory.c,memory and heap,"QDOS/386 R3 - native kernel heap (see memory.h for the interface and the interrupt rules). Layout.  The arena is a run of blocks that tile [arena_base, arena_end) exactly, in address order.  Each block starts with a 16-b",memory.h,r10-fpu-frozen,7a62af1 2026-10-27,VERIFIED (git history),yes
++kernel/memory.h,memory and heap,"QDOS/386 R3 - native kernel heap. A non-moving, fixed-address arena with explicit 16-byte block headers, a free list sorted by address, and coalescing of adjacent free blocks. Every allocation carries an owner value.  Bl",appmap.h,r10-fpu-frozen,7a62af1 2026-10-27,VERIFIED (git history),no
++kernel/paging.c,paging and address spaces,"QDOS/386 R11J/R11K - paging.  See paging.h, docs/R11J-ADDRESS-SPACE-ABI.md and docs/R11K-PAGING-APP-ABI.md. Compiled only into -DQDOS_PAGING images (Makefile: I386EXTRA / PCEXTRA). Page-table memory is a static, page-ali",aout.h channel.h irq.h jobs.h memory.h paging.h platform.h,kctx-fix2-mainline,8d1c2a1 2026-10-30,VERIFIED (git history),no
++kernel/paging.h,paging and address spaces,QDOS/386 R11J/R11K - paging (opt-in: -DQDOS_PAGING; ABI version 2 in R11K). Nothing here is compiled into a default image.  See docs/R11J-ADDRESS-SPACE-ABI.md. Model - One kernel template directory identity-maps physical,aout.h appmap.h,kctx-fix2-mainline,e60219f 2026-10-28,VERIFIED (git history),no
++kernel/paging.s,paging and address spaces,"QDOS/386 R11J - paging proof of concept, assembly part (QDOS_PAGING images only). pg_load_cr3(dir), pg_read_cr3(), pg_read_cr2(), pg_enable() pg_exc_table: 20 exception stubs for the IDT (vectors 0..19, interrupt gates).",,kctx-fix2-mainline,e60219f 2026-10-28,VERIFIED (git history),no
++kernel/pathres.c,other,"QDOS/386 R12B - the program search.  See pathres.h.  Strict C89, no kernel dependencies.",pathres.h,kctx-fix2-mainline,8b647d6 2026-10-29,VERIFIED (git history),yes
++kernel/pathres.h,other,"QDOS/386 R12B - the program search (one resolver for every load).  See docs/R12B-PATH-STARTUP-ABI.md. path_resolve(name, path, plen, open, ctx, cand) tries candidate file names with open(ctx, candidate) until one opens: ",,kctx-fix2-mainline,8b647d6 2026-10-29,VERIFIED (git history),no
++kernel/pheap.c,memory and heap,"QDOS/386 R12A - private process heap.  See pheap.h.  Block header (4 words): size, magic, owner, next-free.",pheap.h,kctx-fix2-mainline,a9eaca9 2026-10-29,VERIFIED (git history),yes
++kernel/pheap.h,memory and heap,"QDOS/386 R12A - private process heap (QDOS_DYNPROC kernels). The same discipline as the kernel heap (memory.c: 16-byte headers with size/magic/owner/next, first fit in address order, coalescing, zero-filled blocks, the s",,kctx-fix2-mainline,a9eaca9 2026-10-29,VERIFIED (git history),no
++kernel/present.h,other,QDOS/386 R13 - the display presenter: the one piece of code that drives the display hardware for sessions. VGA builds: platform/pc/vgapres.c (text mode 3 and mode 13h by register programming); other builds: stubs in plat,,kctx-fix2-mainline,8146a4e 2026-10-31,VERIFIED (git history),no
++kernel/proc.c,processes,"QDOS/386 R12A - dynamic processes.  See proc.h, docs/R12A-MEMORY-MAP.md and docs/R12A-INTERRUPT-STACKS.md. Compiled only into -DQDOS_DYNPROC images; replaces kernel/paging.c there and provides the same pg_* entry points.",channel.h env.h imgload.h irq.h jobctl.h jobs.h memmap.h memory.h paging.h platform.h proc.h smp.h vcon.h,kctx-fix2-mainline,4badb5c 2026-10-31,VERIFIED (git history),yes
++kernel/proc.h,processes,"QDOS/386 R12A - dynamic process address spaces (QDOS_DYNPROC kernels).  See docs/R12A-PROCESS-ABI.md and docs/R12A-MEMORY-MAP.md. Every application is a process: its own page directory, image pages from the frame pool at",aout.h pheap.h vas.h,kctx-fix2-mainline,b74c06b 2026-10-31,VERIFIED (git history),no
++kernel/r16b_s.s,other,QDOS/386 R16B - small helpers linked only into the opt-in R16B kernel (qdos386-r16b-pc).,,r16b-gate1,5b79f8c 2026-10-31,VERIFIED (git history),yes
++kernel/r20w.c,storage worker and cache (R20),"QDOS/386 R20 (Apollo 16) - the Ring 0 storage worker, its request table and the bounded sector cache. See kernel/r20w.h for the protocol and its limits. Locking: all state below changes only inside a trap (under the BKL,",channel.h fat16.h jobs.h memmap.h memory.h platform.h r20w.h,a16-gate1,93fd6a5 2026-11-02,VERIFIED (git history),yes
++kernel/r20w.h,storage worker and cache (R20),"QDOS/386 R20 (Apollo 16) - the Ring 0 storage worker, its request table and the bounded sector cache. Opt-in only (QDOS_R20).  Not a public API: the trap numbers below are internal and exist for the R20 tests (tests/a16)",,a16-gate1,93fd6a5 2026-11-02,VERIFIED (git history),no
++kernel/region.c,other,QDOS/386 R11H application-region allocator.  See region.h.,region.h,kctx-fix2-mainline,4dfeecc 2026-10-27,VERIFIED (git history),yes
++kernel/region.h,other,UNKNOWN (no leading comment),,kctx-fix2-mainline,4dfeecc 2026-10-27,VERIFIED (git history),no
++kernel/rtc.c,clock and timers,rtc.c - QDOS/386 R13B: CMOS real-time clock.  See rtc.h.  Strict C89.  rtc_decode and rtc_reason have no kernel dependencies; rtc_read uses the PC's ports 0x70/0x71 (not compiled with RTC_HOST_TEST).,platform.h rtc.h,kctx-fix2-mainline,fe70cac 2026-10-29,VERIFIED (git history),yes
++kernel/rtc.h,clock and timers,rtc.h - QDOS/386 R13B: the PC CMOS real-time clock (MC146818 compatible) as the wall-clock anchor.  See docs/R13B-CLOCK-ABI.md. The RTC is read once at boot (clock_boot.c); from then on the R11F clock advances with the t,,kctx-fix2-mainline,fe70cac 2026-10-29,VERIFIED (git history),no
++kernel/shellboot.c,boot and shell,"QDOS/386 R7 - shell boot.  See shellboot.h.  Compiled into every image, but entered only from main() when R7_SHELL_MODE is defined.",amp.h aout.h bkl.h cin.h clock_boot.h font.h fontreg.h fpu.h imgload.h irq.h jobctl.h jobs.h memory.h paging.h platform.h present.h r20w.h rtc.h shellboot.h smp,r10-fpu-frozen,d992905 2026-11-02,VERIFIED (git history),yes
++kernel/shellboot.h,boot and shell,"QDOS/386 R7 - shell boot.  Built only with -DR7_SHELL_MODE (make i386vm-shell and make pc-shell); the default images run the R6 test suite instead. Boot sequence: banner, descriptors, console input (IRQ1 on the PC), the ",,r10-fpu-frozen,d0d9bc8 2026-10-26,VERIFIED (git history),no
++kernel/smp.c,SMP and CPU topology,"QDOS/386 R16 - two-CPU scheduling (CPU 0 master, CPU 1 worker), docs/R16-ARCHITECTURE.md. CPU 0 owns every device and the timebase.  CPU 1 runs CPL3-affine jobs and enters the shared kernel only under the BKL (kernel/bkl",bkl.h channel.h jobs.h paging.h platform.h smp.h,r16-bkl-up,b97bfb5 2026-11-02,VERIFIED (git history),no
++kernel/smp.h,SMP and CPU topology,QDOS/386 R16 - two-CPU scheduling service (docs/R16-ARCHITECTURE.md).  CPU 0 owns all devices; CPU 1 runs CPL3-affine jobs and enters the shared kernel only under the BKL.  QT_SMP is a diagnostic/control trap.,,r16-bkl-up,4badb5c 2026-10-31,VERIFIED (git history),no
++kernel/smp17.c,SMP and CPU topology,"QDOS/386 R17 Apollo 13 - up to eight CPUs under the Big Kernel Lock, topology discovery and topology-aware foreground-first placement (docs/APOLLO13-TOPOLOGY.md, docs/APOLLO13-AUDIT.md).  Compiled instead of smp.c into t",bkl.h channel.h jobs.h paging.h platform.h smp.h,a13-gate2,b97bfb5 2026-11-02,VERIFIED (git history),yes
++kernel/smp_s.s,SMP and CPU topology,"QDOS/386 R16 - application-processor trampoline, LAPIC MMIO helpers and the AP (CPU 1) timer stub. The AP, unlike the R15 AMP worker, is a full kernel CPU: it loads the kernel GDT/IDT, its own TSS (0x38), enables paging ",,r16-bkl-up,f1201eb 2026-10-30,VERIFIED (git history),no
++kernel/smp_s17.s,SMP and CPU topology,"R17 Apollo 13 copy (make qdos386-r17-pc only; the R16/R16A/R16B file is unchanged): every ""TR -> per-CPU block"" computation is generalised from {0x38 -> 16, else 0} to {TR >= 0x38 -> (TR - 0x30) * 2 = 16 * cpu, else 0}, ",,r16-bkl-up,4badb5c 2026-10-31,VERIFIED (git history),yes
++kernel/surface.c,surfaces and presentation,"QDOS/386 R13 - the QT_SURFACE kernel call.  See surface.h.  Empty unless QDOS_SURFACES.  Freestanding C89. Runs inside traps (interrupts off), except surface_poll (the SYSTEM job).",channel.h font.h fontreg.h gsurf.h jobs.h kev.h memory.h present.h surface.h vcon.h win1.h,kctx-fix2-mainline,8146a4e 2026-10-31,VERIFIED (git history),yes
++kernel/surface.h,surfaces and presentation,"QDOS/386 R13 - display surfaces: the versioned kernel call QT_SURFACE (opt-in: -DQDOS_SURFACES, needs QDOS_VCON, QDOS_JOBCTL, QDOS_TASKMGR).  A surface belongs to a session; a session belongs to the jobs on it (the job t",,kctx-fix2-mainline,8146a4e 2026-10-31,VERIFIED (git history),no
++kernel/sync.c,synchronization,QDOS/386 R12C - storage SYNC.  See sync.h.  Empty unless QDOS_SYNC is defined.  Freestanding C89.,channel.h jobs.h platform.h sync.h win1.h,kctx-fix2-mainline,11b17ee 2026-10-29,VERIFIED (git history),yes
++kernel/sync.h,synchronization,"QDOS/386 R12C - storage SYNC (opt-in: -DQDOS_SYNC, needs QDOS_FS_WRITE).  See docs/R12C-SYNC-DURABILITY.md. QT_SYNC op SYNC_OP_NOW writes, in this order: (1) the pending directory entry (size, first cluster) of every fil",,kctx-fix2-mainline,11b17ee 2026-10-29,VERIFIED (git history),no
++kernel/taskmgr.c,scheduler and jobs,"QDOS/386 R12C - SYSTASK: the global task selector (Ctrl+Esc, shell TASKS) and the optional periodic SYNC. Opt-in: -DQDOS_TASKMGR (needs QDOS_VCON, QDOS_JOBCTL, QDOS_TITLES).  See docs/R12C-TASK-MANAGER-ABI.md. SYSTASK is",gsurf.h imgload.h jobctl.h jobs.h sync.h taskmgr.h vcon.h,kctx-fix2-mainline,8146a4e 2026-10-31,VERIFIED (git history),yes
++kernel/taskmgr.h,scheduler and jobs,QDOS/386 R12C - SYSTASK: global task selector and periodic SYNC (opt-in: -DQDOS_TASKMGR). See kernel/taskmgr.c and docs/R12C-TASK-MANAGER-ABI.md.,,kctx-fix2-mainline,4f5c422 2026-10-29,VERIFIED (git history),no
++kernel/uart.c,other,"QDOS/386 R14 - PC UART serial ports (docs/R14-SERIAL-ABI.md). Ports: SER1 = COM1 0x3F8 IRQ4 (vector 0x24), SER2 = COM2 0x2F8 IRQ3 (vector 0x23).  Probed once at boot with interrupts off in the UART (bounded: scratch, IER",channel.h jobs.h platform.h taskmgr.h uart.h vcon.h,kctx-fix2-mainline,f1201eb 2026-10-30,VERIFIED (git history),yes
++kernel/uart.h,other,"QDOS/386 R14 - PC UART serial ports (8250 / 16450 / 16550A), SER1/SER2 channels and the QT_SER kernel call. Built only with -DQDOS_R14 (docs/R14-SERIAL-ABI.md).",,kctx-fix2-mainline,3ed0579 2026-10-30,VERIFIED (git history),no
++kernel/uart_s.s,other,"QDOS/386 R14 - IRQ3 (vector 0x23, COM2) and IRQ4 (vector 0x24, COM1) entry stubs, the irq1_stub pattern of kernel/kctx.s: save the registers, move to the kernel stack when interrupted outside it, call the C handler (kern",,kctx-fix2-mainline,3ed0579 2026-10-30,VERIFIED (git history),no
++kernel/uart_s17.s,other,"R17 Apollo 13 copy (make qdos386-r17-pc only; the R16/R16A/R16B file is unchanged): every ""TR -> per-CPU block"" computation is generalised from {0x38 -> 16, else 0} to {TR >= 0x38 -> (TR - 0x30) * 2 = 16 * cpu, else 0}, ",,kctx-fix2-mainline,4badb5c 2026-10-31,VERIFIED (git history),yes
++kernel/uart_s3.s,other,"QDOS/386 R14 - IRQ3 (vector 0x23, COM2) and IRQ4 (vector 0x24, COM1) entry stubs, the irq1_stub pattern of kernel/kctx.s: save the registers, move to the kernel stack when interrupted outside it, call the C handler (kern",,kctx-fix2-mainline,f1201eb 2026-10-30,VERIFIED (git history),no
++kernel/vas.c,paging and address spaces,QDOS/386 R12A - per-process address spaces.  See vas.h (and its RULE on the active directory).,vas.h,kctx-fix2-mainline,a9eaca9 2026-10-29,VERIFIED (git history),yes
++kernel/vas.h,paging and address spaces,"QDOS/386 R12A - per-process address spaces (QDOS_DYNPROC kernels).  See docs/R12A-MEMORY-MAP.md. An address space is a page directory built from the kernel template: identity-mapped kernel memory is shared, every frame-p",frames.h,kctx-fix2-mainline,b74c06b 2026-10-31,VERIFIED (git history),no
++kernel/vcon.c,virtual consoles,QDOS/386 R11M - virtual text consoles.  See vcon.h and docs/R11M-CONSOLE-ABI.md. Strict C89; empty unless QDOS_VCON is defined.,channel.h fontreg.h jobs.h kev.h memory.h present.h vcon.h,kctx-fix2-mainline,8146a4e 2026-10-31,VERIFIED (git history),yes
++kernel/vcon.h,virtual consoles,"QDOS/386 R11M - virtual text consoles (opt-in: -DQDOS_VCON, which needs -DQDOS_FS_WRITE). VCON_MAX independent 80x25 text consoles.  Each holds its own cells (character and attribute), cursor, attribute, scroll region, i",,kctx-fix2-mainline,8146a4e 2026-10-31,VERIFIED (git history),no
++kernel/win1.c,filesystem (FAT16/VFAT),"QDOS/386 R6 - WIN1_ file channels.  The driver is a prefix driver: the channel name ""WIN1_"" selects it, and the rest of the name is the root directory file name.  Read and seek only; write is not supported.",channel.h fat16.h jobs.h mbr.h platform.h r20w.h win1.h,r10-fpu-frozen,93fd6a5 2026-11-02,VERIFIED (git history),yes
++kernel/win1.h,filesystem (FAT16/VFAT),"QDOS/386 R6 - the WIN1_ volume: one FAT16 volume mounted from the platform disk, reached through channels named ""WIN1_<FILE>"" (for example ""WIN1_HELLO.AOU"").  Only the root directory is visible; the channel API does not ",fat16.h,r10-fpu-frozen,10e25da 2026-10-28,VERIFIED (git history),no
++platform/pc/bigk_check.c,platform/pc,"R11K TEST ONLY (-DQDOS_TEST_BIGK): verify the padding data built by tools/r11k-gen-bigk.py, which sits at the END of the kernel image.  Proves that every kernel sector was read, checksummed and copied to the right place ",platform.h,kctx-fix2-mainline,e60219f 2026-10-28,VERIFIED (git history),no
++platform/pc/boot.ld,platform/pc,UNKNOWN (no leading comment),,r10-fpu-frozen,f815b23 2026-10-26,VERIFIED (git history),no
++platform/pc/boot.s,platform/pc,"QDOS/386 R1 (PC) - 512-byte boot sector. Loaded by SeaBIOS at 0000:7C00 with DL = boot drive.  GAS 1.38 has no .code16, so the real-mode instructions are encoded with .byte/.word. The protected-mode part (after 'pm:') is",,r10-fpu-frozen,f815b23 2026-10-26,VERIFIED (git history),no
++platform/pc/boot2.s,platform/pc,"QDOS/386 R11K (PC) - 512-byte boot sector, multi-transfer loader. Replaces platform/pc/boot.s ONLY when a PC image is built with PCBOOT=build/pc-r9/boot2.bin PCMKIMG=platform/pc/make-image2.py (boot.s and make-image.py a",,kctx-fix2-mainline,e60219f 2026-10-28,VERIFIED (git history),no
++platform/pc/boot3.s,platform/pc,"QDOS/386 R17 Apollo 13 (PC) - 512-byte boot sector: the R11K multi-transfer loader (boot2.s, QBOOT2) plus a BIOS INT 15h AX=E820 memory map.  Used ONLY by the opt-in R17 image (make qdos386-r17-pc, with make-image3.py); ",,kctx-fix2-mainline,b74c06b 2026-10-31,VERIFIED (git history),no
++platform/pc/disk.c,platform/pc,"QDOS/386 R6 - Tiny386 PC disk: the FAT16 volume on the primary slave of the PIIX3 IDE controller (ports 0x1F0-0x1F7, Tiny386 ""hdb="" option). Only IDENTIFY DEVICE (0xEC) and READ SECTORS (0x20) are issued, both with LBA28",platform.h r20w.h,r10-fpu-frozen,cf1cbcc 2026-11-01,VERIFIED (git history),yes
++platform/pc/entry.s,platform/pc,QDOS/386 R1 (PC) - kernel entry and port I/O. kstart must be the first object in the link so it sits at 0x100000.,,r10-fpu-frozen,1cef0f7 2026-10-26,VERIFIED (git history),yes
++platform/pc/i8042.c,platform/pc,"QDOS/386 R7 - PC keyboard: the i8042 controller and IRQ1. Init (interrupts still off, before the timer starts): disable keyboard and aux ports, flush stale output, read the command byte, set it explicitly (IRQ1 on, keybo",cin.h kbd.h kev.h platform.h vcon.h,r10-fpu-frozen,6e691b8 2026-10-29,VERIFIED (git history),yes
++platform/pc/kernel.ld,platform/pc,UNKNOWN (no leading comment),,r10-fpu-frozen,f815b23 2026-10-26,VERIFIED (git history),no
++platform/pc/platform.c,platform/pc,"QDOS/386 R1 - Tiny386 PC platform. Console: Tiny386 debug port 0x402 (one byte per OUT). Timer:   8254 PIT channel 0 (mode 3) on IRQ0 through an 8259 PIC. The PIT runs on host time, so tick-based output order varies; the",platform.h vcon.h vga.h,r10-fpu-frozen,b7cc3fa 2026-11-02,VERIFIED (git history),yes
++platform/pc/vga.c,platform/pc,"QDOS/386 R10-VGA - 80x25 colour text console on the PC platform. Writes character and attribute pairs directly to physical 0xB8000 (VGA colour text mode 3, which the BIOS sets at boot).  No BIOS video call is made, so th",present.h vga.h,r10-vga-frozen,b0a58e4 2026-10-29,VERIFIED (git history),yes
++platform/pc/vga.h,platform/pc,QDOS/386 R10-VGA - VGA text console for the PC platform (interface). Active only when the kernel is built with -DQDOS_CON_VGA.  See vga.c.,,r10-vga-frozen,9f3340a 2026-10-26,VERIFIED (git history),no
++platform/pc/vgapres.c,platform/pc,"QDOS/386 R13 - the display presenter (kernel/present.h): the only code that changes the VGA mode, the DAC and the planes.  Empty unless QDOS_SURFACES.  With QDOS_CON_VGA it drives text mode 3 (the BIOS's own register set",font.h gsurf.h present.h vcon.h,kctx-fix2-mainline,b0a58e4 2026-10-29,VERIFIED (git history),no
++platform/pc/vgapres13a.c,platform/pc,"QDOS/386 R13A - the display presenter (kernel/present.h), derived from R13's platform/pc/vgapres.c (which R13 builds keep): the only code that changes the VGA mode, the DAC and the planes.  R13A adds: logical INDEX8 surf",fontreg.h gsurf.h kev.h present.h vcon.h,kctx-fix2-mainline,1c3080e 2026-10-31,VERIFIED (git history),yes
++platform/platform.h,platform,QDOS/386 R1 - platform services.  Implemented in platform/i386vm or platform/pc.  The shared kernel uses only this interface.,,r10-fpu-frozen,11b17ee 2026-10-29,VERIFIED (git history),no
++tests/test_app.c,tests (kernel test sources),"QDOS/386 R5 - application phase. Loads the two independently linked a.out programs from the transfer area (hello at slot 0, prep at slot 1), runs them as ordinary jobs and checks their exit statuses, channel output and p",aout.h channel.h jobs.h memory.h platform.h test_app.h test_channels.h,r10-fpu-frozen,533ee57 2026-10-26,VERIFIED (git history),yes
++tests/test_app.h,tests (kernel test sources),QDOS/386 R5 - application phase (see test_app.c). Runs in SYSTEM after the R4 channel phase.  Results go into the R4 check list (r4_add) and are printed by the report.,,r10-fpu-frozen,f815b23 2026-10-26,VERIFIED (git history),no
++tests/test_channels.c,tests (kernel test sources),"QDOS/386 R4 - guest channel tests (see test_channels.h). The jobs call only the channel service traps, so the console is reached through the channel manager, never by the test calling the platform output routine.  The jo",channel.h irq.h jobs.h memory.h platform.h test_channels.h test_jobs.h,r10-fpu-frozen,f815b23 2026-10-26,VERIFIED (git history),yes
++tests/test_channels.h,tests (kernel test sources),"QDOS/386 R4 - guest channel tests (see test_channels.c). channel_job_phase runs in SYSTEM after the R3 job phase.  It starts three application jobs, CHAN-A (owner, full sequence), CHAN-B (intruder) and CHAN-C (exits hold",,r10-fpu-frozen,c23defb 2026-10-26,VERIFIED (git history),no
++tests/test_console.c,tests (kernel test sources),"QDOS/386 R7 - console input phase. Non-interactive and labelled as such: these checks inject bytes with cin_put.  They test the decoder, the ring, the CON read and the blocking wait.  Keys typed by a person are never inj",channel.h cin.h jobs.h kbd.h platform.h test_console.h,r10-fpu-frozen,021e2bd 2026-10-26,VERIFIED (git history),yes
++tests/test_console.h,tests (kernel test sources),QDOS/386 R7 - console input phase (non-interactive unit checks).,,r10-fpu-frozen,c9550f3 2026-10-26,VERIFIED (git history),no
++tests/test_dir.c,tests (kernel test sources),"QDOS/386 R7 - root directory checks. The volume (tools/make-fat16.py) holds, in directory order: a label, a deleted entry, a long-name fragment, the eight regular files, a subdirectory, an invalid name, a CHAIN.AOU whose",channel.h fat16.h jobs.h platform.h test_channels.h test_dir.h win1.h,r10-fpu-frozen,28933ef 2026-10-26,VERIFIED (git history),yes
++tests/test_dir.h,tests (kernel test sources),"QDOS/386 R7 - root directory checks (listing, directory channel, malformed entries).  Called from fs_phase after the R6 negative tests.",,r10-fpu-frozen,c23defb 2026-10-26,VERIFIED (git history),no
++tests/test_fs.c,tests (kernel test sources),"QDOS/386 R6 - FAT16 file phase. Positive: mount WIN1_, open WIN1_HELLO.AOU through the channel manager, read the whole file in chunks, check it, load it with the R5 loader, run it as a preemptive job and check its exit s",aout.h channel.h fat16.h jobs.h platform.h test_channels.h test_dir.h test_fs.h test_shell.h win1.h,r10-fpu-frozen,28933ef 2026-10-26,VERIFIED (git history),yes
++tests/test_fs.h,tests (kernel test sources),"QDOS/386 R6 - FAT16 file phase: WIN1_ channels, the a.out loader from a file, and the negative FAT16 tests.",,r10-fpu-frozen,1cef0f7 2026-10-26,VERIFIED (git history),no
++tests/test_jobs.c,tests (kernel test sources),QDOS/386 R1 - application test jobs.,jobs.h platform.h test_jobs.h,r10-fpu-frozen,f815b23 2026-10-26,VERIFIED (git history),yes
++tests/test_jobs.h,tests (kernel test sources),"QDOS/386 R1 - application test jobs. TEST-A, TEST-B: CPU-bound, preempted by the timer.  TEST-A yields once. TEST-B waits for SYSTEM to suspend, then reactivates it. TEST-C: short-lived job that reuses TEST-A's slot.",,r10-fpu-frozen,f815b23 2026-10-26,VERIFIED (git history),no
++tests/test_memory.c,tests (kernel test sources),"QDOS/386 R3 - guest memory tests (see test_memory.h). Preemption model.  Allocation and free happen inside service traps, and the trap gate runs with IF clear, so the timer cannot interrupt an allocator operation.  The m",channel.h jobs.h memory.h platform.h test_jobs.h test_memory.h,r10-fpu-frozen,7a62af1 2026-10-27,VERIFIED (git history),yes
++tests/test_memory.h,tests (kernel test sources),QDOS/386 R3 - guest memory tests. Two groups run inside the guest on both targets: 1. heap tests (memory_heap_tests): kernel-level calls to mem_* before any job exists.  Covers items 1-6 of the R3 continuation plan. 2. j,,r10-fpu-frozen,f815b23 2026-10-26,VERIFIED (git history),no
++tests/test_r8.c,tests (kernel test sources),"QDOS/386 R8 - kernel-side negative checks for the streaming loader. Each case feeds app_load_src a reader that fails, runs short, or describes a bad image or argument block, and checks: the error code, that the slot is s",aout.h jobs.h memory.h test_channels.h test_r8.h,r10-fpu-frozen,ee38a8b 2026-10-26,VERIFIED (git history),yes
++tests/test_r8.h,tests (kernel test sources),QDOS/386 R8 - loader negative checks (see test_r8.c). Runs in SYSTEM after the R5 application phase; results go into the R4 check list (r4_add) like the other phases.,,r10-fpu-frozen,3f22443 2026-10-26,VERIFIED (git history),no
++tests/test_shell.c,tests (kernel test sources),QDOS/386 R7 - the shell self-test in the regression build. SHELLT.AOU is read from the WIN1_ volume and loaded into slot 0 by the R5 loader.  It runs its own guest self-test (apps/shell/shell.c) and exits with status 0 o,aout.h fat16.h jobs.h platform.h test_channels.h test_shell.h win1.h,r10-fpu-frozen,28933ef 2026-10-26,VERIFIED (git history),yes
++tests/test_shell.h,tests (kernel test sources),"QDOS/386 R7 - the shell's guest self-test, run from the R6 test phase.",,r10-fpu-frozen,28933ef 2026-10-26,VERIFIED (git history),no
+diff --git a/docs/STORAGE.md b/docs/STORAGE.md
+new file mode 100644
+index 0000000..12cf9d0
+--- /dev/null
++++ b/docs/STORAGE.md
+@@ -0,0 +1,78 @@
++# Storage (canonical R18/R20 PC baseline)
++
++Files: `platform/pc/disk.c` (the IDE PIO driver), `kernel/fat16.c|h` (FAT16 and VFAT), `kernel/win1.c|h` (the `WIN1_`
++file driver), `kernel/sync.c|h` (storage sync), `kernel/r20w.c|h` (R20 storage worker and sector cache). Design and
++measurements: `docs/A16-CACHE-DESIGN.md`, `docs/A16-CACHE-RESULTS.md`, `docs/R12C-SYNC-DURABILITY.md`.
++
++## Device
++
++- The FAT16 volume is the primary slave of the PIIX3 IDE controller (ports 0x1F0–0x1F7).
++- Only IDENTIFY DEVICE (0xEC) and READ SECTORS (0x20) are issued on the read path; the write path uses WRITE SECTORS and
++  FLUSH CACHE through `sync`. Addressing is LBA28, transfer is polled PIO. No IRQ14, no DMA.
++- Sector size is 512 bytes. The partition offset is applied before any cache lookup (cache keys are physical LBAs).
++
++## Layers (R20 build)
++
++    channel / file read (fat16, win1)
++          |  r20_file_read: probe on a copy, commit only on success
++          v
++    r20c_read / r20c_write  (sector cache, kernel/r20w.c)
++          |  miss -> fill request
++          v
++    storage worker job (ring 0, kernel/r20w.c)  -- takes the storage claim
++          v
++    disk_read_worker / disk_read_body / disk_write_body  (platform/pc/disk.c)
++
++`platform/pc/disk.c` renames the original routines under `QDOS_R20` (`disk_read_sector` becomes `disk_read_body`) and
++exposes wrappers that wait for the claim and keep the cache coherent. Non-R20 builds use the original routines directly.
++
++## Sector cache: contract
++
++- Budget: `min(5 % of usable RAM, 2 MiB)`, counting entry, bucket and queue metadata. Limits are in
++  `docs/R20C-LIMITS-INVENTORY.md`.
++- Entry states: FREE, LOADING, VALID, ERROR. Each entry has a generation, pin count, reference bit and reservation mask.
++- Lookup is hashed by (device, LBA). Simultaneous misses to one sector share one fill (coalesced).
++- Eviction is clock (second chance), bounded to two sweeps. LOADING and pinned entries are never evicted.
++- Writes are synchronous: a write invalidates the sector before and after the disk write, whatever the outcome.
++- Mount or media change calls `r20c_invalidate_all()`; orphaned fills finish into dead generations.
++- Reservations: a completed fill is kept for the waiting reader until the reader consumes it (at most `R20_RSV_MAX` per
++  reader). A read that needs more sectors than the cache can hold, or that cannot get a victim while it holds
++  reservations, reads the sector directly and is counted (`R20_STAT_SYNC_FALLBACK`), so the cache cannot deadlock.
++- Retries: at most `R20_MAX_MISS` restarts in a row per process, then the read fails. Cache-full waits are not device
++  errors and do not consume that budget.
++
++## Per-function contracts
++
++Signatures are from `kernel/r20w.h`; behaviour notes are from the comments in `kernel/r20w.c`.
++
++| function | purpose | lock and interrupt state | blocking | failure codes and callers |
++|---|---|---|---|---|
++| `void r20c_init(void)` | size the cache from firmware RAM (capped at `R20C_BUDGET_MAX`) and allocate it from the heap | boot, interrupts off | no | none returned; called from `shellboot.c` before the mount |
++| `int r20w_start(void)` | create the storage worker job, after the APs are up | boot | no | result as in `r20w.c`; called from `shellboot.c` |
++| `int r20w_trap(unsigned fn, unsigned a, unsigned b, int caller_job, int *sleep)` | trap entry for `QT_R20_*` (0x40–0x45); returns the result and sets `*sleep` when the caller must sleep | BKL held, interrupts off (trap) | returns `*sleep = 1` for a sleep; the caller re-executes on wake | `R20_ERR_*`, `R20_RETRY`; called from `jobs.c` trap dispatch |
++| `void r20w_job_gone(int slot, unsigned id)` | a job slot is being freed: abandon its requests, waits and reservations | BKL held, interrupts off | no | none; called from `jobs.c` reclaim |
++| `int r20w_is_worker(int slot)` | is this slot the storage worker (EFLAGS.IF is managed around its claims) | any | no | 0 or 1 |
++| `unsigned long r20w_stat(int idx)` | counter read for diagnostics (`R20_STAT_*`) | any | no | index values as in the `R20_STAT_*` enum |
++| `int r20_file_read(struct fat16_file *ff, unsigned char *ubuf, unsigned n)` | file read in two steps: probe on a copy, then commit or restart. The user buffer is written only on commit | BKL held (trap) | may return `R20_RESTART`, which rewinds the caller's trap | `R20_RESTART` (-101) to re-run; other negative FAT codes; called from `win1.c` |
++| `int r20c_read(unsigned lba, unsigned char *buf)` | probe: a hit or a miss; non-probe: a hit, or a disk read that keeps the sector | BKL held (trap) | a miss returns to the caller, which arranges the restart | `FAT_ERR_MISS` (-100, kernel-internal) for a probe miss; called from `r20w.c` (inside `r20_file_read`) and from `disk.c` |
++| `int r20c_write(unsigned lba, const unsigned char *buf)` | write one sector: invalidate, wait for the claim, write, invalidate | BKL held (trap) | waits for the claim (bounded: `R20_DEV_SPIN`) | device error codes; called from `disk.c` |
++| `int r20c_wait_dev(void)` | wait (bounded) until the controller is free | BKL held in a sync trap; the worker clears the claim without it | bounded spin (`R20_DEV_SPIN`) | 0 when the claim is free; the timeout result is as in `r20w.c`; called from `disk.c` |
++| `void r20c_invalidate_all(void)` | mount or media change: nothing cached is trusted | BKL held (trap or boot) | no | none; called from `win1.c` and `r20w.c` |
++| `int disk_read_worker(unsigned lba, unsigned char *buf)` | the worker's raw read (no cache) | ring 0 job, BKL not held while polling | polls the device | disk codes; called from `r20w.c` through `disk.c` |
++| `int disk_read_body(unsigned lba, unsigned char *buf)` | raw PIO read of one sector; the wrappers in `disk.c` take the claim around it | as the caller of the wrapper | polls the device | as in `disk.c` |
++| `int disk_write_body(unsigned lba, const unsigned char *buf)` | raw PIO write of one sector; the wrappers in `disk.c` take the claim around it | as the caller of the wrapper | polls the device | as in `disk.c` |
++| `unsigned long disk_sector_count_body(void)` | IDENTIFY DEVICE sector count | as the caller of the wrapper | polls the device | as in `disk.c` |
++
++## Diagnostics
++
++- `R20_STAT_DUMP` (35) prints entry states, waiters, queue, worker state and reservation counters to the debug port 0x402.
++- `R20_STAT_MY_GIVEUP` (34) reports this job's give-up count.
++- The test programs in `tests/a16/` read these; see `docs/BUILD.md` for building them.
++
++## Known limits
++
++- Cold streaming reads are slower with the cache than without it (measured: `docs/A16-CACHE-RESULTS.md`). This is a known
++  regression, not an optimisation.
++- Phase 2A large-set failures were reproduced; their root cause is not verified (`docs/A16-CACHE-RESULTS.md`).
++- Under the injected-error runs the reader-visible error count is not one-to-one with device failures (documented there).
++- Polled PIO only. No IRQ14, no DMA, no real-hardware qualification.
+diff --git a/kernel/aout.c b/kernel/aout.c
+index 6be00fe..67e70a9 100644
+--- a/kernel/aout.c
++++ b/kernel/aout.c
+@@ -19,116 +19,6 @@ static long profile_handle[APP_PROFILES];  /* R11H: region of each owned profile
+ static struct region_pool app_pool;     /* R11H: application regions */
+ static int app_pool_ready = 0;
+ 
+-#if defined(QDOS_I386VM_BLOCK) && defined(QDOS_TEST_SPARE)
+-/* TEST ONLY (R11I).  Never compiled into a production image.  Bounded guest proof that the
+- * former RAM-disk span is usable RAM held by the allocator: on the first pool build, allocate
+- * the whole spare span through region_alloc, write and verify a pattern on every page of it,
+- * check that the neighbouring transfer area and 0x801000..0x8FFFFF are untouched and the block
+- * device still serves sector 0, then release the span.  Prints SPARE: PASS or SPARE: FAIL. */
+-#include "platform.h"
+-static unsigned long spare_sum(unsigned long lo, unsigned long hi)
+-{
+-	unsigned long s = 0, a;
+-
+-	for (a = lo; a < hi; a += 4)
+-		s = (s << 1 | s >> 31) ^ *(volatile unsigned long *) a;
+-	return s;
+-}
+-static void spare_fail(const char *what, int *bad)
+-{
+-	con_puts("SPARE: FAIL ");
+-	con_puts(what);
+-	con_puts("\n");
+-	(*bad)++;
+-}
+-static void app_spare_selftest(void)
+-{
+-	unsigned long base = 0, end = 0, pb = 0, pe = 0, a, bytes, x0, x1, g0, g1, pages = 0;
+-	unsigned char sec[512];
+-	long h, hp;
+-	int bad = 0;
+-
+-	x0 = spare_sum(XFER_BASE, XFER_BASE + XFER_SIZE);
+-	g0 = spare_sum(DEVICE_BASE + DEVICE_SIZE, SPARE_BASE);
+-	h = region_alloc(&app_pool, SPARE_END - SPARE_BASE, 0x7FFEu);
+-	if (h <= 0) {
+-		spare_fail("allocation", &bad);
+-		return;
+-	}
+-	if (region_range(&app_pool, h, &base, &end) != REGION_OK || base != SPARE_BASE ||
+-	    end != SPARE_END)
+-		spare_fail("range", &bad);
+-	if (!region_check(&app_pool))
+-		spare_fail("invariants while held", &bad);
+-	/* With the spare held, a further page must land outside it (in a profile span). */
+-	hp = region_alloc(&app_pool, 0x1000ul, 0x7FFDu);
+-	if (hp <= 0 || region_range(&app_pool, hp, &pb, &pe) != REGION_OK ||
+-	    (pb < SPARE_END && SPARE_BASE < pe))
+-		spare_fail("probe page", &bad);
+-	if (hp > 0 && region_release(&app_pool, hp, 0x7FFDu) != REGION_OK)
+-		spare_fail("probe release", &bad);
+-	for (a = base; a < end; a += 0x1000ul) {
+-		*(volatile unsigned long *) a = a ^ 0xA5A5A5A5ul;
+-		*(volatile unsigned long *) (a + 0xFFCul) = ~a;
+-	}
+-	for (a = base; a < end; a += 0x1000ul) {
+-		if (*(volatile unsigned long *) a != (a ^ 0xA5A5A5A5ul) ||
+-		    *(volatile unsigned long *) (a + 0xFFCul) != ~a) {
+-			spare_fail("pattern", &bad);
+-			break;
+-		}
+-		pages++;
+-	}
+-	x1 = spare_sum(XFER_BASE, XFER_BASE + XFER_SIZE);
+-	g1 = spare_sum(DEVICE_BASE + DEVICE_SIZE, SPARE_BASE);
+-	if (x0 != x1)
+-		spare_fail("transfer area changed", &bad);
+-	if (g0 != g1)
+-		spare_fail("0x801000..0x8FFFFF changed", &bad);
+-	if (disk_read_sector(0u, sec) != 0 || sec[510] != 0x55 || sec[511] != 0xAA)
+-		spare_fail("block device after the pattern", &bad);
+-	/* Device boundaries seen by the guest backend: last valid sector reads, the first invalid
+-	 * one is refused with a zeroed buffer, and three reads of one sector agree. */
+-	{
+-		unsigned long ns = disk_sector_count(), ck0 = 0, ck;
+-		unsigned int r, k;
+-
+-		if (ns == 0ul || disk_read_sector((unsigned int) (ns - 1ul), sec) != 0)
+-			spare_fail("last valid sector", &bad);
+-		if (disk_read_sector((unsigned int) ns, sec) >= 0)
+-			spare_fail("first invalid sector accepted", &bad);
+-		for (r = 0; r < 3u; r++) {
+-			if (disk_read_sector(1u, sec) != 0)
+-				spare_fail("repeated read", &bad);
+-			ck = 0;
+-			for (k = 0; k < 512u; k++)
+-				ck = ck * 31ul + sec[k];
+-			if (r == 0)
+-				ck0 = ck;
+-			else if (ck != ck0)
+-				spare_fail("repeated read differs", &bad);
+-		}
+-		con_puts("BLKT: sectors ");
+-		con_putdec(ns);
+-		con_puts(" (last, first invalid, repeat x3 checked)\n");
+-	}
+-	if (region_release(&app_pool, h, 0x7FFFu) != REGION_ERR_OWNER)
+-		spare_fail("foreign release accepted", &bad);
+-	if (region_release(&app_pool, h, 0x7FFEu) != REGION_OK)
+-		spare_fail("release", &bad);
+-	if (region_release(&app_pool, h, 0x7FFEu) != REGION_ERR_HANDLE)
+-		spare_fail("stale handle accepted", &bad);
+-	if (!region_check(&app_pool) || region_live(&app_pool, &bytes) != 0 || bytes != 0)
+-		spare_fail("pool not empty after release", &bad);
+-	con_puts("SPARE: base ");
+-	con_putdec(base);
+-	con_puts(" end ");
+-	con_putdec(end);
+-	con_puts(" pages ");
+-	con_putdec(pages);
+-	con_puts(bad ? "\nSPARE: FAIL\n" : "\nSPARE: PASS\n");
+-}
+-#endif
+ 
+ /* R11H: the application-region pool, built once from the profiles.  FREE spans
+  * are exactly the profile ranges, so only a profile origin can be reserved.
+@@ -170,9 +60,6 @@ static int app_pool_init(void)
+ 	if (rc != REGION_OK)
+ 		return APP_ERR_LAYOUT;
+ 	app_pool_ready = 1;
+-#if defined(QDOS_I386VM_BLOCK) && defined(QDOS_TEST_SPARE)
+-	app_spare_selftest();
+-#endif
+ 	return APP_OK;
+ }
+ 
+diff --git a/kernel/clock_boot.c b/kernel/clock_boot.c
+index 5b738cc..006734d 100644
+--- a/kernel/clock_boot.c
++++ b/kernel/clock_boot.c
+@@ -11,7 +11,7 @@ static struct clock_state kclock;
+ static int clock_src;
+ #endif
+ 
+-#if defined(QDOS_R13B) && !defined(QDOS_CLOCK_EPOCH) && !defined(QDOS_NO_RTC)
++#if defined(QDOS_R13B) && !defined(QDOS_CLOCK_EPOCH)
+ #include "rtc.h"
+ struct rtc_raw clock_raw;                    /* R13B: the registers read at boot (shown on the boot line) */
+ #endif
+@@ -33,7 +33,7 @@ void clock_boot(int timer_running)
+ 	 * yet, so sched_ticks is 0 here, and the clock counts from that point. */
+ 	clock_set(&kclock, (unsigned long) QDOS_CLOCK_EPOCH, sched_ticks,
+ 	          num, den, pinned);
+-#elif defined(QDOS_R13B) && !defined(QDOS_NO_RTC)
++#elif defined(QDOS_R13B)
+ 	/* R13B: the CMOS RTC, read once now; from here the clock advances with the timer (wall time and scheduler ticks
+ 	 * stay separate).  An RTC that cannot be read or decoded leaves the clock NONE: nothing is guessed. */
+ 	unsigned long num, den, t = 0;
+diff --git a/kernel/shellboot.c b/kernel/shellboot.c
+index 46cfb50..846db8b 100644
+--- a/kernel/shellboot.c
++++ b/kernel/shellboot.c
+@@ -193,7 +193,7 @@ int shell_boot(void)
+ 			con_puts("CLOCK: unavailable - ");
+ 			con_puts(rtc_reason(cs));
+ 		}
+-#if !defined(QDOS_CLOCK_EPOCH) && !defined(QDOS_NO_RTC)
++#if !defined(QDOS_CLOCK_EPOCH)
+ 		{
+ 			extern struct rtc_raw clock_raw;
+ 			static const char hx[] = "0123456789abcdef";
+diff --git a/kernel/smp.c b/kernel/smp.c
+index 9a714ef..ecea1d0 100644
+--- a/kernel/smp.c
++++ b/kernel/smp.c
+@@ -237,11 +237,7 @@ void smp_ap_main(void)
+ 	fpu_reset();
+ 	lw(LAPIC_SVR, 0x1FFu);                 /* software-enable the LAPIC, spurious vector 0xFF */
+ 	lw(LAPIC_TDCR, 0x3u);
+-#ifdef QDOS_R16_APNOTIMER
+-	lw(LAPIC_LVTT, AP_TIMER_VEC | 0x20000u | 0x10000u);   /* DIAG: masked - AP dormant */
+-#else
+ 	lw(LAPIC_LVTT, AP_TIMER_VEC | 0x20000u);   /* periodic */
+-#endif
+ 	lw(LAPIC_TICR, lvt_count);
+ 	g_jobcur[1] = g_jobidle[1];
+ 	jobs[g_jobidle[1]].running_on = 1;
+diff --git a/kernel/smp17.c b/kernel/smp17.c
+index b8519c0..6dd094a 100644
+--- a/kernel/smp17.c
++++ b/kernel/smp17.c
+@@ -323,9 +323,6 @@ static const char *topo_name(void)
+ }
+ 
+ /* start one AP as CPU index n; returns 1 when it reported in, 0 otherwise (cleaned up) */
+-#ifdef QDOS_R17_TEST_APFAIL
+-static int apfail_done = 0;
+-#endif
+ static int start_one(unsigned int id, int n)
+ {
+ 	unsigned int i, stk; int idle; unsigned char *d; const unsigned char *s;
+@@ -366,9 +363,6 @@ static int start_one(unsigned int id, int n)
+ 	ap_ready = 0;
+ 	if (icr(id, 0x00004500u) == 0) {                     /* INIT */
+ 		pit2(10000u);
+-#ifdef QDOS_R17_TEST_APFAIL
+-		if (n != QDOS_R17_TEST_APFAIL || apfail_done++) /* TEST ONLY: the first AP tried for this index gets no SIPI */
+-#endif
+ 		{
+ 			icr(id, 0x00004600u | (TRAMP_PA >> 12));     /* SIPI */
+ 			pit2(200u);
+diff --git a/platform/pc/platform.c b/platform/pc/platform.c
+index c2f485b..d3bbedc 100644
+--- a/platform/pc/platform.c
++++ b/platform/pc/platform.c
+@@ -26,9 +26,6 @@ static unsigned int pit_divisor = 11932;   /* ~100 Hz */
+ void diag_putc(unsigned char c)
+ {
+ 	outb(0x402, c);                    /* Tiny386 debug port: always */
+-#ifdef QDOS_CON_SERIAL
+-	outb(0x3f8, c);
+-#endif
+ }
+ 
+ void con_putc(unsigned char c)
+@@ -65,11 +62,6 @@ void con_putc(unsigned char c)
+ #endif
+ 
+ 	outb(0x402, c);                    /* Tiny386 debug port: always */
+-#ifdef QDOS_CON_SERIAL
+-	/* Optional diagnostic backend (not the default): also send the byte to
+-	 * the first 16550 UART at 0x3F8, so QEMU can capture it with -serial. */
+-	outb(0x3f8, c);
+-#endif
+ #ifdef QDOS_CON_VGA
+ 	/* Optional human console: 80x25 text at 0xB8000 (platform/pc/vga.c). */
+ 	if (!vga_ready) {
+@@ -195,11 +187,6 @@ void halt_with(int status)
+ 	(void) status;
+ 	while (*s)
+ 		outb(0x8900, (unsigned int) (unsigned char) *s++);
+-#ifdef QDOS_HALT_DEBUG_EXIT
+-	/* Optional diagnostic exit for QEMU's isa-debug-exit device (port 0xF4):
+-	 * QEMU exits with status (0x10 << 1) | 1 = 33. Not the default. */
+-	outb(0xf4, 0x10);
+-#endif
+ 	for (;;)
+ 		;
+ }
+diff --git a/scripts/a16-p2b-build.sh b/scripts/a16-p2b-build.sh
+index cc13756..39e45ec 100644
+--- a/scripts/a16-p2b-build.sh
++++ b/scripts/a16-p2b-build.sh
+@@ -1,13 +1,15 @@
+ #!/bin/sh
+ # Apollo 16 Phase 2B: the cache workloads (tests/a16/r20g.c: stream, small set, large set), the write-coherence test
+ # (tests/a16/r20c.c), the background progress program (tests/a16/r20p.c), and their protected copies in build/a16/.
++# R20D waits 40000 ticks before its dump (the shipped R20DP was built with -DR20D_WAIT=40000).  R20K (process kill
++# helper) and R20XK (1000-read reader for the termination tests, -DR20X_N=1000) are built here too.
+ #   usage: sh scripts/a16-p2b-build.sh
+ set -eu
+ ROOT=$(cd "$(dirname "$0")/.." && pwd); cd "$ROOT"; : "${QDOS386_TOOLS:?}"
+ sh scripts/a14-build-guest.sh > /dev/null
+ B=$QDOS386_TOOLS/bin; L=sdk/lib; I="-Isdk/include"
+ mkdir -p build/a16
+-for v in "R20GS:r20g:-DR20G_KIND=1" "R20GW:r20g:-DR20G_KIND=2" "R20GL:r20g:-DR20G_KIND=3" "R20C:r20c:" "R20P:r20p:" "R20X:r20x:" "R20D:r20d:"; do
++for v in "R20GS:r20g:-DR20G_KIND=1" "R20GW:r20g:-DR20G_KIND=2" "R20GL:r20g:-DR20G_KIND=3" "R20C:r20c:" "R20P:r20p:" "R20X:r20x:" "R20XK:r20x:-DR20X_N=1000" "R20D:r20d:-DR20D_WAIT=40000" "R20K:r20k:"; do
+ 	IFS=: read -r P src extra <<EOT
+ $v
+ EOT
+@@ -17,4 +19,4 @@ EOT
+ 		$L/libc.a $L/libm.a $L/libgcc-qd.a $L/libqdos.a
+ 	python3 tools/r16-protect-mark.py build/a16/$P.aout build/a16/${P}P.aout > /dev/null
+ done
+-sha256sum build/a16/R20XP.aout build/a16/R20DP.aout build/a16/R20GSP.aout build/a16/R20GWP.aout build/a16/R20GLP.aout build/a16/R20CP.aout build/a16/R20PP.aout
++sha256sum build/a16/R20XP.aout build/a16/R20XKP.aout build/a16/R20DP.aout build/a16/R20KP.aout build/a16/R20GSP.aout build/a16/R20GWP.aout build/a16/R20GLP.aout build/a16/R20CP.aout build/a16/R20PP.aout

@@ -1,7 +1,8 @@
 # Apollo 16 / R20 - Phase 2A: restartable sector-cache miss
 
 Status: implemented and measured on the R20 PC targets (2 CPUs and 1 CPU). Opt-in (`make qdos386-r20-pc`). Frozen R18
-images are byte-identical to `scratchpad/r20-ident/r18-baseline.sha256`.
+images are byte-identical to the R18 VGA reference, SHA-256 `d42497d51da87909e0cb0e52259d2bfd42807923e710d9945285db166a228e97`
+(`binaries/r18-vga.img` in the Phase 2B release; the earlier scratch-directory hash list is no longer kept).
 
 ## What was built
 

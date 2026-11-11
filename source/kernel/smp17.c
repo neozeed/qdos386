@@ -323,9 +323,6 @@ static const char *topo_name(void)
 }
 
 /* start one AP as CPU index n; returns 1 when it reported in, 0 otherwise (cleaned up) */
-#ifdef QDOS_R17_TEST_APFAIL
-static int apfail_done = 0;
-#endif
 static int start_one(unsigned int id, int n)
 {
 	unsigned int i, stk; int idle; unsigned char *d; const unsigned char *s;
@@ -366,9 +363,6 @@ static int start_one(unsigned int id, int n)
 	ap_ready = 0;
 	if (icr(id, 0x00004500u) == 0) {                     /* INIT */
 		pit2(10000u);
-#ifdef QDOS_R17_TEST_APFAIL
-		if (n != QDOS_R17_TEST_APFAIL || apfail_done++) /* TEST ONLY: the first AP tried for this index gets no SIPI */
-#endif
 		{
 			icr(id, 0x00004600u | (TRAMP_PA >> 12));     /* SIPI */
 			pit2(200u);

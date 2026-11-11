@@ -1,0 +1,20 @@
+ docs/A16-PHASE2A.md                |   3 +-
+ docs/ABI.md                        |  33 +++++
+ docs/ARCHITECTURE.md               |  50 ++++++++
+ docs/BUILD.md                      |  66 ++++++++++
+ docs/CONFIGURATION.md              |  52 ++++++++
+ docs/DISPLAY.md                    |  30 +++++
+ docs/LOCKING.md                    |  40 ++++++
+ docs/R20C-BASELINE-HASHES.txt      | 250 +++++++++++++++++++++++++++++++++++++
+ docs/R20C-CONDITIONAL-INVENTORY.md | 121 ++++++++++++++++++
+ docs/R20C-LIMITS-INVENTORY.md      |  76 +++++++++++
+ docs/SOURCE-INVENTORY.csv          | 136 ++++++++++++++++++++
+ docs/STORAGE.md                    |  78 ++++++++++++
+ kernel/aout.c                      | 113 -----------------
+ kernel/clock_boot.c                |   4 +-
+ kernel/shellboot.c                 |   2 +-
+ kernel/smp.c                       |   4 -
+ kernel/smp17.c                     |   6 -
+ platform/pc/platform.c             |  13 --
+ scripts/a16-p2b-build.sh           |   6 +-
+ 19 files changed, 941 insertions(+), 142 deletions(-)
