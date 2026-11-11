@@ -417,6 +417,50 @@ static int text_sum(int idx)
 }
 #endif
 
+#ifdef QDOS_R18
+unsigned int proc_parent_of(int slot);
+
+/* R18: may the caller change how session idx is presented?  Its own session; or the caller (or the caller's parent)
+ * is the session's creator or the parent of a live job on it.  Only presentation changes: no pixel is read or written. */
+static int sess_view_allowed(int idx)
+{
+	unsigned int me = jobs[job_current].id, mp = proc_parent_of(job_current), p;
+	int s;
+
+	if (my_sess() == idx)
+		return 1;
+	if (vsess_owner(idx) != 0 && (vsess_owner(idx) == me || vsess_owner(idx) == mp))
+		return 1;
+	for (s = 0; s < JOB_MAX; s++) {
+		if (!jobs[s].in_use || jobs[s].dead || vcon_job_con(s) != idx)
+			continue;
+		p = proc_parent_of(s);
+		if (p != 0xFFFFFFFFu && p != 0 && (p == me || p == mp))
+			return 1;
+	}
+	return 0;
+}
+
+static int sess_view(unsigned int b, unsigned int c)
+{
+	int idx = (int) b, prev;
+
+	if (b >= VSESS_MAX || !vsess_valid(idx))
+		return SURF_ERR_STALE;
+	prev = (int) vsess_view_ov(idx);
+	if (c == 0xFFFFFFFFu)
+		return prev;
+	if (c != 0 && c != 1u + GS_VIEW_FIT && c != 1u + GS_VIEW_VGA12 && c != 1u + GS_VIEW_VGA12W)
+		return SURF_ERR_ARG;
+	if (c > 1u + GS_VIEW_FIT && !(pres_caps() & PRES_CAP_G12GFX))
+		return SURF_ERR_ARG;
+	if (!sess_view_allowed(idx))
+		return SURF_ERR_OWNER;
+	vsess_set_view_ov(idx, c);
+	return prev;
+}
+#endif
+
 int surface_trap(unsigned int op, unsigned int b, unsigned int c)
 {
 	struct surf_rect r;
@@ -437,6 +481,10 @@ int surface_trap(unsigned int op, unsigned int b, unsigned int c)
 		caps |= SURF_CAP_R13A;
 		if (pc & PRES_CAP_MODE12)
 			caps |= SURF_CAP_SHOW_TEXT_GFX;
+#endif
+#ifdef QDOS_R18
+		if (pc & PRES_CAP_G12GFX)
+			caps |= SURF_CAP_VGA12;
 #endif
 		return (int) ((SURF_VERSION << 16) | caps);
 	}
@@ -648,6 +696,12 @@ int surface_trap(unsigned int op, unsigned int b, unsigned int c)
 	case SURF_OP_VIEW:
 		if ((g = my_gfx(&rc)) == 0)
 			return rc;
+#ifdef QDOS_R18
+		if (b == GS_VIEW_VGA12 || b == GS_VIEW_VGA12W) {
+			if (c != 0 || !(pres_caps() & PRES_CAP_G12GFX))
+				return SURF_ERR_ARG;             /* no window origin; refused where the display cannot do it */
+		} else
+#endif
 		if (b > GS_VIEW_CROP || (c & 0xffffu) >= g->w || (c >> 16) >= g->h)
 			return SURF_ERR_ARG;
 		g->view = b;
@@ -655,6 +709,19 @@ int surface_trap(unsigned int op, unsigned int b, unsigned int c)
 		g->vy = c >> 16;
 		pres_focus_changed();
 		return 0;
+#ifdef QDOS_R18
+	case SURF_OP_SESS_VIEW:
+		return sess_view(b, c);
+	case SURF_OP_PRES_TIME: {
+		unsigned int o[8], i;
+		if (!chan_user_range_ok(b, sizeof o))
+			return SURF_ERR_RANGE;
+		pres_time(o);
+		for (i = 0; i < 8u; i++)
+			((unsigned int *) b)[i] = o[i];
+		return 0;
+	}
+#endif
 	case SURF_OP_KEV_ENABLE:
 		return kev_enable(my_sess(), b != 0);
 	case SURF_OP_KEV_READ:

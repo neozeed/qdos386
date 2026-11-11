@@ -29,5 +29,11 @@ struct pres_shadow {
 };
 const struct pres_shadow *pres_shadow_ptr(void);
 #endif
+#ifdef QDOS_R18
+#define PRES_CAP_G12GFX  0x08u    /* R18: INDEX8 surfaces in 640x480x16 (shadow mode 4) */
+/* calls, calls that drew, max TSC cycles of one drawing call, total cycles (lo, hi), max rows in one call, full
+ * redraws, rows drawn - pres_poll runs with the BKL held and interrupts off */
+void pres_time(unsigned int *out8);
+#endif
 
 #endif

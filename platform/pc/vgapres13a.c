@@ -89,6 +89,9 @@ static int shown_idx = -1;
 static unsigned int st_text, st_gfx, st_full, st_rows, st_pal;
 static unsigned int cur_col, cur_row, cur_vis;     /* the cursor last drawn into VRAM */
 static unsigned int shown_view;
+#ifdef QDOS_R18
+static unsigned int eff_view;           /* R18: the view in use: the session override (vsess_view_ov) or the program's */
+#endif
 
 static void read_regs(struct vregs *r)
 {
@@ -217,7 +220,11 @@ void pres_init(void)
 
 unsigned int pres_caps(void)
 {
+#ifdef QDOS_R18
+	return saved ? (PRES_CAP_TEXT | PRES_CAP_MODE13 | PRES_CAP_MODE12 | PRES_CAP_G12GFX) : PRES_CAP_TEXT;
+#else
 	return saved ? (PRES_CAP_TEXT | PRES_CAP_MODE13 | PRES_CAP_MODE12) : PRES_CAP_TEXT;
+#endif
 }
 
 void pres_focus_changed(void)
@@ -275,7 +282,11 @@ static int scaled;                            /* 0: 1:1 at the top left (the R13
 
 static void layout(const struct gsurf *g)
 {
+#ifdef QDOS_R18
+	if (eff_view == GS_VIEW_CROP) {
+#else
 	if (g->view == GS_VIEW_CROP) {
+#endif
 		scaled = 2;
 		sdw = g->w < 320u ? g->w : 320u;
 		sdh = g->h < 200u ? g->h : 200u;
@@ -405,7 +416,11 @@ static void to_gfx(struct gsurf *g, int idx, unsigned int tag)
 	shown_g = g;
 	shown_idx = idx;
 	shown_tag = tag;
+#ifdef QDOS_R18
+	shown_view = eff_view | (g->vx << 2) | (g->vy << 16);
+#else
 	shown_view = g->view | (g->vx << 2) | (g->vy << 16);
+#endif
 	phys = PHYS_GFX;
 	shadow.mode = 2;
 	shadow.session = (unsigned int) idx;
@@ -427,6 +442,45 @@ static const struct kfont *console_font(int idx)
 	return f;
 }
 
+#ifdef QDOS_R18
+/* R18: the same planes, gathered in one pass: spread[v] has bit p of v at bit 8p, so after 8 pixels w holds the four
+ * plane bytes; then each plane's 80 bytes are written with its map mask (no VRAM reads, latches unused). */
+static const unsigned int spread[16] = {
+	0x00000000u, 0x00000001u, 0x00000100u, 0x00000101u, 0x00010000u, 0x00010001u, 0x00010100u, 0x00010101u,
+	0x01000000u, 0x01000001u, 0x01000100u, 0x01000101u, 0x01010000u, 0x01010001u, 0x01010100u, 0x01010101u };
+static unsigned char pl[4][80];
+static void put_line(unsigned int y)
+{
+	unsigned int b, w, p;
+	const unsigned char *s = line;
+	volatile unsigned char *d = VRAM + y * 80u;
+
+	for (b = 0; b < 80u; b++, s += 8) {
+		w = spread[s[0] & 15u];
+		w = (w << 1) | spread[s[1] & 15u];
+		w = (w << 1) | spread[s[2] & 15u];
+		w = (w << 1) | spread[s[3] & 15u];
+		w = (w << 1) | spread[s[4] & 15u];
+		w = (w << 1) | spread[s[5] & 15u];
+		w = (w << 1) | spread[s[6] & 15u];
+		w = (w << 1) | spread[s[7] & 15u];
+		pl[0][b] = (unsigned char) w;
+		pl[1][b] = (unsigned char) (w >> 8);
+		pl[2][b] = (unsigned char) (w >> 16);
+		pl[3][b] = (unsigned char) (w >> 24);
+	}
+	for (p = 0; p < 4u; p++) {
+		const unsigned int *q = (const unsigned int *) pl[p];
+		volatile unsigned int *d4 = (volatile unsigned int *) d;
+		outb(P_SEQ, 2);
+		outb(P_SEQ + 1, 1u << p);
+		for (b = 0; b < 20u; b++)
+			d4[b] = q[b];
+	}
+	outb(P_SEQ, 2);
+	outb(P_SEQ + 1, 0x0f);
+}
+#else
 static void put_line(unsigned int y)          /* line[0..639] (colours 0..15) to screen row y, plane by plane */
 {
 	unsigned int p, b, k;
@@ -446,6 +500,7 @@ static void put_line(unsigned int y)          /* line[0..639] (colours 0..15) to
 	outb(P_SEQ, 2);
 	outb(P_SEQ + 1, 0x0f);
 }
+#endif
 
 /* Render text row r of the session (cells) into screen rows; the cursor is drawn if it is on this row. */
 static void text_row(const struct kfont *f, const unsigned short *cells, unsigned int r, unsigned int cur)
@@ -571,7 +626,220 @@ static void gtext_update(int idx)
 		shadow.frames++;
 }
 
+#ifdef QDOS_R18
+/* ---- mode 12h: INDEX8 surfaces presented 1:1 (R18 Apollo 14, docs/APOLLO14-PLANAR-VGA.md) ----
+ * The surface (at most 512x256) is placed centred in 640x480 without scaling rows: GS_VIEW_VGA12 1:1,
+ * GS_VIEW_VGA12W each pixel doubled horizontally (if 2w <= 640).  Colour: pixel & 15 through palette entries 0..15
+ * (the DAC's first 16 registers; the attribute controller keeps the identity map of mode12).  The border is colour 0.
+ * Each screen row is built in line[] and written plane by plane (put_line: write mode 0, map mask 1 << p). */
+#define PHYS_G12G 4
+static unsigned int g12_ox, g12_oy, g12_xs;
+
+static void g12_layout(const struct gsurf *g)
+{
+	g12_xs = (eff_view == GS_VIEW_VGA12W && g->w * 2u <= 640u) ? 2u : 1u;
+	g12_ox = (640u - g->w * g12_xs) / 2u;
+	g12_oy = (480u - g->h) / 2u;
+}
+
+static void g12_dac(const struct gsurf *g)
+{
+	unsigned int i;
+
+	outb(P_DAC_WI, 0);
+	for (i = 0; i < 48u; i++)
+		outb(P_DAC_D, (unsigned int) (g->pal[i] >> 2));
+	st_pal++;
+}
+
+/* source row sy (0..h-1) to screen row g12_oy + sy, with the text cursor if it covers this row */
+static void g12_row(const struct gsurf *g, unsigned int sy)
+{
+	const unsigned char *s = g->pix + sy * g->stride;
+	unsigned char *o = line + g12_ox;
+	unsigned int x, k;
+
+	for (k = 0; k < 640u; k++)
+		line[k] = 0;
+	if (g12_xs == 1u)
+		for (x = 0; x < g->w; x++)
+			o[x] = (unsigned char) (s[x] & 15u);
+	else
+		for (x = 0; x < g->w; x++)
+			o[2u * x] = o[2u * x + 1u] = (unsigned char) (s[x] & 15u);
+	if (cur_vis && g->font != 0) {
+		unsigned int cw = g->font->cw, ch = g->font->ch, cy = cur_row * ch, cx = cur_col * cw;
+		if (sy >= cy + ch - 2u && sy < cy + ch)
+			for (k = 0; k < cw && cx + k < g->w; k++) {
+				if (g12_xs == 1u)
+					o[cx + k] = (unsigned char) (g->ink & 15u);
+				else
+					o[2u * (cx + k)] = o[2u * (cx + k) + 1u] = (unsigned char) (g->ink & 15u);
+			}
+	}
+	put_line(g12_oy + sy);
+	st_rows++;
+}
+
+static void g12_cursor_state(const struct gsurf *g)
+{
+	cur_vis = g->cursor_on && g->font != 0 && g->tcol < g->cols && g->trow < g->rows;
+	cur_col = g->tcol;
+	cur_row = g->trow;
+}
+
+static void g12_cell_rows(const struct gsurf *g, unsigned int row)   /* redraw the rows of one text cell row */
+{
+	unsigned int ch = g->font != 0 ? g->font->ch : 0u, y;
+
+	for (y = row * ch; y < row * ch + ch && y < g->h; y++)
+		g12_row(g, y);
+}
+
+/* Work per pres_poll call is bounded (the call holds the BKL with interrupts off): at most G12_ROWS rows, border rows
+ * first after a full redraw, then the dirty surface rows; what is left stays pending for the next tick (R18). */
+#ifndef G12_ROWS
+#define G12_ROWS 64u
+#endif
+static unsigned int g12_bord = 480u;    /* next screen row to check for border blanking; 480: border done */
+
+static void g12_work(struct gsurf *g)
+{
+	unsigned int budget = G12_ROWS, irq, y;
+	int y0, y1, r0, r1;
+
+	while (g12_bord < 480u && budget > 0u) {
+		if (g12_bord >= g12_oy && g12_bord < g12_oy + g->h) {
+			g12_bord = g12_oy + g->h;
+			continue;
+		}
+		blank_rows(g12_bord, g12_bord + 1u);
+		g12_bord++;
+		budget--;
+	}
+	irq = irq_save();
+	y0 = g->dy0;
+	y1 = g->dy1;
+	g->dy0 = g->dy1 = 0;
+	irq_restore(irq);
+	if (y0 < 0)
+		y0 = 0;
+	if (y1 > (int) g->h)
+		y1 = (int) g->h;
+	if (y0 >= y1)
+		return;
+	r0 = y0 + (int) budget;
+	r1 = y1;
+	for (y = (unsigned int) y0; (int) y < y1 && (int) y < r0; y++)
+		g12_row(g, y);
+	if (r0 < r1) {                                   /* the rest: back into the dirty range for the next tick */
+		irq = irq_save();
+		if (g->dy0 < g->dy1) {
+			if (r0 < g->dy0)
+				g->dy0 = r0;
+			if (r1 > g->dy1)
+				g->dy1 = r1;
+		} else {
+			g->dy0 = r0;
+			g->dy1 = r1;
+		}
+		irq_restore(irq);
+	}
+	shadow.frames++;
+}
+
+static void to_g12gfx(struct gsurf *g, int idx, unsigned int tag)
+{
+	unsigned int irq;
+
+	if (phys != PHYS_G12 && phys != PHYS_G12G) {
+		write_regs(&mode12);
+		st_gfx++;
+	}
+	irq = irq_save();
+	g->dy0 = 0;                                      /* the whole surface is drawn, in bounded steps */
+	g->dy1 = (int) g->h;
+	shown_pal_gen = g->pal_gen;
+	irq_restore(irq);
+	g12_dac(g);
+	g12_layout(g);
+	g12_cursor_state(g);
+	g12_bord = 0;
+	shown_g = g;
+	shown_idx = idx;
+	shown_tag = tag;
+	shown_view = eff_view | (g->vx << 2) | (g->vy << 16);
+	phys = PHYS_G12G;
+	shadow.mode = 4;
+	shadow.session = (unsigned int) idx;
+	shadow.ox = g12_ox;
+	shadow.oy = g12_oy;
+	shadow.cell_w = g12_xs;
+	st_full++;
+	g12_work(g);
+}
+
+static void g12_update(struct gsurf *g)
+{
+	unsigned int irq, pgen, ocol = cur_col, orow = cur_row, ovis = cur_vis;
+
+	irq = irq_save();
+	pgen = g->pal_gen;
+	irq_restore(irq);
+	if (pgen != shown_pal_gen) {
+		shown_pal_gen = pgen;
+		g12_dac(g);
+	}
+	g12_cursor_state(g);
+	g12_work(g);
+	if (ovis != cur_vis || ocol != cur_col || orow != cur_row) {
+		if (ovis)
+			g12_cell_rows(g, orow);
+		if (cur_vis && (!ovis || orow != cur_row))
+			g12_cell_rows(g, cur_row);
+	}
+}
+#endif
+
+#ifdef QDOS_R18
+/* R18: pres_poll runs in the SYSTEM job with the BKL held and interrupts off (kernel/shellboot.c): its cost is the
+ * presenter's share of lock time.  Measured with the TSC around every call; read by SURF_OP_PRES_TIME. */
+static unsigned int pt_calls, pt_busy, pt_max, pt_tot_lo, pt_tot_hi, pt_maxrows;
+static unsigned int rdtsc_lo(void)
+{
+	unsigned int lo, hi;
+	__asm__ volatile (".byte 0x0f, 0x31" : "=a" (lo), "=d" (hi));
+	return lo;
+}
+void pres_time(unsigned int *o)
+{
+	o[0] = pt_calls; o[1] = pt_busy; o[2] = pt_max; o[3] = pt_tot_lo; o[4] = pt_tot_hi; o[5] = pt_maxrows;
+	o[6] = st_full; o[7] = st_rows;
+}
+static void pres_poll_body(void);
 void pres_poll(void)
+{
+	unsigned int t0, dt, f0 = st_full, r0 = st_rows;
+
+	t0 = rdtsc_lo();
+	pres_poll_body();
+	dt = rdtsc_lo() - t0;
+	pt_calls++;
+	if (st_full != f0 || st_rows != r0) {           /* a call that drew something */
+		pt_busy++;
+		if (dt > pt_max)
+			pt_max = dt;
+		if (st_rows - r0 > pt_maxrows)
+			pt_maxrows = st_rows - r0;
+		pt_tot_lo += dt;
+		if (pt_tot_lo < dt)
+			pt_tot_hi++;
+	}
+}
+static void pres_poll_body(void)
+#else
+void pres_poll(void)
+#endif
 {
 	unsigned int irq;
 	struct gsurf *g;
@@ -607,6 +875,20 @@ void pres_poll(void)
 		return;
 	}
 	view = g->view | (g->vx << 2) | (g->vy << 16);
+#ifdef QDOS_R18
+	{
+		unsigned int ov = vsess_view_ov(idx);
+		eff_view = ov ? ov - 1u : g->view;
+	}
+	view = eff_view | (g->vx << 2) | (g->vy << 16);
+	if (eff_view == GS_VIEW_VGA12 || eff_view == GS_VIEW_VGA12W) {
+		if (phys != PHYS_G12G || recheck || g != shown_g || idx != shown_idx || tag != shown_tag || view != shown_view)
+			to_g12gfx(g, idx, tag);
+		else
+			g12_update(g);
+		return;
+	}
+#endif
 	if (phys != PHYS_GFX || recheck || g != shown_g || idx != shown_idx || tag != shown_tag || view != shown_view) {
 		to_gfx(g, idx, tag);
 		return;
@@ -662,6 +944,14 @@ void pres_stats(unsigned int *o)
 {
 	o[0] = o[1] = o[2] = o[3] = o[4] = 0;
 }
+#ifdef QDOS_R18
+void pres_time(unsigned int *o)
+{
+	unsigned int i;
+	for (i = 0; i < 8u; i++)
+		o[i] = 0;
+}
+#endif
 
 static struct pres_shadow shadow = { 0x44485351u, 1u };
 

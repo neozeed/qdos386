@@ -56,6 +56,17 @@
 #define SURF_CAP_SHOW_TEXT_GFX 0x20u  /* rendered text consoles (mode 12h) can be shown */
 struct surf_copy { long sx, sy, w, h, dx, dy; };
 #endif
+#ifdef QDOS_R18
+/* R18 (docs/APOLLO14-DISPLAY-ABI.md): SURF_OP_VIEW also takes GS_VIEW_VGA12 (2) and GS_VIEW_VGA12W (3): the INDEX8
+ * surface is presented in 640x480x16 (mode 12h), centred, without scaling rows; colour = pixel & 15 through palette
+ * entries 0..15.  CAPS has SURF_CAP_VGA12 when the display can do it; older kernels refuse b > 1 with SURF_ERR_ARG. */
+#define SURF_CAP_VGA12    0x40u
+#define SURF_OP_PRES_TIME 38u     /* b = 8-word buffer: presenter cost under the BKL (present.h pres_time) -> 0 */
+#define SURF_OP_SESS_VIEW 37u     /* b = session index, c = 0 (the program's choice) or 1 + GS_VIEW_FIT/VGA12/VGA12W;
+                                   * c = 0xFFFFFFFF: query.  Allowed for the session's own jobs, its creator, the parent
+                                   * of a job on it, and the children of those (e.g. a tool started by the same shell)
+                                   * -> previous override, SURF_ERR_ARG / SURF_ERR_STALE / SURF_ERR_OWNER */
+#endif
 #define SURF_CAP_TEXT     0x01u   /* TEXT80x25 sessions */
 #define SURF_CAP_INDEX8   0x02u   /* INDEX8 surfaces */
 #define SURF_CAP_SHOW_TEXT 0x04u  /* the display presents text sessions (VGA builds) */

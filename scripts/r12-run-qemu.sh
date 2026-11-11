@@ -9,5 +9,5 @@ W=build/r12/qemu-$TAG${QEMU_MON_PORT:+-$QEMU_MON_PORT}; rm -rf "$W"; mkdir -p "$
 cp "${R12_QKERNEL:-${R11M_QKERNEL:-build/r12/pc-pg-vga/r12-pg-vga.img}}" "$W/hda.img"; cp "$V" "$W/hdb.img"
 timeout "$T" python3 scripts/r12-qemu-capture.py "$W/out" "$W" "$ROOT" --seq "$S" > "$O/qemu-$TAG.log" 2>&1 || true
 cp "$W/out/lines.txt" "$O/qemu-$TAG.txt"; cp "$W/hdb.img" "$O/qemu-$TAG.final.img"
-for f in "$W"/out/*.ppm; do if [ -f "$f" ]; then cp "$f" "$O/"; fi; done      # R12B: %screendump pictures
+for f in "$W"/out/*.ppm "$W"/out/*.raw; do if [ -f "$f" ]; then cp "$f" "$O/"; fi; done      # R12B: %screendump pictures (A14: %gsnap dumps)
 echo "qemu $TAG: transcript $O/qemu-$TAG.txt, image $O/qemu-$TAG.final.img"

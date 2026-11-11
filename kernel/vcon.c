@@ -50,6 +50,9 @@ struct vcon {
 	int ret;                           /* R13B: the session to show when this one ends while shown (the creator's) */
 	unsigned int ret_tag;              /*        its tag then: a reused or changed session is not returned to */
 #endif
+#ifdef QDOS_R18
+	unsigned int vov;                  /* R18: presentation override (vsess_view_ov), 0: the program's choice */
+#endif
 };
 
 static struct vcon cons[VCON_MAX];
@@ -144,6 +147,9 @@ static void sess_reset(struct vcon *v)
 #ifdef QDOS_R13B
 	v->ret = 0;
 	v->ret_tag = 0;
+#endif
+#ifdef QDOS_R18
+	v->vov = 0;
 #endif
 	v->tag = stag_next++;
 	if (stag_next > 0xffffffu)
@@ -986,6 +992,22 @@ void vsess_set_font(int idx, struct kfont *f)
 	if (idx == fg)
 		pres_focus_changed();
 }
+
+#ifdef QDOS_R18
+unsigned int vsess_view_ov(int idx)
+{
+	return valid(idx) ? CON(idx).vov : 0u;
+}
+
+void vsess_set_view_ov(int idx, unsigned int ov)
+{
+	if (!valid(idx))
+		return;
+	CON(idx).vov = ov;
+	if (idx == fg)
+		pres_focus_changed();
+}
+#endif
 
 unsigned int vsess_cmode(int idx)
 {

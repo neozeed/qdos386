@@ -515,6 +515,11 @@ int qd_surface_stats(unsigned long *w8);
 #define QD_CONSOLE_GFX       1u      /* the cells drawn with a bitmap font (640x480x16) */
 #define QD_VIEW_FIT          0u
 #define QD_VIEW_CROP         1u
+#define QD_VIEW_VGA12        2u      /* R18 (docs/APOLLO14-DISPLAY-ABI.md): 640x480x16, 1:1, centred, colour = pixel & 15 */
+#define QD_VIEW_VGA12W       3u      /* R18: as VGA12 with each pixel twice as wide (QL aspect; w <= 320) */
+#define QD_SURF_CAP_VGA12    0x40u   /* R18: QD_VIEW_VGA12/VGA12W available; older kernels refuse them (-4) */
+#define QD_SURF_OP_SESS_VIEW 37u     /* R18: qtrap(0x3B, QD_SURF_OP_SESS_VIEW, session, 0 | 1 + QD_VIEW_*): the user's
+                                     * presentation override of a session (Task Manager F3, /BIN/VIEW); 0xFFFFFFFF: query */
 #define QD_GFX13A_MAX_W      512
 #define QD_GFX13A_MAX_H      256
 #define QD_KEV_EXT           0x100ul /* key event word: scancode | flags | modifiers | char << 16 */

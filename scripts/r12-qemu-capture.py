@@ -256,6 +256,61 @@ for c in CMDS:
                 seen.append("C%02d|%s" % (r, "".join("%02x%02x" % (vals[2 * (r * 80 + c)], vals[2 * (r * 80 + c) + 1])
                                                     for c in range(80) if 2 * (r * 80 + c) + 1 < len(vals))))
             seen.append("=== CELLS-END")
+        elif op == "gsnap":                 # A14: with the guest stopped, the screen (NAME.ppm) and the presenter's
+            # surface (NAME.raw, the tests/a14/oracle.py dump format: w h view frames, palette, pixels) read from guest
+            # memory.  QEMU_GSNAP = "addr_of_shown_g,addr_of_eff_view" (kernel symbols, tools/kctx-symmap.py).
+            import struct as _st
+            ga, va = [int(x, 16) for x in __import__("os").environ["QEMU_GSNAP"].split(",")]
+            def _rd(addr, n):
+                out = cmd("xp /%dxb 0x%x" % (n, addr))
+                vals = []
+                for line in out.splitlines():
+                    m = re.match(r"^\s*0*[0-9a-f]+:\s*(.*)$", line)
+                    if m:
+                        vals += [int(x, 16) for x in re.findall(r"0x([0-9a-f]{2})", m.group(1))]
+                return bytes(vals[:n])
+            nm = rest.strip(); base = __import__("os").path.abspath(O) + "/" + nm
+            cmd("stop", 0.2)
+            cmd("screendump %s.ppm" % base, 1.0)
+            def _waitf(f, n):                  # pmemsave writes the file itself: wait until it is complete
+                t_ = time.time() + 10
+                while time.time() < t_:
+                    if __import__("os").path.exists(f) and __import__("os").path.getsize(f) >= n:
+                        return
+                    time.sleep(0.1)
+            magic = w = h = stride = pix = 0; g = ev = 0; note = ""; hdr = b""
+            for _try in range(5):              # the monitor may still be answering the screendump: read until sane
+                g = _st.unpack("<I", _rd(ga, 4))[0]
+                ev = _st.unpack("<I", _rd(va, 4))[0]
+                if __import__("os").path.exists(base + ".hdr"):
+                    __import__("os").remove(base + ".hdr")
+                r_ = cmd('pmemsave 0x%x 900 "%s.hdr"' % (g, base), 0.5)
+                _waitf(base + ".hdr", 900)
+                if not __import__("os").path.exists(base + ".hdr"):
+                    note = "hdr: " + r_.strip()[-80:]
+                    continue
+                hdr = open(base + ".hdr", "rb").read()
+                magic, w, h, stride, pix = _st.unpack_from("<5I", hdr, 0)
+                if magic == 0x46525347 and 0 < w <= 512 and 0 < h <= 256 and stride >= w:
+                    break
+                note = "bad header magic=0x%x g=0x%x" % (magic, g)
+            pal = hdr[20:788] if magic == 0x46525347 else b""
+            frames = _st.unpack_from("<I", hdr, 788 + 4 * 13)[0] if magic == 0x46525347 else 0
+            ok_ = False
+            if magic == 0x46525347:
+                r_ = cmd('pmemsave 0x%x %d "%s.pix"' % (pix, stride * h, base), 1.0)
+                _waitf(base + ".pix", stride * h)
+                ok_ = __import__("os").path.exists(base + ".pix")
+                if not ok_:
+                    note = "pix: " + r_.strip()[-80:]
+            cmd("cont", 0.1)
+            if ok_:
+                px = open(base + ".pix", "rb").read()
+                rows = b"".join(px[y * stride:y * stride + w] for y in range(h))
+                open(base + ".raw", "wb").write(_st.pack("<5I", 0x44343141, w, h, ev, frames) + pal + rows)
+                seen.append("=== GSNAP %s g=0x%x magic=0x%x %dx%d stride %d view %d frames %d" % (nm, g, magic, w, h, stride, ev, frames))
+            else:
+                seen.append("=== GSNAP-FAILED %s %s" % (nm, note))
         elif op == "screendump":            # R12B: the VGA picture through the monitor (PPM in OUTDIR, NAME.ppm)
             cmd("screendump %s/%s.ppm" % (__import__("os").path.abspath(O), rest.strip()), 1.0)
             seen.append("=== SCREENDUMP " + rest.strip())
@@ -264,7 +319,7 @@ for c in CMDS:
     if c[:1] in "!@":
         c = c[1:]
     for ch in c + "\n":
-        cmd("sendkey " + key(ch), 0.12)
+        cmd("sendkey " + key(ch), float(__import__("os").environ.get("QEMU_KEY_DELAY", "0.12")))   # A14: slower for loaded 8-vCPU runs
         sample()
     if nowait:
         run_until(lambda rows: False, 1.5)

@@ -49,6 +49,11 @@ struct gsurf {
 #ifdef QDOS_R13A
 #define GS_VIEW_FIT   0u                   /* scaled to the screen keeping the aspect ratio (nearest neighbour), centred */
 #define GS_VIEW_CROP  1u                   /* a screen-sized window at (vx, vy), 1:1 */
+#ifdef QDOS_R18
+#define GS_VIEW_VGA12  2u                  /* R18: 640x480x16 planar, 1:1, centred (every row and column shown) */
+#define GS_VIEW_VGA12W 3u                  /* R18: 640x480x16 planar, each pixel twice as wide (QL aspect), centred;
+                                            * a surface wider than 320 is shown 1:1 instead */
+#endif
 void gs_set_font(struct gsurf *g, struct kfont *f);
 long gs_blit_key(struct gsurf *g, long x, long y, long w, long h, const unsigned char *src, unsigned long sstride,
                  unsigned int key);

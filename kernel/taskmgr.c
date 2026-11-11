@@ -51,6 +51,9 @@ extern void irq_restore(unsigned int flags);
 #define K_PGDN  0x87
 #define K_F1    0x90
 #define K_F2    0x91
+#ifdef QDOS_R18
+#define K_F3    0x92
+#endif
 #define K_LEFT  0x82
 #define K_RIGHT 0x83
 #define K_DEL   0x88
@@ -559,7 +562,9 @@ static void draw(void)
 	fill(23, tm_confirm_id ? A_WARN : A_LIST);
 	put(23, 1, tm_msg, 78, tm_confirm_id ? A_WARN : A_LIST);
 	fill(24, A_BAR);
-#ifdef QDOS_R13B
+#if defined(QDOS_R18)
+	put(24, 1, "Up/Down select  Enter go to it  F1 end job  F2 start  F3 view  Esc back  Alt+Fn", 78, A_BAR);
+#elif defined(QDOS_R13B)
 	put(24, 1, "Up/Down select  Enter go to it  F1 end job  F2 start program  Esc back  Alt+Fn", 78, A_BAR);
 #else
 	put(24, 1, "Up/Down select  Enter go to its console  F1 end job  Esc back  Alt+Fn console", 78, A_BAR);
@@ -846,6 +851,30 @@ static void key(int c)
 		tm_cmd[0] = 0;
 		set_msg("", 0, 0);
 		break;
+#endif
+#ifdef QDOS_R18
+	case K_F3: {
+		/* R18: cycle the selected job's session presentation: program's choice -> 640x480 1:1 -> 640x480 2x wide ->
+		 * 320x200 fit -> program's choice.  Only how it is shown changes (vsess_view_ov); the program is not told. */
+		static const char *const vn[5] = { "the program's own", "320x200 scaled to fit", "", "640x480x16 1:1",
+		                                   "640x480x16 2x wide" };
+		unsigned int ov, irq;
+		int con;
+		i = find_row(tm_sel_id);
+		if (i < 0) {
+			set_msg("job ", num(n, tm_sel_id), " no longer exists: choose again");
+			break;
+		}
+		irq = irq_save();
+		con = rows[i].con;
+		ov = vsess_view_ov(con);
+		ov = ov == 0u ? 1u + GS_VIEW_VGA12 : ov == 1u + GS_VIEW_VGA12 ? 1u + GS_VIEW_VGA12W
+		   : ov == 1u + GS_VIEW_VGA12W ? 1u + GS_VIEW_FIT : 0u;
+		vsess_set_view_ov(con, ov);
+		irq_restore(irq);
+		set_msg(rows[i].title, ": graphics shown as ", vn[ov]);
+		break;
+	}
 #endif
 	case K_F1:
 		i = find_row(tm_sel_id);

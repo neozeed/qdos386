@@ -134,6 +134,12 @@ void vsess_set_cmode(int idx, unsigned int m);
 void vsess_set_cmode_default(unsigned int m);   /* for sessions created from now on */
 const unsigned short *vsess_cells(int idx, unsigned int *cursor);   /* cursor: col | row << 8 | shown << 16 */
 #endif
+#ifdef QDOS_R18
+/* R18: a presentation override for a session's INDEX8 surface, chosen by the user (Task Manager F3, VIEW): 0 = the
+ * program's own SURF_OP_VIEW, else 1 + GS_VIEW_FIT / GS_VIEW_VGA12 / GS_VIEW_VGA12W.  Pixels are never touched. */
+unsigned int vsess_view_ov(int idx);
+void vsess_set_view_ov(int idx, unsigned int ov);
+#endif
 /* Provided by kernel/surface.c: a surface leaves its session (closed, or its session or owner ended). */
 void surf_release(struct gsurf *g);
 void surf_job_ended(unsigned int job_id, int idx);

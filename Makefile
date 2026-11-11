@@ -478,6 +478,15 @@ qdos386-r17-pc:
 	$(MAKE) build/pc-r17/boot3.bin
 	$(MAKE) pc PCD=build/$(R17D)/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R17_OPTS)" PCIMG=qdos386-r17.img PCBOOT=build/pc-r17/boot3.bin PCMKIMG=platform/pc/make-image3.py PCCTX=build/$(R17D)/pc/$(R17CTX) PCEXTRA="$(addprefix build/$(R17D)/pc/,$(R17_OBJS))"
 	$(MAKE) pc PCD=build/$(R17D)/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R17_OPTS)" PCIMG=qdos386-r17-vga.img PCBOOT=build/pc-r17/boot3.bin PCMKIMG=platform/pc/make-image3.py PCCTX=build/$(R17D)/pc-vga/$(R17CTX) PCEXTRA="$(addprefix build/$(R17D)/pc-vga/,$(R17_OBJS))"
+# R18 Apollo 14 (opt-in; docs/APOLLO14-*.md): the R17 kernel plus the 640x480x16 planar presentation of INDEX8
+# surfaces (SURF_OP_VIEW GS_VIEW_VGA12 / GS_VIEW_VGA12W), all under -DQDOS_R18.  QEMU
+# build/qdos386-r18/pc-vga/qdos386-r18-vga.img.  The R17, R16B, R16A and default `make` kernels are unchanged.
+R18_OPTS = $(R17_OPTS) -DQDOS_R18 $(R18_EXTRA)
+R18D ?= qdos386-r18
+qdos386-r18-pc:
+	$(MAKE) build/pc-r17/boot3.bin
+	$(MAKE) pc PCD=build/$(R18D)/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R18_OPTS)" PCIMG=qdos386-r18.img PCBOOT=build/pc-r17/boot3.bin PCMKIMG=platform/pc/make-image3.py PCCTX=build/$(R18D)/pc/$(R17CTX) PCEXTRA="$(addprefix build/$(R18D)/pc/,$(R17_OBJS))"
+	$(MAKE) pc PCD=build/$(R18D)/pc-vga PCFLAGS="-DQDOS_CON_VGA -DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R18_OPTS)" PCIMG=qdos386-r18-vga.img PCBOOT=build/pc-r17/boot3.bin PCMKIMG=platform/pc/make-image3.py PCCTX=build/$(R18D)/pc-vga/$(R17CTX) PCEXTRA="$(addprefix build/$(R18D)/pc-vga/,$(R17_OBJS))"
 # R15 AMP0 (opt-in, docs/R15-AMP-ARCHITECTURE.md): the current kernel plus the master/worker service - CPU 0 keeps the
 # whole kernel, one application processor runs kernel/amp_ap.c only.  QEMU build/qdos386-amp/pc-vga/qdos386-amp-vga.img,
 # headless build/qdos386-amp/pc/qdos386-amp.img.  The default `make` kernels are unchanged.  Test-only variants:
