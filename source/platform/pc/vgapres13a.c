@@ -89,9 +89,7 @@ static int shown_idx = -1;
 static unsigned int st_text, st_gfx, st_full, st_rows, st_pal;
 static unsigned int cur_col, cur_row, cur_vis;     /* the cursor last drawn into VRAM */
 static unsigned int shown_view;
-#ifdef QDOS_R18
 static unsigned int eff_view;           /* R18: the view in use: the session override (vsess_view_ov) or the program's */
-#endif
 
 static void read_regs(struct vregs *r)
 {
@@ -220,11 +218,7 @@ void pres_init(void)
 
 unsigned int pres_caps(void)
 {
-#ifdef QDOS_R18
 	return saved ? (PRES_CAP_TEXT | PRES_CAP_MODE13 | PRES_CAP_MODE12 | PRES_CAP_G12GFX) : PRES_CAP_TEXT;
-#else
-	return saved ? (PRES_CAP_TEXT | PRES_CAP_MODE13 | PRES_CAP_MODE12) : PRES_CAP_TEXT;
-#endif
 }
 
 void pres_focus_changed(void)
@@ -282,11 +276,7 @@ static int scaled;                            /* 0: 1:1 at the top left (the R13
 
 static void layout(const struct gsurf *g)
 {
-#ifdef QDOS_R18
 	if (eff_view == GS_VIEW_CROP) {
-#else
-	if (g->view == GS_VIEW_CROP) {
-#endif
 		scaled = 2;
 		sdw = g->w < 320u ? g->w : 320u;
 		sdh = g->h < 200u ? g->h : 200u;
@@ -416,11 +406,7 @@ static void to_gfx(struct gsurf *g, int idx, unsigned int tag)
 	shown_g = g;
 	shown_idx = idx;
 	shown_tag = tag;
-#ifdef QDOS_R18
 	shown_view = eff_view | (g->vx << 2) | (g->vy << 16);
-#else
-	shown_view = g->view | (g->vx << 2) | (g->vy << 16);
-#endif
 	phys = PHYS_GFX;
 	shadow.mode = 2;
 	shadow.session = (unsigned int) idx;
@@ -442,7 +428,6 @@ static const struct kfont *console_font(int idx)
 	return f;
 }
 
-#ifdef QDOS_R18
 /* R18: the same planes, gathered in one pass: spread[v] has bit p of v at bit 8p, so after 8 pixels w holds the four
  * plane bytes; then each plane's 80 bytes are written with its map mask (no VRAM reads, latches unused). */
 static const unsigned int spread[16] = {
@@ -480,27 +465,6 @@ static void put_line(unsigned int y)
 	outb(P_SEQ, 2);
 	outb(P_SEQ + 1, 0x0f);
 }
-#else
-static void put_line(unsigned int y)          /* line[0..639] (colours 0..15) to screen row y, plane by plane */
-{
-	unsigned int p, b, k;
-	volatile unsigned char *d = VRAM + y * 80u;
-
-	for (p = 0; p < 4; p++) {
-		outb(P_SEQ, 2);
-		outb(P_SEQ + 1, 1u << p);
-		for (b = 0; b < 80u; b++) {
-			unsigned int v = 0;
-			const unsigned char *s = line + b * 8u;
-			for (k = 0; k < 8; k++)
-				v = (v << 1) | ((s[k] >> p) & 1u);
-			d[b] = (unsigned char) v;
-		}
-	}
-	outb(P_SEQ, 2);
-	outb(P_SEQ + 1, 0x0f);
-}
-#endif
 
 /* Render text row r of the session (cells) into screen rows; the cursor is drawn if it is on this row. */
 static void text_row(const struct kfont *f, const unsigned short *cells, unsigned int r, unsigned int cur)
@@ -626,7 +590,6 @@ static void gtext_update(int idx)
 		shadow.frames++;
 }
 
-#ifdef QDOS_R18
 /* ---- mode 12h: INDEX8 surfaces presented 1:1 (R18 Apollo 14, docs/APOLLO14-PLANAR-VGA.md) ----
  * The surface (at most 512x256) is placed centred in 640x480 without scaling rows: GS_VIEW_VGA12 1:1,
  * GS_VIEW_VGA12W each pixel doubled horizontally (if 2w <= 640).  Colour: pixel & 15 through palette entries 0..15
@@ -799,9 +762,7 @@ static void g12_update(struct gsurf *g)
 			g12_cell_rows(g, cur_row);
 	}
 }
-#endif
 
-#ifdef QDOS_R18
 /* R18: pres_poll runs in the SYSTEM job with the BKL held and interrupts off (kernel/shellboot.c): its cost is the
  * presenter's share of lock time.  Measured with the TSC around every call; read by SURF_OP_PRES_TIME. */
 static unsigned int pt_calls, pt_busy, pt_max, pt_tot_lo, pt_tot_hi, pt_maxrows;
@@ -837,9 +798,6 @@ void pres_poll(void)
 	}
 }
 static void pres_poll_body(void)
-#else
-void pres_poll(void)
-#endif
 {
 	unsigned int irq;
 	struct gsurf *g;
@@ -875,7 +833,6 @@ void pres_poll(void)
 		return;
 	}
 	view = g->view | (g->vx << 2) | (g->vy << 16);
-#ifdef QDOS_R18
 	{
 		unsigned int ov = vsess_view_ov(idx);
 		eff_view = ov ? ov - 1u : g->view;
@@ -888,7 +845,6 @@ void pres_poll(void)
 			g12_update(g);
 		return;
 	}
-#endif
 	if (phys != PHYS_GFX || recheck || g != shown_g || idx != shown_idx || tag != shown_tag || view != shown_view) {
 		to_gfx(g, idx, tag);
 		return;
@@ -944,14 +900,12 @@ void pres_stats(unsigned int *o)
 {
 	o[0] = o[1] = o[2] = o[3] = o[4] = 0;
 }
-#ifdef QDOS_R18
 void pres_time(unsigned int *o)
 {
 	unsigned int i;
 	for (i = 0; i < 8u; i++)
 		o[i] = 0;
 }
-#endif
 
 static struct pres_shadow shadow = { 0x44485351u, 1u };
 

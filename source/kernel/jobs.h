@@ -16,15 +16,20 @@
 #define QDOS386_JOBS_H
 
 #include "fpu.h"
+#include "resource_config.h"
 
 #ifdef QDOS_PAGING_POC
 #error "R11K: the paging feature macro is now QDOS_PAGING (ABI 2); QDOS_PAGING_POC was the R11J name"
 #endif
 #if defined(QDOS_DYNPROC) && defined(QDOS_R17)
+#ifdef QDOS_R4_RESOURCES
+#define JOB_MAX QDOS_CFG_MAX_JOBS
+#else
 #ifndef R17_JOB_MAX
 #define R17_JOB_MAX 24
 #endif
 #define JOB_MAX R17_JOB_MAX       /* R17: room for up to seven AP idle jobs beside 16 ordinary slots (dead_mask < 32) */
+#endif
 #elif defined(QDOS_DYNPROC)
 #define JOB_MAX 16                /* R12A: a bounded table; job memory (frames, kernel stacks) is dynamic */
 #else
@@ -33,7 +38,11 @@
 #endif
 /* R16/R17: number of per-CPU slots (CPU index = kx_this_cpu(), from the task register) */
 #ifdef QDOS_R17
+#ifdef QDOS_R4_RESOURCES
+#define KX_NCPU QDOS_CFG_MAX_CPUS
+#else
 #define KX_NCPU 8
+#endif
 #else
 #define KX_NCPU 2
 #endif

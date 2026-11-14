@@ -93,8 +93,13 @@
 
 struct job jobs[JOB_MAX];
 #ifdef QDOS_R17
+#ifdef QDOS_R4_RESOURCES
+int g_jobcur[KX_NCPU] = { JOB_SYSTEM };
+int g_jobidle[KX_NCPU] = { 3 }; /* every row initialized by sched_init before AP entry */
+#else
 int g_jobcur[KX_NCPU] = { JOB_SYSTEM, JOB_SYSTEM, JOB_SYSTEM, JOB_SYSTEM, JOB_SYSTEM, JOB_SYSTEM, JOB_SYSTEM, JOB_SYSTEM };
 int g_jobidle[KX_NCPU] = { 3, 3, 3, 3, 3, 3, 3, 3 };   /* R17: an AP's slot is set before it is ever scheduled */
+#endif
 #elif defined(QDOS_R16)
 int g_jobcur[2] = { JOB_SYSTEM, JOB_SYSTEM };   /* per-CPU current slot (indexed by kx_this_cpu) */
 int g_jobidle[2] = { 3, 3 };                    /* per-CPU idle slot */
@@ -113,9 +118,13 @@ unsigned long jobs_reclaimed = 0;
 unsigned long bytes_reclaimed = 0;
 unsigned int sv_rand = 0;
 #ifdef QDOS_R17
+#ifdef QDOS_R4_RESOURCES
+unsigned int kx_pc[KX_NCPU][4] = { { 0, 0xFFFFFFFFu, 0, 0 } };
+#else
 unsigned int kx_pc[KX_NCPU][4] = { { 0, 0xFFFFFFFFu, 0, 0 }, { 0, 0xFFFFFFFFu, 0, 0 }, { 0, 0xFFFFFFFFu, 0, 0 },
 	{ 0, 0xFFFFFFFFu, 0, 0 }, { 0, 0xFFFFFFFFu, 0, 0 }, { 0, 0xFFFFFFFFu, 0, 0 }, { 0, 0xFFFFFFFFu, 0, 0 },
 	{ 0, 0xFFFFFFFFu, 0, 0 } };   /* R17: kctx17.s selects row TR -> cpu (docs/APOLLO13-AUDIT.md) */
+#endif
 #elif defined(QDOS_R16)
 /* R16: per-CPU {kx_lo, kx_hi, kx_entry, resume_fmt}, one row per CPU; kctx3.s selects the row by the task register.
  * Row defaults (whole address space, fmt 0) mean "already on the kernel stack": template jobs never switch. */
@@ -182,7 +191,15 @@ unsigned int job_kill_current(unsigned int sp);        /* defined below (QDOS_PA
 
 static struct qtask *poll_list = 0;     /* SV.PLIST */
 static struct qtask *sched_list = 0;    /* SV.SHLST */
+#ifdef QDOS_R4_RESOURCES
+static unsigned int dead_mask[(JOB_MAX + 31) / 32] = { 0 };
+#define DEAD_WORD(slot) dead_mask[(unsigned int) (slot) >> 5]
+#define DEAD_BIT(slot) (1u << ((unsigned int) (slot) & 31u))
+#else
 static unsigned int dead_mask = 0;      /* slots whose frame is saved and dead */
+#define DEAD_WORD(slot) dead_mask
+#define DEAD_BIT(slot) (1u << (slot))
+#endif
 
 extern void job_trampoline(void);
 extern unsigned int irq_save(void);
@@ -262,9 +279,9 @@ static void reclaim_dead(void)
 {
 	int i;
 	for (i = 1; i < JOB_MAX; i++) {
-		unsigned int bit = 1u << i;
+		unsigned int bit = DEAD_BIT(i);
 		struct job *j = &jobs[i];
-		if (i == job_current || !(dead_mask & bit))
+		if (i == job_current || !(DEAD_WORD(i) & bit))
 			continue;
 #ifdef QDOS_R16
 		if (j->running_on != -1)        /* still executing on the other CPU: reclaim after its next pass saves it */
@@ -296,7 +313,7 @@ static void reclaim_dead(void)
 #ifdef QDOS_ENV
 		env_job_gone(i);                  /* R12B: the block itself went with the job's heap blocks */
 #endif
-		dead_mask &= ~bit;
+		DEAD_WORD(i) &= ~bit;
 		j->in_use = 0;
 		j->dead = 0;
 		j->prio_inc = 0;
@@ -385,7 +402,7 @@ static unsigned int schedule(unsigned int sp, int fmt, int from_irq)
 	out->saved_sp = sp;
 	out->saved_fmt = fmt;
 	if (out->dead)
-		dead_mask |= 1u << job_current;    /* frame saved: now reclaimable */
+		DEAD_WORD(job_current) |= DEAD_BIT(job_current); /* frame saved: now reclaimable */
 	if (out->acc_prio != 0)
 		out->acc_prio = 1;                 /* l009d4 */
 	if (out->stack_base != 0 &&
@@ -598,7 +615,7 @@ int job_alloc_sized(const char *name, void (*entry)(void), unsigned char inc, un
 		return MEM_ERR_OVERFLOW;
 
 	for (i = 1; i < JOB_MAX; i++) {
-		if (!jobs[i].in_use && !(dead_mask & (1u << i)))
+		if (!jobs[i].in_use && !(DEAD_WORD(i) & DEAD_BIT(i)))
 			break;
 	}
 	if (i >= JOB_MAX)
@@ -714,7 +731,52 @@ void job_mark_dead_other(int slot)
 #ifdef QDOS_AMP
 	amp_job_ended(j->id);              /* R15: cancel its worker request at once (reclaimed after the acknowledgement) */
 #endif
-	dead_mask |= 1u << slot;
+	DEAD_WORD(slot) |= DEAD_BIT(slot);
+}
+#endif
+
+#ifdef QDOS_R4_TEST_FILL
+/* Test-only boot hook, before APs/processes: exercise the actual allocator,
+ * deferred-death bitmap and finite generation wrap without a new syscall. */
+#if !defined(QDOS_R4_RESOURCES) || QDOS_R4_TEST_FILL < 0 || QDOS_R4_TEST_FILL >= JOB_MAX - KX_NCPU - 3
+#error "R4 slot instrumentation requires current resources and room for normal boot jobs"
+#endif
+int job_resource_selftest(void)
+{
+	struct mem_stats before, after;
+	unsigned int saved[JOB_MAX], ids[JOB_MAX];
+	int i, n = 0, rc, bad = 0;
+	(void) vcon_job_con(0); /* initialize static sessions before the baseline */
+	if (mem_stats(&before) != 0) return 1;
+	for (i = 0; i < JOB_MAX; i++) saved[i] = jobs[i].tag;
+	for (i = 1; i < JOB_MAX; i++) {
+		rc = job_alloc_sized("R4-CHECK", 0, 0, JOB_STACK_BYTES);
+		if (rc < 0) { bad++; break; }
+		ids[n++] = (unsigned int) rc;
+		if ((rc & 0xffff) != i || job_lookup((unsigned int) rc) != i || vcon_job_con(i) != 0) bad++;
+	}
+	if (n != JOB_MAX - 1 || job_alloc_sized("R4-OVER", 0, 0, JOB_STACK_BYTES) != -1) bad++;
+	if (n == JOB_MAX - 1 && vcon_job_set(JOB_MAX - 1, 1) != 0) bad++;
+	for (i = 0; i < n; i++) job_mark_dead_other((int) (ids[i] & 0xffffu));
+	reclaim_dead(); /* serialized boot, no victim runs and no AP exists yet */
+	for (i = 1; i < JOB_MAX; i++)
+		if (jobs[i].in_use || (DEAD_WORD(i) & DEAD_BIT(i))) bad++;
+	if (vcon_users(1) != 0) bad++;
+	jobs[1].tag = 0x7ffeu;
+	rc = job_alloc_sized("R4-WRAP", 0, 0, JOB_STACK_BYTES);
+	if (rc != 0x00010001 || job_lookup(0x7ffe0001u) != JOB_NONE) bad++;
+	if (rc > 0) job_cancel((unsigned int) rc);
+	for (i = 0; i < JOB_MAX; i++) jobs[i].tag = saved[i];
+	if (mem_stats(&after) != 0 || mem_validate() != 0 || before.free != after.free ||
+	    before.used != after.used || before.largest_free != after.largest_free) bad++;
+	for (i = 0; i < QDOS_R4_TEST_FILL; i++)
+		if (job_alloc_sized("R4-HOLD", 0, 0, JOB_STACK_BYTES) < 0) bad++;
+	con_puts("R4SLOTS SELFTEST "); con_puts(bad ? "FAIL" : "PASS");
+	con_puts(" max="); con_putdec(JOB_MAX);
+	con_puts(" covered="); con_putdec((unsigned long) n + 1u);
+	con_puts(" fill="); con_putdec(QDOS_R4_TEST_FILL);
+	con_puts(" wrap=1 bad="); con_putdec(bad); con_puts("\n");
+	return bad;
 }
 #endif
 
@@ -726,6 +788,15 @@ void job_idle_set(int slot)
 void sched_init(void)
 {
 	int i;
+#ifdef QDOS_R4_RESOURCES
+	for (i = 0; i < KX_NCPU; i++) {
+		g_jobcur[i] = JOB_SYSTEM;
+		g_jobidle[i] = 3;
+		kx_pc[i][0] = 0;
+		kx_pc[i][1] = 0xFFFFFFFFu;
+		kx_pc[i][2] = kx_pc[i][3] = 0;
+	}
+#endif
 	for (i = 0; i < JOB_MAX; i++) {
 		jobs[i].saved_sp = 0;
 		jobs[i].saved_fmt = 0;
@@ -773,7 +844,11 @@ void sched_init(void)
 	jobs[JOB_SYSTEM].running_on = 0;   /* SYSTEM is running on CPU 0 from boot */
 	jobs[JOB_SYSTEM].last_cpu = 0;
 #endif
+#ifdef QDOS_R4_RESOURCES
+	for (i = 0; i < (JOB_MAX + 31) / 32; i++) dead_mask[i] = 0;
+#else
 	dead_mask = 0;
+#endif
 }
 
 /*
@@ -856,7 +931,7 @@ unsigned int trap_dispatch(unsigned int sp)
 		/* tr1d08: JOB.STAT = timeout, JOB.HOLD = release flag, then schedule.
 		 * R11E: the hold flag is written by the kernel later, so it must be a
 		 * byte in the caller's range (0 = no flag). */
-		if (b != 0 && !chan_user_range_ok(b, 1)) {
+		if (b != 0 && !CHAN_SERVICE_RANGE_OK(b, 1)) {
 			result = CHAN_ERR_RANGE;
 			break;
 		}
@@ -1048,7 +1123,7 @@ unsigned int trap_dispatch(unsigned int sp)
 	case QT_APP_ARGS:
 		/* R8: argc of the calling job, and the argv array address through a.
 		 * A job with no argument block has argc 0. */
-		if (a != 0 && !chan_user_range_ok(a, 4)) {
+		if (a != 0 && !CHAN_SERVICE_RANGE_OK(a, 4)) {
 			result = CHAN_ERR_RANGE;
 			break;
 		}
@@ -1106,7 +1181,7 @@ unsigned int trap_dispatch(unsigned int sp)
 		 * the caller read.  Otherwise sleep indefinitely; the arrival wakes us
 		 * and clears the flag.  The trap returns 0 in both cases.  R11E: b must
 		 * be a byte in the caller's range; the kernel writes it on arrival. */
-		if (b != 0 && !chan_user_range_ok(b, 1)) {
+		if (b != 0 && !CHAN_SERVICE_RANGE_OK(b, 1)) {
 			result = CHAN_ERR_RANGE;
 			break;
 		}

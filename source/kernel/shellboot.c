@@ -120,6 +120,10 @@ int shell_boot(void)
 #ifdef QDOS_R20
 	r20c_init();                   /* R20 Phase 2B: the bounded sector cache, sized from the memory map (after pg_init) */
 #endif
+#ifdef QDOS_R4_TEST_FILL
+	{ extern int job_resource_selftest(void);
+	  if (job_resource_selftest() != 0) boot_fail("R4 resource selftest failed"); }
+#endif
 	if (win1_mount() != FAT_OK)
 		boot_fail("WIN1_ volume not mounted");
 	con_puts("WIN1_: mounted\n");

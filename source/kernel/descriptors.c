@@ -109,7 +109,11 @@ void kx_tss_init(unsigned int template_cr3)
 
 #ifdef QDOS_R17
 /* R17: per-CPU TSS.  CPU 0 uses kx_tss_main (selector 0x18); CPU n >= 1 uses kx_tss_aps[n - 1] (selector 0x30 + 8n). */
+#ifdef QDOS_R4_RESOURCES
+unsigned int kx_tss_aps[KX_NCPU > 1 ? KX_NCPU - 1 : 1][26];
+#else
 unsigned int kx_tss_aps[7][26];
+#endif
 int kx_this_cpu(void);
 
 void kx_set_esp0(unsigned int esp)                 /* dispatching CPU's TSS.ESP0 for the incoming job */

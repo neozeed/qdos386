@@ -7,6 +7,9 @@
 #include "channel.h"
 #include "fat16.h"
 #include "win1.h"
+#ifdef QDOS_APOLLO_R6
+#include "r6boot.h"
+#endif
 #ifdef QDOS_R16
 #include "mbr.h"
 #endif
@@ -48,6 +51,17 @@ static int choose_partition(unsigned int dev)
 
 	if (disk_read_sector(0, &s[0]) != 0)
 		return FAT_ERR_IO;
+#ifdef QDOS_APOLLO_R6
+	if (r6_boot_state == 1) {
+		const unsigned char *e = s + 446u + 16u * r6_boot.partition;
+		unsigned int start = (unsigned int)e[8] | ((unsigned int)e[9]<<8) |
+		                     ((unsigned int)e[10]<<16) | ((unsigned int)e[11]<<24);
+		if (s[510] != 0x55 || s[511] != 0xaa || start != r6_boot.start || e[0] != 0x80u)
+			return FAT_ERR_BPB;
+		part_lba = r6_boot.start; part_count = r6_boot.sectors;
+		return FAT_OK;
+	}
+#endif
 	rc = mbr_select_fat16(s, dev, &part_lba, &part_count, &ncand);
 	if (rc == MBR_REFUSE)
 		return FAT_ERR_BPB;                  /* not a FAT16 VBR and no usable FAT16 primary */
@@ -271,6 +285,19 @@ int win1_mount(void)
 	r20c_invalidate_all();               /* R20 Phase 2B: a (re)mount trusts no cached sector */
 #endif
 #ifdef QDOS_R16
+#ifdef QDOS_APOLLO_R6
+	if (r6_boot_state < 0) {
+		con_puts("R6BOOT: invalid contract\n"); return FAT_ERR_BPB;
+	}
+	if (r6_boot_state == 1) {
+		int unit = disk_select_boot(&r6_boot);
+		if (unit < 0) { con_puts("R6BOOT: disk identity refused\n"); return FAT_ERR_BPB; }
+		con_puts("R6BOOT: validated primary IDE unit="); con_putdec((unsigned int)unit);
+		con_puts(" partition="); con_putdec(r6_boot.partition + 1u);
+		con_puts(" start="); con_putdec(r6_boot.start);
+		con_puts(" sectors="); con_putdec(r6_boot.sectors); con_putc('\n');
+	}
+#endif
 	dev_count = (unsigned int) disk_sector_count();
 	if (dev_count == 0)
 		return FAT_ERR_IO;

@@ -23,9 +23,7 @@
 #ifdef QDOS_SYNC
 #include "sync.h"
 #endif
-#ifdef QDOS_R13B
 #include "imgload.h"
-#endif
 
 extern unsigned int irq_save(void);
 extern void irq_restore(unsigned int flags);
@@ -51,9 +49,7 @@ extern void irq_restore(unsigned int flags);
 #define K_PGDN  0x87
 #define K_F1    0x90
 #define K_F2    0x91
-#ifdef QDOS_R18
 #define K_F3    0x92
-#endif
 #define K_LEFT  0x82
 #define K_RIGHT 0x83
 #define K_DEL   0x88
@@ -63,10 +59,8 @@ struct tm_row {
 	int slot, con, users;
 	unsigned int flags;
 	unsigned char state;
-#ifdef QDOS_R16
 	signed char cpu_run;               /* R16A: running_on (-1 not running, else CPU) */
 	signed char cpu_last;              /* R16A: last CPU it ran on, or -1 if never dispatched */
-#endif
 #ifdef QDOS_SURFACES
 	unsigned int gw, gh;               /* R13: its session's INDEX8 size, 0 for a text session */
 #endif
@@ -90,7 +84,6 @@ static int nrows;
 static unsigned short scr[TM_ROWS * TM_COLS];
 static unsigned long tm_last_draw;
 unsigned long tm_opens, tm_switches, tm_kills, tm_keys, tm_draws;
-#ifdef QDOS_R13B
 /* R13B: F2 Start Program - a bounded edit line, launched by the kernel (img_launch_as) with the boot shell's directory
  * and PATH, owner SYSTEM, into a new private session; see docs/R13B-TASK-LAUNCHER.md. */
 #define TM_CMD_MAX 70
@@ -101,7 +94,6 @@ static unsigned int tm_ctx_id;          /* tagged id of the job whose directory 
 static unsigned char tm_args[TM_CMD_MAX + 1];
 static char tm_name[TM_CMD_MAX + 1];
 unsigned long tm_launches, tm_launch_fails;
-#endif
 
 /* ---- called with interrupts off (keyboard IRQ or a trap) ----------------------------------------------------- */
 
@@ -135,9 +127,7 @@ static void tm_close(int restore)
 		(void) vcon_switch(tm_prev_fg);
 	tm_open = 0;
 	tm_confirm_id = 0;
-#ifdef QDOS_R13B
 	tm_edit = 0;
-#endif
 	vcon_overlay(0);
 }
 
@@ -170,9 +160,7 @@ void taskmgr_console_key(int con)
 	if (tm_open) {
 		tm_open = 0;
 		tm_confirm_id = 0;
-#ifdef QDOS_R13B
 		tm_edit = 0;
-#endif
 		(void) vcon_switch(con);         /* the overlay is still on: only the focus moves */
 		vcon_overlay(0);
 		return;
@@ -194,10 +182,8 @@ int taskmgr_trap(unsigned int op)
 		return tm_open ? 1 : 0;
 	case TM_OP_OPENS:
 		return (int) tm_opens;
-#ifdef QDOS_R13B
 	case TM_OP_LAUNCHES:
 		return (int) tm_launches;
-#endif
 	default:
 		return -15;
 	}
@@ -256,10 +242,8 @@ static void snapshot(void)
 		r->start = jobctl_start_tick(s);
 		r->state = jobctl_state(s);
 		r->flags = jobctl_flags(s);
-#ifdef QDOS_R16
 		r->cpu_run = jobs[s].running_on;    /* read under the snapshot's interrupts-off guard */
 		r->cpu_last = jobs[s].last_cpu;
-#endif
 		r->con = vcon_job_con(s);
 #ifdef QDOS_SURFACES
 		{
@@ -407,26 +391,22 @@ static void diag_dump(void)
 
 /* Snapshot, keep the selection by id, compose the screen and show it - all with interrupts off, and only while the
  * selector is still open (an Alt+Fn in the keyboard IRQ may have closed it). */
-#ifdef QDOS_R16
 /* R16A: the CPU cell.  A running job shows its confirmed CPU (0/1); a job not currently running shows the CPU it last
  * ran on as ~0/~1; a job never dispatched shows -.  ~ means "last ran on", not "running now". */
 static const char *cpu_cell(const struct tm_row *x)
 {
-#ifdef QDOS_R17
 	/* R17: CPUs 0..7, same notation */
 	static const char *const run[8] = { "0", "1", "2", "3", "4", "5", "6", "7" };
 	static const char *const last[8] = { "~0", "~1", "~2", "~3", "~4", "~5", "~6", "~7" };
 	if (x->cpu_run >= 0 && x->cpu_run < 8) return run[(int) x->cpu_run];
 	if (x->cpu_last >= 0 && x->cpu_last < 8) return last[(int) x->cpu_last];
 	return "-";
-#endif
 	if (x->cpu_run == 0) return "0";
 	if (x->cpu_run == 1) return "1";
 	if (x->cpu_last == 0) return "~0";
 	if (x->cpu_last == 1) return "~1";
 	return "-";
 }
-#endif
 
 static void draw(void)
 {
@@ -463,12 +443,8 @@ static void draw(void)
 	fill(1, A_LIST);
 	fill(2, A_HEAD);
 	put(2, 1, "ID", 8, A_HEAD);
-#ifdef QDOS_R16
 	put(2, 10, "TITLE", 24, A_HEAD);
 	put(2, 35, "CPU", 3, A_HEAD);
-#else
-	put(2, 10, "TITLE", 28, A_HEAD);
-#endif
 	put(2, 39, "PROGRAM", 14, A_HEAD);
 	put(2, 54, "STATE", 7, A_HEAD);
 	put(2, 62, "CON", 4, A_HEAD);
@@ -487,12 +463,8 @@ static void draw(void)
 		a = k == sel ? A_SEL : A_LIST;
 		fill(row, a);
 		put(row, 1, num(n, x->id), 8, a);
-#ifdef QDOS_R16
 		put(row, 10, x->title[0] ? x->title : "(no title)", 24, a);
 		put(row, 35, cpu_cell(x), 3, a);
-#else
-		put(row, 10, x->title[0] ? x->title : "(no title)", 28, a);
-#endif
 		put(row, 39, x->exe, 14, a);
 		put(row, 54, state_name(x->state), 7, a);
 		b[0] = 0;
@@ -537,7 +509,6 @@ static void draw(void)
 			cat(b, "; protected, cannot be ended", sizeof b);
 		put(22, 1, b, 78, A_BAR);
 	}
-#ifdef QDOS_R13B
 	if (tm_edit) {
 		fill(21, A_LIST);
 		put(21, 1, tm_msg, 78, A_LIST);
@@ -558,17 +529,10 @@ static void draw(void)
 		irq_restore(irq);
 		return;
 	}
-#endif
 	fill(23, tm_confirm_id ? A_WARN : A_LIST);
 	put(23, 1, tm_msg, 78, tm_confirm_id ? A_WARN : A_LIST);
 	fill(24, A_BAR);
-#if defined(QDOS_R18)
 	put(24, 1, "Up/Down select  Enter go to it  F1 end job  F2 start  F3 view  Esc back  Alt+Fn", 78, A_BAR);
-#elif defined(QDOS_R13B)
-	put(24, 1, "Up/Down select  Enter go to it  F1 end job  F2 start program  Esc back  Alt+Fn", 78, A_BAR);
-#else
-	put(24, 1, "Up/Down select  Enter go to its console  F1 end job  Esc back  Alt+Fn console", 78, A_BAR);
-#endif
 	vdisp_load(scr);
 	vdisp_cursor(24, 79, 0);
 #ifndef QDOS_CON_VGA
@@ -645,7 +609,6 @@ static void do_end(unsigned int id)
 	}
 }
 
-#ifdef QDOS_R13B
 void taskmgr_set_context(int job_id)
 {
 	tm_ctx_id = (unsigned int) job_id;
@@ -792,19 +755,16 @@ static void edit_key(int c)
 		return;
 	}
 }
-#endif
 
 static void key(int c)
 {
 	int i;
 	char n[12];
 
-#ifdef QDOS_R13B
 	if (tm_edit) {
 		edit_key(c);
 		return;
 	}
-#endif
 	if (tm_confirm_id) {
 		unsigned int id = tm_confirm_id;
 
@@ -844,15 +804,12 @@ static void key(int c)
 		irq_restore(irq);
 		break;
 	}
-#ifdef QDOS_R13B
 	case K_F2:
 		tm_edit = 1;
 		tm_len = tm_pos = 0;
 		tm_cmd[0] = 0;
 		set_msg("", 0, 0);
 		break;
-#endif
-#ifdef QDOS_R18
 	case K_F3: {
 		/* R18: cycle the selected job's session presentation: program's choice -> 640x480 1:1 -> 640x480 2x wide ->
 		 * 320x200 fit -> program's choice.  Only how it is shown changes (vsess_view_ov); the program is not told. */
@@ -875,7 +832,6 @@ static void key(int c)
 		set_msg(rows[i].title, ": graphics shown as ", vn[ov]);
 		break;
 	}
-#endif
 	case K_F1:
 		i = find_row(tm_sel_id);
 		if (i < 0) {

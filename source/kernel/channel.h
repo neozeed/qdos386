@@ -172,5 +172,12 @@ extern volatile unsigned long chan_rejected;
 /* Shared with the test jobs: a user buffer must lie in the flat arena or the
  * kernel image below it.  This is a range check, not a protection check. */
 int chan_user_range_ok(unsigned int addr, unsigned int n);
+#ifdef QDOS_LEGACY_DIAGNOSTIC
+/* Privileged legacy kernel-test clients only; the public predicate stays strict. */
+int legacy_service_range_ok(unsigned int addr, unsigned int n);
+#define CHAN_SERVICE_RANGE_OK legacy_service_range_ok
+#else
+#define CHAN_SERVICE_RANGE_OK chan_user_range_ok
+#endif
 
 #endif

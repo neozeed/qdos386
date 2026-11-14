@@ -39,6 +39,13 @@ void fr_init(struct fr_pool *p);
 int fr_add_range(struct fr_pool *p, unsigned int lo, unsigned int hi);
 /* Remove one frame from the pool (boot pattern test failure).  The frame must be free. */
 int fr_remove(struct fr_pool *p, unsigned int pa);
+#ifdef QDOS_R20
+/* Boot-serialized reservation: remove one contiguous FREE run from pool membership.
+ * Reserved frames remain supervisor identity mappings in subsequently built CR3s.
+ * 0 on invalid/no run; failure has no side effects. Return with fr_add_range only
+ * before any address space has been created. Caller supplies serialization. */
+unsigned int fr_reserve_run(struct fr_pool *p, unsigned int lo, unsigned int hi, unsigned int pages);
+#endif
 /* One free frame: its physical address, or 0 if none (0 is never a pool frame). */
 unsigned int fr_alloc(struct fr_pool *p);
 int fr_free(struct fr_pool *p, unsigned int pa);

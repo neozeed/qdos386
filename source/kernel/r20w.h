@@ -19,6 +19,7 @@
  * the saved EIP over its own "int 0x30", so the same call runs again on wake.  Only a complete probe commits.
  *
  * Phase 2B (bounded sector cache, kernel/r20w.c):
+ *   - Backing: bounded boot-reserved physical arena, shared supervisor mappings; no general heap charge.
  *   - Budget: min(5% of firmware-reported usable RAM, 2 MiB), counting data AND metadata (entries, buckets, queue).
  *   - Keyed by device identity (one IDE slave: dev 0) and physical LBA (the partition offset is applied before the cache).
  *   - Hashed lookup, clock (second-chance) eviction, per-entry pins held by the worker, generation numbers.
@@ -52,6 +53,9 @@
 #define R20C_OWNER       0x7E20u     /* heap owner of the cache blocks (never a job id) */
 #ifndef R20_RSV_MAX
 #define R20_RSV_MAX 4             /* completed sectors one reader may hold reserved at once (a 256-byte read needs at most 3) */
+#endif
+#if R20_RSV_MAX < 1 || R20_RSV_MAX > 255
+#error "r20w: reservation quota must fit the nonzero unsigned-byte count"
 #endif
 #define R20_MAX_MISS  64          /* restarts one process may take in a row before its read fails (bounded) */
 #define R20_DEV_SPIN  100000000ul /* bounded wait for the storage claim (a sync trap polls with the BKL held) */

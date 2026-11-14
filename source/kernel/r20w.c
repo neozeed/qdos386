@@ -22,6 +22,7 @@
 #include "channel.h"
 #include "memmap.h"
 #include "memory.h"
+#include "proc.h"
 #include "platform.h"
 
 #ifdef QDOS_R20
@@ -73,7 +74,25 @@ struct r20_ce {
 	unsigned char ref;            /* clock reference bit */
 	unsigned char hashed;         /* 1 while in the hash chain */
 	unsigned char dev;            /* device identity: 0 = the single IDE slave */
+#if JOB_MAX > 32
+	unsigned int rmask_hi;        /* R4 current64 only: job slots32..63, under the same BKL */
+#endif
 };
+#if JOB_MAX > 32
+#if !defined(QDOS_R4_RESOURCES) || JOB_MAX > 64
+#error "r20w: wide reservation ownership requires the audited R4 <=64 composition"
+#endif
+#define RM_WORD(e, s) (*((unsigned int) (s) < 32u ? &(e)->rmask : &(e)->rmask_hi))
+#define RM_BIT(s) (1u << ((unsigned int) (s) & 31u))
+#define RM_ANY(e) ((e)->rmask || (e)->rmask_hi)
+#define RM_CLEAR(e) do { (e)->rmask = 0; (e)->rmask_hi = 0; } while (0)
+unsigned int r20_diag_ce_stride = sizeof(struct r20_ce);
+#else
+#define RM_WORD(e, s) ((e)->rmask)
+#define RM_BIT(s) (1u << (s))
+#define RM_ANY(e) ((e)->rmask)
+#define RM_CLEAR(e) ((e)->rmask = 0)
+#endif
 
 static struct r20_req rq[R20_NQ];
 static int wslot = -1;                       /* the worker's job slot */
@@ -81,6 +100,7 @@ static int wstate = R20W_STOPPED;
 static unsigned int gen_next = 1;
 static unsigned int seq_next = 1;
 static unsigned long st[R20_STAT_N];
+unsigned long *r20_diag_stats = st; /* internal diagnostic symbol, no new trap ABI */
 static unsigned short jwait[JOB_MAX];        /* 0 none; entry index + 1; NOSPACE_TAG */
 static unsigned int jwait_id[JOB_MAX];       /* tagged job id the wait belongs to (slot reuse) */
 static unsigned char misses[JOB_MAX];        /* restarts taken by this job in a row */
@@ -88,16 +108,13 @@ static unsigned int giveup_job[JOB_MAX];     /* GAVE_UP events per job (diagnost
 static unsigned long inj_n = 0;              /* test-only fault injection counter (R20C_INJECT_EVERY) */
 static int r20c_dump(void);                  /* console state dump (R20_STAT_DUMP) */
 static volatile int r20_claim = 0;           /* the worker holds the controller: sync traps must wait */
-#if JOB_MAX > 32
-#error "r20w: rmask holds one bit per job slot"
-#endif
 static unsigned short rsv_e[JOB_MAX][R20_RSV_MAX];   /* a reader's reserved entries (index) ... */
 static unsigned int rsv_g[JOB_MAX][R20_RSV_MAX];     /* ... and their generations (stale ones are skipped) */
 static unsigned char rsv_n[JOB_MAX];
 static int r20_probe = 0;                    /* 1 while a file read is probed: cache misses return FAT_ERR_MISS */
 static unsigned int r20_miss_lba = 0;
 
-/* the cache: allocated once at boot from the heap, sized by usable RAM */
+/* Cache data AND metadata: boot-reserved physical pages, shared supervisor mappings. */
 static int c_on = 0;
 static unsigned int nent = 0, nb = 0, hand = 0;
 static struct r20_ce *ce = 0;
@@ -105,6 +122,14 @@ static unsigned char *cdata = 0;             /* nent * 512 */
 static unsigned short *bucket = 0;           /* nb */
 static unsigned int *cq = 0;                 /* fill queue ring: (gen << 12) | index */
 static unsigned int cq_head = 0, cq_count = 0;
+
+#ifdef R5_CACHE_TRACE
+#include "../diagnostics/resources/cache_trace.h"
+#else
+#define R5_TRACE(k,e,x)
+#define R5_READ_BEGIN(j)
+#define R5_READ_END(j,r)
+#endif
 
 static unsigned int next_gen(void)
 {
@@ -151,7 +176,7 @@ static int rsv_compact(int slot)
 	for (k = 0; k < rsv_n[slot]; k++) {
 		unsigned int e = rsv_e[slot][k];
 
-		if (e < nent && (ce[e].gen & GEN_MASK) == rsv_g[slot][k] && (ce[e].rmask & (1u << slot))) {
+		if (e < nent && (ce[e].gen & GEN_MASK) == rsv_g[slot][k] && (RM_WORD(&ce[e], slot) & RM_BIT(slot))) {
 			rsv_e[slot][n] = rsv_e[slot][k];
 			rsv_g[slot][n] = rsv_g[slot][k];
 			n++;
@@ -172,15 +197,42 @@ static int rsv_add(int slot, unsigned int e)
 		if (rsv_e[slot][k] == e)
 			return 1;
 	if (rsv_n[slot] >= R20_RSV_MAX) {
+		unsigned int old;
 		st[R20_STAT_RSV_FULL]++;
-		return 0;
+		if (ce[e].state != CE_ERROR)
+			return 0;
+		/* One fill is outstanding per reader. Its failed outcome must survive
+		 * even when earlier successful sectors already consume the quota.
+		 * The read will fail before replay, so one content reservation can go. */
+		k = --rsv_n[slot];
+		old = rsv_e[slot][k];
+		if (old < nent && (ce[old].gen & GEN_MASK) == rsv_g[slot][k] &&
+		    (RM_WORD(&ce[old], slot) & RM_BIT(slot))) {
+			RM_WORD(&ce[old], slot) &= ~RM_BIT(slot);
+			st[R20_STAT_RSV_RELEASE]++;
+		}
 	}
 	k = rsv_n[slot]++;
 	rsv_e[slot][k] = (unsigned short) e;
 	rsv_g[slot][k] = ce[e].gen & GEN_MASK;
-	ce[e].rmask |= 1u << slot;
+	RM_WORD(&ce[e], slot) |= RM_BIT(slot);
 	st[R20_STAT_RSV_SET]++;
 	return 1;
+}
+
+/* A completed failure belongs to the still-unfinished read. Observe it before
+ * replay can miss/fail on an earlier FAT sector and discard this outcome. */
+static int rsv_error(int slot)
+{
+	unsigned int k, e;
+	if (slot < 0 || slot >= JOB_MAX) return -1;
+	for (k = 0; k < rsv_n[slot]; k++) {
+		e = rsv_e[slot][k];
+		if (e < nent && ce[e].state == CE_ERROR &&
+		    (ce[e].gen & GEN_MASK) == rsv_g[slot][k] &&
+		    (RM_WORD(&ce[e], slot) & RM_BIT(slot))) return (int) e;
+	}
+	return -1;
 }
 
 static void rsv_release(int slot)
@@ -190,12 +242,15 @@ static void rsv_release(int slot)
 
 	if (!c_on || slot < 0 || slot >= JOB_MAX)
 		return;
-	bit = 1u << slot;
+	bit = RM_BIT(slot);
 	for (k = 0; k < rsv_n[slot]; k++) {
 		unsigned int e = rsv_e[slot][k];
 
-		if (e < nent && (ce[e].gen & GEN_MASK) == rsv_g[slot][k] && (ce[e].rmask & bit)) {
-			ce[e].rmask &= ~bit;
+		if (e < nent && (ce[e].gen & GEN_MASK) == rsv_g[slot][k] && (RM_WORD(&ce[e], slot) & bit)) {
+#ifdef R5_CACHE_TRACE
+			if (ce[e].state == CE_ERROR) R5_TRACE(4u, e, (unsigned int) slot);
+#endif
+			RM_WORD(&ce[e], slot) &= ~bit;
 			st[R20_STAT_RSV_RELEASE]++;
 			any = 1;
 		}
@@ -214,7 +269,7 @@ static int victim_free(void)
 		if (ce[e].state == CE_FREE)
 			return 1;
 	for (e = 0; e < nent; e++)
-		if (ce[e].state != CE_LOADING && !ce[e].pins && !ce[e].rmask)
+		if (ce[e].state != CE_LOADING && !ce[e].pins && !RM_ANY(&ce[e]))
 			return 1;
 	return 0;
 }
@@ -587,6 +642,17 @@ static void cache_unhash(unsigned int e)
 	ce[e].hnext = 0;
 }
 
+/* Preserve the existing report-once ERROR semantics and physical fill counters. */
+static int cache_error_take(unsigned int e, int probe)
+{
+	R5_TRACE(2u, e, (unsigned int) probe);
+	cache_unhash(e);
+	ce[e].state = CE_FREE;
+	RM_CLEAR(&ce[e]);
+	wake_space();
+	return FAT_ERR_IO;
+}
+
 static void cache_hash(unsigned int e)
 {
 	unsigned int h = hsh(ce[e].lba);
@@ -608,7 +674,7 @@ static int cache_victim(void)
 		hand = (hand + 1u == nent) ? 0u : hand + 1u;
 		if (ce[e].state == CE_FREE)
 			return (int) e;
-		if (ce[e].state == CE_LOADING || ce[e].pins || ce[e].rmask)
+		if (ce[e].state == CE_LOADING || ce[e].pins || RM_ANY(&ce[e]))
 			continue;
 		if (ce[e].ref) {
 			ce[e].ref = 0;
@@ -622,6 +688,10 @@ static int cache_victim(void)
 /* Take entry e for a new value: drop what it held (an eviction counts), and make it hashed for lba. */
 static void cache_take(unsigned int e, unsigned int lba)
 {
+#ifdef R5_CACHE_TRACE
+	if (ce[e].state == CE_ERROR && r5_unreported[e]) R5_TRACE(3u, e, lba);
+	r5_unreported[e] = 0;
+#endif
 	if (ce[e].state == CE_VALID)
 		st[R20_STAT_EVICT]++;
 	if (ce[e].hashed)
@@ -632,7 +702,7 @@ static void cache_take(unsigned int e, unsigned int lba)
 	ce[e].dev = 0;
 	ce[e].pins = 0;
 	ce[e].queued = 0;
-	ce[e].rmask = 0;
+	RM_CLEAR(&ce[e]);
 	ce[e].state = CE_LOADING;
 	cache_hash(e);
 }
@@ -659,7 +729,7 @@ int r20c_queue_head(void)
 			ce[e].queued = 0;
 			if (!ce[e].hashed && ce[e].pins == 0)
 				ce[e].state = CE_FREE;
-			ce[e].rmask = 0;
+			RM_CLEAR(&ce[e]);
 			wake_space();
 		}
 		cq_head = (cq_head + 1u) % nent;
@@ -703,6 +773,7 @@ int r20c_fill_done(unsigned int ticket, int res)
 	} else {
 		ce[e].state = CE_ERROR;
 		st[R20_STAT_FILL_ERR]++;
+		R5_TRACE(1u, e, ticket);
 		wake_entry_ex(e, 1);        /* the failure is kept for its waiters: each reader that asked is told once */
 	}
 	wake_space();
@@ -715,18 +786,32 @@ static int r20c_dump(void)
 {
 	unsigned int e, i;
 	unsigned long cnt[4] = { 0, 0, 0, 0 };
-	unsigned long waiters = 0, nospace = 0;
+	unsigned long waiters = 0, nospace = 0, pins = 0, reserved = 0;
 
 	if (!c_on)
 		return 0;
-	for (e = 0; e < nent; e++)
+	for (e = 0; e < nent; e++) {
 		cnt[ce[e].state & 3u]++;
+		pins += ce[e].pins;
+	}
+	for (i = 0; i < JOB_MAX; i++) reserved += rsv_n[i];
 	for (i = 0; i < JOB_MAX; i++)
 		if (jwait[i] != 0) {
 			waiters++;
 			if (jwait[i] == NOSPACE_TAG)
 				nospace++;
 		}
+	{
+		struct mem_stats hs;
+		mem_stats(&hs);
+		con_puts("R20MEM cache_pages="); con_putdec(cache_backing_pages);
+		con_puts(" payload="); con_putdec(nent * R20C_SECTOR);
+		con_puts(" heap_free="); con_putdec(hs.free);
+		con_puts(" backing_fail="); con_putdec(cache_backing_failures);
+		con_puts(" pins="); con_putdec(pins);
+		con_puts(" reserved="); con_putdec(reserved);
+		con_puts("\n");
+	}
 	con_puts("R20DUMP entries="); con_putdec(nent);
 	con_puts(" free="); con_putdec(cnt[CE_FREE]);
 	con_puts(" loading="); con_putdec(cnt[CE_LOADING]);
@@ -758,7 +843,7 @@ static int r20c_dump(void)
 
 		for (e = 0; e < nent; e++)
 			for (j = 0; j < JOB_MAX; j++)
-				if (ce[e].rmask & (1u << j))
+				if (RM_WORD(&ce[e], j) & RM_BIT(j))
 					bits++;
 		for (j = 0; j < JOB_MAX; j++)
 			held += rsv_n[j];
@@ -808,7 +893,7 @@ static void cache_invalidate(unsigned int lba)
 	ce[e].gen = next_gen();
 	if (ce[e].state == CE_VALID || ce[e].state == CE_ERROR) {
 		ce[e].state = CE_FREE;
-		ce[e].rmask = 0;             /* a write frees the sector: any reservation of it is void */
+		RM_CLEAR(&ce[e]);             /* a write frees the sector: any reservation of it is void */
 		ce[e].pins = 0;
 	} else {
 		wake_entry((unsigned int) e);
@@ -817,7 +902,7 @@ static void cache_invalidate(unsigned int lba)
 	wake_space();
 }
 
-/* Boot: size the cache from firmware-reported usable RAM, capped at R20C_BUDGET_MAX, and allocate it from the heap. */
+/* Boot: same total-footprint policy; one bounded, shared page-backed arena. */
 void r20c_init(void)
 {
 	struct mm_summary s;
@@ -826,6 +911,7 @@ void r20c_init(void)
 	unsigned long bytes;
 	void *p;
 
+	if (c_on || cache_backing_pages) return;       /* boot init is never repeated */
 	c_on = 0;
 	memmap_summary(&s);
 	budget = (unsigned long) s.usable_kib * 1024ul * R20C_PCT / 100ul;
@@ -847,37 +933,19 @@ void r20c_init(void)
 
 		while ((m << 1) <= n)                /* buckets: the largest power of two not above n */
 			m <<= 1;
-		p = mem_alloc(n * sizeof(struct r20_ce), R20C_OWNER);
-		if (mem_is_error((unsigned int) p))
-			continue;
+		bytes = n * (sizeof(struct r20_ce) + R20C_SECTOR + sizeof(unsigned int)) +
+		        m * sizeof(unsigned short);
+		p = proc_cache_reserve((unsigned int) bytes);
+		if (!p) continue;
+#ifdef R20C_TEST_INIT_FAIL
+		/* Diagnostic-only partial-initialization rollback, before any CR3 exists. */
+		(void) proc_cache_release();
+		return;
+#endif
 		ce = (struct r20_ce *) p;
-		p = mem_alloc(n * R20C_SECTOR, R20C_OWNER);
-		if (mem_is_error((unsigned int) p)) {
-			mem_free(ce, R20C_OWNER);
-			ce = 0;
-			continue;
-		}
-		cdata = (unsigned char *) p;
-		p = mem_alloc(m * sizeof(unsigned short), R20C_OWNER);
-		if (mem_is_error((unsigned int) p)) {
-			mem_free(ce, R20C_OWNER);
-			mem_free(cdata, R20C_OWNER);
-			ce = 0;
-			cdata = 0;
-			continue;
-		}
-		bucket = (unsigned short *) p;
-		p = mem_alloc(n * sizeof(unsigned int), R20C_OWNER);
-		if (mem_is_error((unsigned int) p)) {
-			mem_free(ce, R20C_OWNER);
-			mem_free(cdata, R20C_OWNER);
-			mem_free(bucket, R20C_OWNER);
-			ce = 0;
-			cdata = 0;
-			bucket = 0;
-			continue;
-		}
-		cq = (unsigned int *) p;
+		cdata = (unsigned char *) (ce + n);
+		bucket = (unsigned short *) (cdata + n * R20C_SECTOR);
+		cq = (unsigned int *) (bucket + m);
 		nent = n;
 		nb = m;
 		break;
@@ -900,6 +968,11 @@ void r20c_init(void)
 		(unsigned long) nb * sizeof(unsigned short);
 	st[R20_STAT_CACHE_ENTRIES] = nent;
 	st[R20_STAT_CACHE_BYTES] = bytes;
+	con_puts("R20CACHE pages="); con_putdec(cache_backing_pages);
+	con_puts(" backing="); con_putdec(cache_backing_pages * VAS_PAGE);
+	con_puts(" payload="); con_putdec(nent * R20C_SECTOR);
+	con_puts(" arena_metadata="); con_putdec(bytes - nent * R20C_SECTOR);
+	con_puts("\n");
 }
 
 /* Wait (bounded) until the controller is free.  A sync trap holds the BKL; the worker clears the claim without it. */
@@ -938,11 +1011,7 @@ int r20c_read(unsigned int lba, unsigned char *buf)
 	}
 	if (e >= 0 && ce[e].state == CE_ERROR) {
 		/* reported once; the next read tries the disk again */
-		cache_unhash((unsigned int) e);
-		ce[e].state = CE_FREE;
-		ce[e].rmask = 0;
-		wake_space();
-		return FAT_ERR_IO;
+		return cache_error_take((unsigned int) e, r20_probe);
 	}
 	if (!r20_probe) {
 		int rc, v;
@@ -1010,7 +1079,7 @@ void r20c_invalidate_all(void)
 		ce[e].hnext = 0;
 		if (ce[e].state == CE_VALID || ce[e].state == CE_ERROR) {
 			ce[e].state = CE_FREE;
-			ce[e].rmask = 0;
+			RM_CLEAR(&ce[e]);
 			ce[e].pins = 0;
 		} else if (ce[e].state == CE_LOADING) {
 			wake_entry(e);
@@ -1080,14 +1149,23 @@ int r20_file_read(struct fat16_file *ff, unsigned char *ubuf, unsigned int n)
 	struct fat16_file tf;
 	unsigned char kb[CHAN_MAX_WRITE];
 	unsigned int got = 0, i;
-	int rc, cur = job_current;
+	int rc, cur = job_current, error;
+	R5_READ_BEGIN(cur);
 
 	if (!c_on) {                              /* no cache: the plain synchronous read (Phase 2A without the cache) */
 		rc = fat16_read(ff, ubuf, n, &got);
+		R5_READ_END(cur, rc);
 		return rc != FAT_OK ? rc : (int) got;
 	}
 	if (n > CHAN_MAX_WRITE)
 		return FAT_ERR_RANGE;
+	error = rsv_error(cur);
+	if (error >= 0) {
+		rc = cache_error_take((unsigned int) error, 1);
+		rsv_release(cur);
+		R5_READ_END(cur, rc);
+		return rc;
+	}
 	tf = *ff;
 	r20_probe = 1;
 	rc = fat16_read(&tf, kb, n, &got);
@@ -1097,8 +1175,12 @@ int r20_file_read(struct fat16_file *ff, unsigned char *ubuf, unsigned int n)
 
 		if (b != R20_RESTART)                 /* a restart keeps the reservations: the next probe uses them */
 			rsv_release(cur);
+#ifdef R5_CACHE_TRACE
+		if (b != R20_RESTART) R5_READ_END(cur, b);
+#endif
 		return b;
 	}
+	R5_READ_END(cur, rc);
 	rsv_release(cur);                         /* the read ends (committed or failed): its sectors may now be evicted */
 	if (rc != FAT_OK)
 		return rc;

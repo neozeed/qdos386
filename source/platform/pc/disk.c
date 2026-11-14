@@ -7,6 +7,9 @@
  * one 16-bit word at a time.
  */
 #include "platform.h"
+#ifdef QDOS_APOLLO_R6
+#include "r6boot.h"
+#endif
 #ifdef QDOS_R20
 #include "r20w.h"
 /* R20: the original routines are renamed; the wrappers at the end wait for the storage worker's claim (the
@@ -38,7 +41,12 @@ extern unsigned int inw(unsigned int port);
 #define IDE_CMD_READ      0x20
 #define IDE_CMD_WRITE     0x30        /* R11L, QDOS_FS_WRITE only */
 #define IDE_CMD_IDENTIFY  0xec
+#ifdef QDOS_APOLLO_R6
+static unsigned int ide_selected = 0xf0; /* legacy fallback; immutable after boot selection */
+#define IDE_SLAVE_LBA ide_selected
+#else
 #define IDE_SLAVE_LBA    0xf0    /* LBA mode, slave drive (bit 4) */
+#endif
 #define IDE_POLL_LIMIT   2000000u
 
 static int ide_state = 0;        /* 0 unknown, 1 present, -1 absent */
@@ -126,6 +134,30 @@ int disk_read_sector(unsigned int lba, unsigned char *buf)
 	ide_read_words(buf, 256);
 	return 0;
 }
+
+#ifdef QDOS_APOLLO_R6
+static unsigned int boot_word(const unsigned char *p)
+{ return (unsigned int)p[0] | ((unsigned int)p[1]<<8) | ((unsigned int)p[2]<<16) | ((unsigned int)p[3]<<24); }
+int disk_select_boot(const struct r6_boot_info *b)
+{
+ unsigned char m[512];
+ const unsigned char *e;
+ int unit, found = -1, matches = 0;
+ /* Boot-only, before any cached disk access or worker start; inspect raw devices. */
+ for (unit = 0; unit < 2; unit++) {
+  ide_selected = 0xe0u | ((unsigned int)unit << 4); ide_state = 0; ide_sectors = 0;
+  if (disk_sector_count() != b->disk_sectors || disk_read_sector(0,m) != 0) continue;
+  e = m + 446u + 16u*b->partition;
+  if (m[510]!=0x55 || m[511]!=0xaa || boot_word(m+440)!=b->disk_id ||
+      e[0]!=0x80u || e[4]!=b->type || boot_word(e+8)!=b->start || boot_word(e+12)!=b->sectors) continue;
+  found = unit; matches++;
+ }
+ if (matches != 1) return -1;
+ ide_selected = 0xe0u | ((unsigned int)found << 4); ide_state = 0; ide_sectors = 0;
+ if (disk_sector_count() != b->disk_sectors) return -1;
+ return found;
+}
+#endif
 
 #ifdef QDOS_FS_WRITE
 /* R11L: WRITE SECTORS (0x30), LBA28, polled PIO, one sector.  After the data the controller goes busy

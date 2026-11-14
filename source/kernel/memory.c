@@ -51,6 +51,9 @@ extern void irq_restore(unsigned int flags);
 
 static unsigned int arena_base = 0;
 static unsigned int arena_end = 0;
+#ifdef QDOS_R20
+struct mem_diag mem_diagnostics;
+#endif
 static unsigned int free_head = 0;      /* address of first free block, 0 = none */
 
 static struct mem_hdr *hdr(unsigned int addr)
@@ -115,6 +118,11 @@ int mem_init(unsigned int start, unsigned int end)
 	if (s < start || e <= s || e - s < MEM_MIN_BLOCK)
 		return MEM_ERR_RANGE;
 
+#ifdef QDOS_R20
+	mem_diagnostics.used = mem_diagnostics.peak = mem_diagnostics.failures = 0;
+	mem_diagnostics.request = mem_diagnostics.needed = mem_diagnostics.owner = 0;
+	mem_diagnostics.error = 0;
+#endif
 	arena_base = s;
 	arena_end = e;
 	free_head = s;
@@ -154,6 +162,11 @@ void *mem_alloc(unsigned int size, unsigned int owner)
 		cur = hdr(cur)->next;
 	}
 	if (cur == 0) {
+#ifdef QDOS_R20
+		mem_diagnostics.failures++;
+		mem_diagnostics.request = size; mem_diagnostics.needed = need;
+		mem_diagnostics.owner = owner; mem_diagnostics.error = MEM_ERR_NOMEM;
+#endif
 		irq_restore(flags);
 		return (void *) MEM_ERR_NOMEM;
 	}
@@ -179,6 +192,10 @@ void *mem_alloc(unsigned int size, unsigned int owner)
 		else
 			free_head = h->next;
 	}
+#ifdef QDOS_R20
+	mem_diagnostics.used += h->size;
+	if (mem_diagnostics.used > mem_diagnostics.peak) mem_diagnostics.peak = mem_diagnostics.used;
+#endif
 	h->magic = MEM_USED;
 	h->owner = owner;
 	h->next = 0;
@@ -232,6 +249,9 @@ int mem_free(void *ptr, unsigned int owner)
 		irq_restore(flags);
 		return MEM_ERR_OWNER;
 	}
+#ifdef QDOS_R20
+	mem_diagnostics.used -= h->size;
+#endif
 	free_insert(cur);
 	irq_restore(flags);
 	return rc;
@@ -261,6 +281,9 @@ unsigned int mem_reclaim_owner(unsigned int owner)
 				break;
 			if (h->magic == MEM_USED && h->owner == owner) {
 				freed += h->size;
+#ifdef QDOS_R20
+				mem_diagnostics.used -= h->size;
+#endif
 				free_insert(cur);
 				again = 1;
 				break;

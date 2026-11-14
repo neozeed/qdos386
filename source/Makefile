@@ -30,14 +30,16 @@ PCFLAGS  ?=
 I386WIN  ?= build/fat16/win1.img
 PCWIN    ?= build/fat16/win1.img
 
-INC = -Ikernel -Itests -Iplatform
-KCORE = kernel/region.c kernel/main.c kernel/jobs.c kernel/clock.c kernel/clock_boot.c kernel/fpu.c kernel/memory.c kernel/channel.c kernel/irq.c kernel/descriptors.c \
+PC_COMPOSITION ?= compatibility
+KMAIN = $(if $(filter production,$(PC_COMPOSITION)),kernel/main.c,diagnostics/legacy/main.c)
+INC = -Ikernel $(if $(filter production,$(PC_COMPOSITION)),,-Idiagnostics/legacy) -Iplatform
+KCORE = kernel/region.c $(KMAIN) kernel/jobs.c kernel/clock.c kernel/clock_boot.c kernel/fpu.c kernel/memory.c kernel/channel.c kernel/irq.c kernel/descriptors.c \
         kernel/aout.c kernel/fat16.c kernel/win1.c kernel/cin.c kernel/kbd.c kernel/imgload.c kernel/shellboot.c \
-        tests/test_jobs.c tests/test_memory.c tests/test_channels.c tests/test_app.c tests/test_fs.c \
-        tests/test_console.c tests/test_dir.c tests/test_shell.c tests/test_r8.c
+        diagnostics/legacy/test_jobs.c diagnostics/legacy/test_memory.c diagnostics/legacy/test_channels.c diagnostics/legacy/test_app.c diagnostics/legacy/test_fs.c \
+        diagnostics/legacy/test_console.c diagnostics/legacy/test_dir.c diagnostics/legacy/test_shell.c diagnostics/legacy/test_r8.c
 
 # KCTX-FIX2: the default goal is the current kernel (qdos386-pc).  The original R6 pair is `make r6-images`.
-all: qdos386-pc
+all: production
 r6-images: i386vm pc
 
 # ---- applications (independently linked; the kernel never links them) ------
@@ -168,7 +170,7 @@ build/xfer.bin: $(APPS) tools/make-xfer.py
 I386EXTRA ?=
 I386VM_SRC = $(KCORE) kernel/context.s platform/i386vm/platform.c platform/i386vm/disk.c platform/i386vm/halt.s $(I386EXTRA)
 
-$(I386D)/kernel-raw.bin: $(I386VM_SRC) $(wildcard kernel/*.h) $(wildcard tests/*.h) platform/platform.h
+$(I386D)/kernel-raw.bin: $(I386VM_SRC) $(wildcard kernel/*.h) $(wildcard diagnostics/legacy/*.h) platform/platform.h
 	mkdir -p $(I386D)
 	$(GCC) --raw $(I386FLAGS) -DQDOS_KCTX_PTRBITS $(INC) $(I386VM_SRC) -o $@
 
@@ -180,7 +182,7 @@ $(I386D)/$(I386IMG): $(I386D)/kernel-raw.bin build/xfer.bin $(I386WIN) tools/mak
 i386vm: $(I386D)/$(I386IMG)
 
 # Negative test: the same image with the synthetic timer never started.
-build/i386vm/kernel-notimer-raw.bin: $(I386VM_SRC) $(wildcard kernel/*.h) $(wildcard tests/*.h) platform/platform.h
+build/i386vm/kernel-notimer-raw.bin: $(I386VM_SRC) $(wildcard kernel/*.h) $(wildcard diagnostics/legacy/*.h) platform/platform.h
 	mkdir -p build/i386vm
 	$(GCC) --raw -DQDOS_NO_TIMER -DQDOS_KCTX_PTRBITS $(INC) $(I386VM_SRC) -o $@
 
@@ -207,12 +209,16 @@ PCKCTX = $(if $(filter %/kctx.o %/kctx3.o %/kctx17.o,$(PCCTX)),,-DQDOS_KCTX_PTRB
 # R11J/R11K: PCEXTRA adds the paging objects (empty for every default image).
 PCEXTRA ?=
 PC_OBJS += $(PCEXTRA)
+ifeq ($(PC_COMPOSITION),production)
+PC_OBJS := $(filter-out $(PCD)/test_%.o,$(PC_OBJS))
+endif
 
 pc: $(PCD)/$(PCIMG)
 
 # Every object depends on every header: the R8 change to a shared struct
 # (struct job) must rebuild all users, or the Tiny386 image runs stale layouts.
-PC_HDR = $(wildcard kernel/*.h) $(wildcard tests/*.h) $(wildcard platform/*.h) $(wildcard platform/pc/*.h) $(wildcard sdk/include/qdos386amp.h)
+PC_HDR = $(wildcard kernel/*.h) $(if $(filter production,$(PC_COMPOSITION)),,$(wildcard diagnostics/legacy/*.h)) $(wildcard platform/*.h) $(wildcard platform/pc/*.h) $(wildcard sdk/include/qdos386amp.h)
+PC_HDR += $(if $(findstring -DR5_CACHE_TRACE,$(PCFLAGS)),diagnostics/resources/cache_trace.h,)
 
 # The compiler flags are part of the build identity: a change to PCFLAGS for an
 # existing PCD must rebuild every object, not reuse objects built with other
@@ -221,10 +227,13 @@ FORCE:
 $(PCD)/.pcflags: FORCE
 	@mkdir -p $(PCD)
 	@printf '%s\n' '$(PCFLAGS) $(PCKCTX)' > $@.new; if cmp -s $@.new $@; then rm -f $@.new; else mv $@.new $@; fi
+$(PCD)/main.o: $(KMAIN) $(PC_HDR) $(PCD)/.pcflags
+	mkdir -p $(PCD)
+	$(GCC) -c $(INC) $(PCFLAGS) $(PCKCTX) $< -o $@
 $(PCD)/%.o: kernel/%.c $(PC_HDR) $(PCD)/.pcflags
 	mkdir -p $(PCD)
 	$(GCC) -c $(INC) $(PCFLAGS) $(PCKCTX) $< -o $@
-$(PCD)/%.o: tests/%.c $(PC_HDR) $(PCD)/.pcflags
+$(PCD)/%.o: diagnostics/legacy/%.c $(PC_HDR) $(PCD)/.pcflags
 	mkdir -p $(PCD)
 	$(GCC) -c $(INC) $(PCFLAGS) $(PCKCTX) $< -o $@
 $(PCD)/%.o: platform/pc/%.c $(PC_HDR) $(PCD)/.pcflags
@@ -493,6 +502,37 @@ qdos386-r18-pc:
 #                                                                  build/qdos386-r20/pc/qdos386-r20.img (headless)
 R20D ?= qdos386-r20
 R20_OPTS = $(R18_OPTS) -DQDOS_R20 $(R20_EXTRA)
+
+# Current flags/object order are explicit, independent of the historical release ladder.
+include mk/current.mk
+# Current native shell query capacity; historical shell recipes retain their flags.
+R4_SHELL_D ?= build/$(CURRENT_D)-shell
+R4_SHELL_FLAGS = $(filter-out -DJC_MAXJOBS=16,$(SHELL_R13B_FLAGS)) -DQDOS_R4_RESOURCES $(RESOURCE_FLAGS)
+.PHONY: current-shell
+current-shell: $(R4_SHELL_D)/shell.aout $(R4_SHELL_D)/sh.aout
+$(R4_SHELL_D)/.flags: FORCE
+	@mkdir -p $(R4_SHELL_D)
+	@printf '%s\n' '$(R4_SHELL_FLAGS)' > $@.new; if cmp -s $@.new $@; then rm -f $@.new; else mv $@.new $@; fi
+$(R4_SHELL_D)/shell.o: $(SHELL_R13B_SRC) kernel/resource_config.h $(R4_SHELL_D)/.flags
+	mkdir -p $(R4_SHELL_D)
+	$(GCC) -c -O $(R4_SHELL_FLAGS) -Iapps/common -Iapps/shell $< -o $@
+$(R4_SHELL_D)/sh.o: $(SHELL_R13B_SRC) kernel/resource_config.h $(R4_SHELL_D)/.flags
+	mkdir -p $(R4_SHELL_D)
+	$(GCC) -c -O $(R4_SHELL_FLAGS) -DR13B_DYN -Iapps/common -Iapps/shell $< -o $@
+$(R4_SHELL_D)/shell.aout: $(R4_SHELL_D)/shell.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot0.ld
+	$(LD) -N -T apps/common/slot0.ld -e _start -o $@ build/apps/app_start.o $(R4_SHELL_D)/shell.o build/apps/qtrap.o
+$(R4_SHELL_D)/sh.aout: $(R4_SHELL_D)/sh.o build/apps/app_start.o build/apps/qtrap.o apps/common/slot1.ld
+	$(LD) -N -T apps/common/slot1.ld -e _start -o $@ build/apps/app_start.o $(R4_SHELL_D)/sh.o build/apps/qtrap.o
+.PHONY: production diagnostic
+production:
+	$(MAKE) build/pc-r17/boot3.bin
+	$(MAKE) pc PC_COMPOSITION=production PCD=build/$(CURRENT_D)/pc PCFLAGS="$(CURRENT_FLAGS)" PCIMG=qdos386.img PCBOOT=build/pc-r17/boot3.bin PCMKIMG=platform/pc/make-image3.py PCCTX=build/$(CURRENT_D)/pc/$(CURRENT_CTX) PCEXTRA="$(addprefix build/$(CURRENT_D)/pc/,$(CURRENT_EXTRA_OBJS))"
+	$(MAKE) pc PC_COMPOSITION=production PCD=build/$(CURRENT_D)/pc-vga PCFLAGS="-DQDOS_CON_VGA $(CURRENT_FLAGS)" PCIMG=qdos386-vga.img PCBOOT=build/pc-r17/boot3.bin PCMKIMG=platform/pc/make-image3.py PCCTX=build/$(CURRENT_D)/pc-vga/$(CURRENT_CTX) PCEXTRA="$(addprefix build/$(CURRENT_D)/pc-vga/,$(CURRENT_EXTRA_OBJS))"
+
+# Original non-paged diagnostic ABI/profile and ten-entry FAT fixture, on one BSP.
+# It is deliberately distinct from the production shell/AP/IOW0 boot path.
+diagnostic:
+	$(MAKE) pc fat16 PC_COMPOSITION=diagnostic PCD=build/diagnostic/pc PCFLAGS=-DQDOS_LEGACY_DIAGNOSTIC PCIMG=qdos386-diagnostic.img PCEXTRA=build/diagnostic/pc/bridge.o
 qdos386-r20-pc:
 	$(MAKE) build/pc-r17/boot3.bin
 	$(MAKE) pc PCD=build/$(R20D)/pc PCFLAGS="-DQDOS_LAYOUT_R9 -DR7_SHELL_MODE $(R20_OPTS)" PCIMG=qdos386-r20.img PCBOOT=build/pc-r17/boot3.bin PCMKIMG=platform/pc/make-image3.py PCCTX=build/$(R20D)/pc/$(R17CTX) PCEXTRA="$(addprefix build/$(R20D)/pc/,$(R17_OBJS) r20w.o)"

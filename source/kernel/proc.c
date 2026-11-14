@@ -31,7 +31,6 @@ extern unsigned int inb(unsigned int port);
 unsigned int job_kill_current(unsigned int sp);          /* jobs.c */
 void kx_call_user(unsigned int entry, unsigned int user_top, unsigned int *kx_entry_slot);   /* kctx.s */
 
-#ifdef QDOS_R17
 /* R17 Apollo 13 (docs/APOLLO13-MEMORY-MAP.md): the identity map grows with the firmware memory map, up to
  * MM_CEILING = 256 MiB (directory entries 0..63; the user heap window starts at 0x10000000).  Tables 0..3 stay in
  * kernel BSS; the tables for the spans above 16 MiB, and the application processors' kernel stacks, come from the R17
@@ -58,15 +57,6 @@ unsigned int r17_karea_alloc(unsigned int bytes)
 	karea_next = a + bytes;
 	return a;
 }
-#else
-#define TPL_DIRS   4u                                   /* identity map 0 .. 16 MiB */
-#define TPL_NDIRS  TPL_DIRS
-
-/* Template directory and tables: kernel BSS, identity-mapped everywhere. */
-static unsigned char tpl_mem[(1 + TPL_DIRS + 1) * VAS_PAGE];
-static unsigned int tpl_dir;
-static unsigned int tpl_tab[TPL_DIRS];
-#endif
 
 static struct fr_pool pool;
 static unsigned int ram_top;
@@ -89,36 +79,66 @@ struct proc {
 	struct pheap heap;
 	unsigned int stk_lo, stk_hi;
 	unsigned char hold_pending;
-#ifdef QDOS_R16
 	unsigned char prot;              /* R16: this process runs at CPL3 */
-#endif
 	unsigned int faults;
 };
 
 static struct proc procs[JOB_MAX];
-#ifdef QDOS_R17
 int kx_this_cpu(void);
 static unsigned int g_curcr3[KX_NCPU];
 #define cur_cr3 (g_curcr3[kx_this_cpu()])
-#elif defined(QDOS_R16)
-int kx_this_cpu(void);
-static unsigned int g_curcr3[2];
-#define cur_cr3 (g_curcr3[kx_this_cpu()])
-#else
-static unsigned int cur_cr3;
-#endif
 static unsigned int cr3_loads;
 static unsigned int holds_deferred;
-#ifdef QDOS_R17
 static int g_excdepth[KX_NCPU];
 #define exc_depth (g_excdepth[kx_this_cpu()])
-#elif defined(QDOS_R16)
-static int g_excdepth[2];
-#define exc_depth (g_excdepth[kx_this_cpu()])
-#else
-static int exc_depth;
-#endif
 static unsigned long procs_created, procs_destroyed, load_failures;
+
+#ifdef QDOS_R20
+#include "r20w.h"
+unsigned int cache_backing_base, cache_backing_pages, cache_backing_failures;
+unsigned int proc_diag_stride = sizeof(struct proc);
+#ifdef QDOS_R4_RESOURCES
+unsigned int proc_diag_slots = JOB_MAX, proc_diag_cpus = KX_NCPU;
+#endif
+unsigned int launch_fail_stage, launch_fail_bytes;
+int launch_fail_code;
+
+void *proc_cache_reserve(unsigned int bytes)
+{
+	unsigned int a, i, pages;
+
+	if (!bytes || bytes > R20C_BUDGET_MAX || cache_backing_pages || procs_created) {
+		cache_backing_failures++;
+		return 0;
+	}
+	pages = (bytes + VAS_PAGE - 1u) / VAS_PAGE;
+	/* 8 MiB is above all image profiles; pool membership excludes firmware,
+	 * kernel/page tables and used frames. Template PTEs already exist here. */
+	a = fr_reserve_run(&pool, 0x00800000u, ram_top & ~(VAS_PAGE - 1u), pages);
+	if (!a) {
+		cache_backing_failures++;
+		return 0;
+	}
+	cache_backing_base = a;
+	cache_backing_pages = pages;
+	for (i = 0; i < pages * VAS_PAGE; i++) ((unsigned char *) a)[i] = 0;
+	return (void *) a;
+}
+
+int proc_cache_release(void)
+{
+	unsigned int n = cache_backing_pages, i;
+
+	if (procs_created || !n) return -1;
+	for (i = 0; i < n; i++)
+		if (fr_in_pool(&pool, cache_backing_base + i * VAS_PAGE) ||
+		    fr_is_used(&pool, cache_backing_base + i * VAS_PAGE)) return -1;
+	if (fr_add_range(&pool, cache_backing_base, cache_backing_base + n * VAS_PAGE) != (int) n)
+		return -1;
+	cache_backing_base = cache_backing_pages = 0;
+	return 0;
+}
+#endif
 
 /* ---- template sections ------------------------------------------------------------------------------------------ */
 
@@ -195,7 +215,6 @@ static void pool_add_tested(unsigned int lo, unsigned int hi)
 
 static int shell_is_process = 0;
 
-#ifdef QDOS_R17
 /* R17: add [lo, hi) but only the pages the firmware map calls usable (every frame still presence-tested). */
 static void pool_add_mapped(unsigned int lo, unsigned int hi)
 {
@@ -228,14 +247,12 @@ static unsigned long pool_high_frames(void)            /* pool frames at or abov
 			n++;
 	return n;
 }
-#endif
 
 void proc_boot(void)
 {
 	unsigned int i, ext;
 
 	tpl_dir = ((unsigned int) tpl_mem + VAS_PAGE - 1u) & ~(VAS_PAGE - 1u);
-#ifdef QDOS_R17
 	/* RAM: the E820 map when the QBOOT3 loader supplied a valid one (top of usable RAM below the 256 MiB ceiling),
 	 * else the R16B rule (CMOS 0x30/0x31, at most 16 MiB). */
 	if (memmap_build() == MM_SRC_E820) {
@@ -261,17 +278,11 @@ void proc_boot(void)
 		}
 	}
 	vas_template_build(tpl_dir, tpl_tab, tpl_ndirs);   /* paging is still off: the tables are written physically */
-#else
-	for (i = 0; i < TPL_DIRS; i++)
-		tpl_tab[i] = tpl_dir + (1u + i) * VAS_PAGE;
-	vas_template_build(tpl_dir, tpl_tab, TPL_DIRS);
-#endif
 	for (i = 0; i < (unsigned int) JOB_MAX; i++)
 		procs[i].state = P_FREE;
 	pg_load_cr3(tpl_dir);
 	cur_cr3 = tpl_dir;
 	pg_enable();
-#ifdef QDOS_R17
 	fr_init(&pool);
 #ifdef QDOS_DYNPROC_SHELL
 	shell_is_process = 1;
@@ -284,27 +295,10 @@ void proc_boot(void)
 #ifdef QDOS_R17_TEST_RESERVE
 	memmap_poison_write();                                  /* TEST ONLY: the injected reserved region */
 #endif
-#else
-	/* RAM: 1 MiB + CMOS 0x30/0x31 KiB (QEMU/SeaBIOS and Tiny386 both fill it), capped at the 16 MiB identity map. */
-	ext = cmos_read(0x30) | (cmos_read(0x31) << 8);
-	ram_top = 0x00100000u + ext * 1024u;
-	if (ext == 0 || ram_top > FR_LIMIT)
-		ram_top = (ext == 0) ? 0x00800000u : FR_LIMIT;
-	fr_init(&pool);
-#ifdef QDOS_DYNPROC_SHELL
-	shell_is_process = 1;
-#endif
-	if (shell_is_process)
-		pool_add_tested(APP_SLOT0_BASE, APP_SLOT1_BASE);       /* the former shell slot */
-	pool_add_tested(APP_SLOT1_BASE, APP_SLOT1_BASE + APP_SLOT1_SIZE);   /* former slot 1 */
-	pool_add_tested(APP_PROFILE2_BASE, 0x00700000u);        /* former profiles 2/3, up to the boot stack area */
-	pool_add_tested(0x00800000u, FR_LIMIT);                 /* above the boot stack, as far as RAM goes */
-#endif
 	{
 		extern void kx_tss_init(unsigned int template_cr3);   /* descriptors.c */
 		kx_tss_init(tpl_dir);
 	}
-#ifdef QDOS_R17
 	memmap_print();
 	con_puts("PAGING: R17 dynamic processes, ram ");
 	con_putdec((unsigned long) (ram_top / 1024u));
@@ -316,13 +310,6 @@ void proc_boot(void)
 	con_puts(" frames (");
 	con_putdec(pool_high_frames());
 	con_puts(" above 16 MiB)");
-#else
-	con_puts("PAGING: R12A dynamic processes, ram ");
-	con_putdec((unsigned long) (ram_top / 1024u));
-	con_puts(" KiB, pool ");
-	con_putdec((unsigned long) pool.pool);
-	con_puts(" frames");
-#endif
 	if (pool_bad != 0) {
 		con_puts(" (");
 		con_putdec((unsigned long) pool_bad);
@@ -339,7 +326,6 @@ void pg_init(void)
 	proc_boot();
 }
 
-#ifdef QDOS_R16
 /* R16: map the local APIC page (physical = linear, supervisor, PCD) into the template directory, so every process
  * directory cloned afterwards inherits it and kernel code on either CPU can reach the LAPIC with paging on.  User
  * code cannot (supervisor).  Call once, after proc_boot and before the first process is created. */
@@ -355,7 +341,6 @@ void pg_map_lapic(unsigned int lapic_pa)
 	pt[pte] = (lapic_pa & 0xFFFFF000u) | 0x01u | 0x02u | 0x10u;        /* P, RW, PCD; supervisor (no US) */
 	dir[pde] = ((unsigned int) pt) | 0x01u | 0x02u;                   /* present, rw, supervisor */
 }
-#endif
 
 /* ---- scheduler hooks -------------------------------------------------------------------------------------------- */
 
@@ -469,10 +454,8 @@ static void proc_entry(void)
 {
 	struct proc *p = &procs[job_current];
 
-#ifdef QDOS_R16
 	if (p->prot)
 		kx_user_enter(p->entry, PROC_STACK_TOP - 20u);   /* one way: ends by QT_EXIT or a fault */
-#endif
 	kx_call_user(p->entry, PROC_STACK_TOP, &jobs[job_current].kx_entry);
 }
 
@@ -499,7 +482,6 @@ static int build_space(struct proc *p, app_rd_fn rd, void *ctx, const struct app
 	for (va = p->stk_lo; va < p->stk_hi; va += VAS_PAGE)
 		if ((rc = vas_map_new(&p->vas, &pool, va, VAS_RW | VAS_US)) != VAS_OK)
 			return rc;
-#ifdef QDOS_R16
 	/* R16, protected jobs: the user-mode exit stub at the top of the stack and the initial return address under it.
 	 * _start's final ret lands in the stub, which turns main's return value (EAX) into QT_EXIT (docs/R16-CPL3-ABI.md). */
 	if (p->prot) {
@@ -513,7 +495,6 @@ static int build_space(struct proc *p, app_rd_fn rd, void *ctx, const struct app
 		if (vas_copy_to(&p->vas, PROC_STACK_TOP - 20u, xs, sizeof xs) != VAS_OK)
 			return APP_ERR_LAYOUT;
 	}
-#endif
 	/* text and data, read in 512-byte chunks; BSS is already zero (frames are zeroed when mapped) */
 	off = AOUT_HDR_BYTES;
 	va = p->origin;
@@ -561,13 +542,11 @@ unsigned int proc_parent_of(int slot)
 }
 #endif
 
-#ifdef QDOS_R16
 int pg_slot_prot(int slot)
 {
 	return slot >= 0 && slot < JOB_MAX && procs[slot].state == P_LIVE &&
 	       procs[slot].id == jobs[slot].id && procs[slot].prot != 0;
 }
-#endif
 
 int proc_shell_is_process(void)
 {
@@ -596,6 +575,9 @@ int proc_load(app_rd_fn rd, void *ctx, unsigned int len, int want_slot, const un
 	irq = irq_save();
 	id = job_alloc_sized(info.slot == 0 ? "APP0" : "APPD", proc_entry, 0, PROC_KSTACK_BYTES);
 	if (id < 0) {
+#ifdef QDOS_R20
+		launch_fail_stage = 1; launch_fail_bytes = PROC_KSTACK_BYTES; launch_fail_code = id;
+#endif
 		irq_restore(irq);
 		load_failures++;
 		return (id == -1) ? APP_ERR_NOJOB : APP_ERR_NOMEM;
@@ -605,6 +587,9 @@ int proc_load(app_rd_fn rd, void *ctx, unsigned int len, int want_slot, const un
 	/* R12B: a snapshot of the creator's environment, owned by the new id, before the job can run.  On failure the job
 	 * (and so the block) is released by job_cancel, like every other failure below. */
 	if (env_inherit(js, (unsigned int) id, JOB_CTX_SLOT()) != 0) {   /* R13B: the launch context's environment */
+#ifdef QDOS_R20
+		launch_fail_stage = 2; launch_fail_bytes = 0; launch_fail_code = ENV_ERR_NOMEM;
+#endif
 		job_cancel((unsigned int) id);
 		irq_restore(irq);
 		load_failures++;
@@ -626,13 +611,9 @@ int proc_load(app_rd_fn rd, void *ctx, unsigned int len, int want_slot, const un
 	p->stk_hi = PROC_STACK_TOP;
 	p->stk_lo = PROC_STACK_TOP - PROC_STACK_BYTES;
 	p->hold_pending = 0;
-#ifdef QDOS_R16
 	p->prot = (unsigned char) (((flags & PROC_LOAD_PROT) != 0) || info.prot != 0);
-#ifdef QDOS_R16B
 	if (!p->prot)
 		jobs[js].aff = 0;      /* R16B: a legacy ring-0 process runs on CPU 0 only, even if a CPU-1 job created it */
-#endif
-#endif
 	p->faults = 0;
 	p->vas.dir = 0;
 	p->vas.ntab = 0;
@@ -643,6 +624,9 @@ int proc_load(app_rd_fn rd, void *ctx, unsigned int len, int want_slot, const un
 	if (rc != VAS_OK)
 		vas_destroy(&p->vas, &pool);                    /* every frame, table and the directory */
 	tpl_leave(was);
+#ifdef QDOS_R20
+	if (rc != VAS_OK) { launch_fail_stage = 3; launch_fail_bytes = VAS_PAGE; launch_fail_code = rc; }
+#endif
 	if (rc != VAS_OK) {
 		p->state = P_FREE;
 		job_cancel((unsigned int) id);                  /* kernel stack, job record */
@@ -673,7 +657,6 @@ int pg_release_owner(unsigned int job_id, int slot)
 	p = &procs[slot];
 	if (p->state != P_LIVE || p->id != job_id)
 		return 0;
-#ifdef QDOS_R17
 	{
 		int c, active = 0;
 		for (c = 0; c < KX_NCPU; c++)
@@ -687,13 +670,6 @@ int pg_release_owner(unsigned int job_id, int slot)
 		}
 	}
 	if (0) {
-#else
-	if (p->vas.dir == cur_cr3 || p->vas.dir == pg_read_cr3()
-#ifdef QDOS_R16
-	    || p->vas.dir == g_curcr3[0] || p->vas.dir == g_curcr3[1]   /* active on either CPU: a CR3 load flushed the TLB */
-#endif
-	   ) {
-#endif
 		con_puts("PAGING: release deferred\n");
 		return PG_ERR_ACTIVE;
 	}
@@ -837,11 +813,7 @@ void proc_job_reaped(unsigned int id, int status)
 	}
 }
 
-#ifdef QDOS_R16
 #define PROC_SPAWN_FLAGS (PROC_LOAD_HELD | PROC_LOAD_PROT)
-#else
-#define PROC_SPAWN_FLAGS PROC_LOAD_HELD
-#endif
 
 int proc_spawn(unsigned int name_addr, unsigned int req_addr)
 {
@@ -1030,7 +1002,6 @@ static unsigned int kstack_hwm(const struct job *j)
 	return 0;
 }
 
-#ifdef QDOS_R17
 /* R17: QT_SMP SMP_OP_MEMINFO (docs/APOLLO13-MEMORY-MAP.md §ABI): the firmware map, the pool and the checks. */
 int proc_meminfo(unsigned int words, unsigned int buf)
 {
@@ -1091,7 +1062,6 @@ int proc_meminfo(unsigned int words, unsigned int buf)
 	{ unsigned int *u = (unsigned int *) buf; for (i = 0; i < n; i++) u[i] = w[i]; }
 	return (int) n;
 }
-#endif
 
 int proc_info(unsigned int id, unsigned int user_addr)
 {

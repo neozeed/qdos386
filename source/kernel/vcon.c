@@ -16,7 +16,9 @@
 #endif
 #endif
 
-#ifdef QDOS_DYNPROC
+#ifdef QDOS_R4_RESOURCES
+#define VCON_JOBS JOB_MAX             /* job ownership is independent of session count */
+#elif defined(QDOS_DYNPROC)
 #define VCON_JOBS 16                   /* R12A: JOB_MAX is 16 */
 #else
 #define VCON_JOBS 8                    /* job slots tracked (JOB_MAX is 6) */
@@ -60,6 +62,9 @@ static struct vcon cons[VCON_MAX];
 /* R13: the session table.  Sessions 0..3 are the legacy consoles (static, Alt+F1..F4); 4..VSESS_MAX-1 are private
  * sessions allocated from the kernel heap on demand and freed when their last job ends. */
 static struct vcon *ctab[VSESS_MAX];
+#ifdef QDOS_R4_RESOURCES
+unsigned int vcon_diag_sessions = VSESS_MAX;
+#endif
 #define CON(i) (*ctab[i])
 #else
 #define CON(i) cons[i]

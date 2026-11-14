@@ -48,6 +48,16 @@
 #define MEM_ERR_CORRUPT  (-9)        /* header or list invariant broken */
 #define MEM_ERR_RANGE   (-10)        /* invalid arena bounds at init */
 
+#ifdef QDOS_R20
+/* Internal diagnostic counters only: actual block bytes including headers.
+ * No public trap/ABI; sampled via kernel symbols by diagnostic tooling. */
+struct mem_diag {
+	unsigned int used, peak, failures, request, needed, owner;
+	int error;
+};
+extern struct mem_diag mem_diagnostics;
+#endif
+
 struct mem_stats {
 	unsigned int total;          /* arena bytes */
 	unsigned int used;           /* bytes in allocated blocks, headers included */

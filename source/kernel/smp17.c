@@ -463,7 +463,7 @@ unsigned int smp_ap_timer_resume(unsigned int sp)
 
 /* ---- accounting (R16B semantics, N CPUs; all under the BKL) ---- */
 extern volatile unsigned long sched_ticks;
-extern unsigned long bkl_wait_kc[8], bkl_contended[8];
+extern unsigned long bkl_wait_kc[KX_NCPU], bkl_contended[KX_NCPU];
 int vcon_fg(void);
 int vcon_job_con(int slot);
 static unsigned long st_ticks[NCPU], st_cpl3[NCPU], st_cpl0[NCPU], st_idle[NCPU], st_ctxsw[NCPU], st_migr[NCPU];
@@ -775,6 +775,14 @@ int smp_trap(unsigned int a, unsigned int b, unsigned int c)
 		if (!chan_user_range_ok(c, sizeof w)) return CHAN_ERR_RANGE;
 		for (i = 0; i < SMP_INFO_WORDS; i++) w[i] = 0;
 		w[0] = (unsigned int) state; w[1] = (unsigned int) reason; w[2] = (unsigned int) ncpu;
+#if KX_NCPU == 1
+		w[3] = bsp_id; w[5] = lapic; w[6] = lvt_count;
+		w[9] = bkl_word; w[10] = (unsigned int) bkl_acq[0];
+		w[12] = (unsigned int) bkl_rel[0]; w[14] = (unsigned int) bkl_spins[0];
+		w[16] = (unsigned int) bkl_maxspin; w[17] = (unsigned int) bkl_badrel;
+		w[18] = (unsigned int) bkl_depth[0];
+		w[20] = (unsigned int) jobs[g_jobcur[0]].id; w[23] = (unsigned int) kx_this_cpu();
+#else
 		w[3] = bsp_id; w[4] = cpus[1].apic; w[5] = lapic; w[6] = lvt_count;
 		w[7] = (unsigned int) cpus[1].ticks; w[8] = (unsigned int) cpus[1].dispatch;
 		w[9] = bkl_word; w[10] = (unsigned int) bkl_acq[0]; w[11] = (unsigned int) bkl_acq[1];
@@ -784,6 +792,7 @@ int smp_trap(unsigned int a, unsigned int b, unsigned int c)
 		w[18] = (unsigned int) bkl_depth[0]; w[19] = (unsigned int) bkl_depth[1];
 		w[20] = (unsigned int) jobs[g_jobcur[0]].id; w[21] = (unsigned int) (cpus[1].online ? jobs[g_jobcur[1]].id : 0);
 		w[22] = (unsigned int) g_jobidle[1]; w[23] = (unsigned int) kx_this_cpu();
+#endif
 		{ unsigned int *u = (unsigned int *) c; for (i = 0; i < SMP_INFO_WORDS; i++) u[i] = w[i]; }
 		return 0;
 	case SMP_OP_SETAFF:

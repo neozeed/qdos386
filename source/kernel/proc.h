@@ -52,6 +52,18 @@
 /* QT_PROC_INFO result. */
 #define PROC_INFO_WORDS   24
 
+#ifdef QDOS_R20
+/* Internal cache backing: boot only, before the first process/AP. Not a syscall.
+ * Contiguous, supervisor identity-mapped pages above every image profile.
+ * Release is only for initialization rollback; membership is frozen thereafter. */
+void *proc_cache_reserve(unsigned int bytes);
+int proc_cache_release(void);
+extern unsigned int cache_backing_base, cache_backing_pages, cache_backing_failures;
+/* Last failed process creation: stage 1 stack/job, 2 environment, 3 VAS;
+ * requested bytes where known, internal error. Diagnostic symbols, no ABI. */
+extern unsigned int launch_fail_stage, launch_fail_bytes;
+extern int launch_fail_code;
+#endif
 /* Boot: template, paging on, RAM measured, frame pool built and tested.  Prints one line. */
 void proc_boot(void);
 

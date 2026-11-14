@@ -6,7 +6,14 @@
 #define APP_QT_SYNC      0x39u
 #define TQ_HDR 16u
 #define TQ_ENT 128u
-static unsigned char tqbuf[TQ_HDR + TQ_ENT * 16u];
+#ifndef TQ_MAXJOBS
+#ifdef QDOS_R4_RESOURCES
+#define TQ_MAXJOBS QDOS_CFG_MAX_JOBS
+#else
+#define TQ_MAXJOBS 16u                /* historical default; current shell supplies job capacity */
+#endif
+#endif
+static unsigned char tqbuf[TQ_HDR + TQ_ENT * TQ_MAXJOBS];
 static unsigned int syncst[16];
 
 static void out_w(const char *s, int w)

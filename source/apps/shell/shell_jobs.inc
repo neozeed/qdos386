@@ -395,7 +395,12 @@ static void cmd_start(char *arg)
 #define JC_ENT     40u
 #define JC_VER     1u
 #ifndef JC_MAXJOBS
+#ifdef QDOS_R4_RESOURCES
+#include "../../kernel/resource_config.h"
+#define JC_MAXJOBS QDOS_CFG_MAX_JOBS
+#else
 #define JC_MAXJOBS 8
+#endif
 #endif
 unsigned char jbuf[JC_HDR + JC_ENT * JC_MAXJOBS];
 

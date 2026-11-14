@@ -1,16 +1,9 @@
 /* QDOS/386 R13 - INDEX8 surfaces.  See gsurf.h.  Freestanding C89 (no library calls). */
 #include "gsurf.h"
-#ifdef QDOS_R13A
 #include "fontreg.h"
 #define CW(g) ((int) (g)->font->cw)          /* R13A: the surface's font sets the text cell */
 #define CH(g) ((int) (g)->font->ch)
 #define DRAW_CELL(g, x, y, c, i, p, a) kfont_draw_cell((g)->font, (g)->pix, (g)->w, (g)->h, (g)->stride, x, y, c, i, p, a)
-#else
-#include "font.h"
-#define CW(g) FONT_CELL_W
-#define CH(g) FONT_CELL_H
-#define DRAW_CELL(g, x, y, c, i, p, a) font_draw_cell((g)->pix, (g)->w, (g)->h, (g)->stride, x, y, c, i, p, a)
-#endif
 
 unsigned long gs_block_bytes(unsigned int w, unsigned int h)
 {
@@ -67,13 +60,11 @@ int gs_init(struct gsurf *g, void *block, unsigned int w, unsigned int h, unsign
 	g->gen = 1;
 	g->dy0 = 0;
 	g->dy1 = (int) h;
-#ifdef QDOS_R13A
 	g->font = kfont_default(0);
 	kfont_ref(g->font);
 	g->view = GS_VIEW_FIT;
 	g->vx = 0;
 	g->vy = 0;
-#endif
 	g->cols = w / CW(g);
 	g->rows = h / CH(g);
 	g->tcol = 0;
@@ -86,7 +77,6 @@ int gs_init(struct gsurf *g, void *block, unsigned int w, unsigned int h, unsign
 	g->frames = 0;
 	return GS_OK;
 }
-#ifdef QDOS_R13A
 
 /* R13A: give the surface font f (the surface holds a reference): the text grid follows the font's cell. */
 void gs_set_font(struct gsurf *g, struct kfont *f)
@@ -103,7 +93,6 @@ void gs_set_font(struct gsurf *g, struct kfont *f)
 		g->trow = 0;
 	gs_dirty(g, 0, (long) g->h);
 }
-#endif
 
 void gs_dirty(struct gsurf *g, long y0, long y1)
 {
@@ -198,7 +187,6 @@ long gs_blit(struct gsurf *g, long x, long y, long w, long h, const unsigned cha
 	return cw * ch;
 }
 
-#ifdef QDOS_R13A
 /* R13A: gs_blit, but source pixels equal to `key` are transparent (the surface keeps its pixel). */
 long gs_blit_key(struct gsurf *g, long x, long y, long w, long h, const unsigned char *src, unsigned long sstride,
                  unsigned int key)
@@ -266,7 +254,6 @@ long gs_copy(struct gsurf *g, long sx, long sy, long w, long h, long dx, long dy
 	gs_dirty(g, dy, dy + ch);
 	return cw * ch;
 }
-#endif
 
 long gs_read(const struct gsurf *g, long x, long y, long w, long h, unsigned char *dst, unsigned long dstride)
 {

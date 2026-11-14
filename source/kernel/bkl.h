@@ -8,10 +8,11 @@
  */
 #ifndef QDOS386_BKL_H
 #define QDOS386_BKL_H
+#include "jobs.h"
 extern volatile unsigned int bkl_word;              /* 0 free, else owner cpu+1 */
 #ifdef QDOS_R17
-extern int bkl_depth[8];
-extern unsigned long bkl_acq[8], bkl_rel[8], bkl_spins[8], bkl_maxspin, bkl_badrel;
+extern int bkl_depth[KX_NCPU];
+extern unsigned long bkl_acq[KX_NCPU], bkl_rel[KX_NCPU], bkl_spins[KX_NCPU], bkl_maxspin, bkl_badrel;
 #else
 extern int bkl_depth[2];
 extern unsigned long bkl_acq[2], bkl_rel[2], bkl_spins[2], bkl_maxspin, bkl_badrel;

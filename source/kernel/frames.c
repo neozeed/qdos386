@@ -126,3 +126,29 @@ int fr_check(const struct fr_pool *p)
 	}
 	return m == p->pool && u == p->nused && p->nused <= p->pool;
 }
+
+#ifdef QDOS_R20
+unsigned int fr_reserve_run(struct fr_pool *p, unsigned int lo, unsigned int hi, unsigned int pages)
+{
+	unsigned int a, first = 0, n = 0, k;
+
+	if (!pages || pages > FR_NFRAMES || (lo & (FR_PAGE - 1u)) ||
+	    (hi & (FR_PAGE - 1u)) || !lo || hi <= lo || hi > FR_LIMIT)
+		return 0;
+	for (a = lo; a < hi; a += FR_PAGE) {
+		if (fr_in_pool(p, a) && !fr_is_used(p, a)) {
+			if (!n) first = a;
+			if (++n == pages) {
+				for (k = 0; k < pages; k++) {
+					if (fr_remove(p, first + k * FR_PAGE) != FR_OK) {
+						if (k) (void) fr_add_range(p, first, first + k * FR_PAGE);
+						return 0;
+					}
+				}
+				return first;
+			}
+		} else n = 0;
+	}
+	return 0;
+}
+#endif

@@ -138,7 +138,7 @@ static int con_drv_ctl(struct chan_object *ch, unsigned int op, unsigned long ar
 			struct chan_con_snap *s = (struct chan_con_snap *) arg;
 			int c, r;
 
-			if (!chan_user_range_ok((unsigned int) arg, (unsigned int) sizeof(struct chan_con_snap)))
+			if (!CHAN_SERVICE_RANGE_OK((unsigned int) arg, (unsigned int) sizeof(struct chan_con_snap)))
 				return CHAN_ERR_RANGE;
 			c = s->con == 0xffu ? con : (int) s->con;
 			r = vcon_snap_row(c, s->row, s->text, (unsigned int) sizeof s->text);
@@ -229,7 +229,7 @@ static int copy_name(unsigned int addr, char *out)
 {
 	unsigned int i;
 	for (i = 0; i < CHAN_NAME_MAX; i++) {
-		if (!chan_user_range_ok(addr + i, 1))
+		if (!CHAN_SERVICE_RANGE_OK(addr + i, 1))
 			return CHAN_ERR_RANGE;
 		out[i] = *(char *) (addr + i);
 		if (out[i] == 0)
@@ -398,7 +398,7 @@ int chan_write(unsigned int id, unsigned int owner, unsigned int buf_addr, unsig
 	}
 	if (n == 0)
 		return 0;
-	if (!chan_user_range_ok(buf_addr, n)) {
+	if (!CHAN_SERVICE_RANGE_OK(buf_addr, n)) {
 		chan_rejected++;
 		return CHAN_ERR_RANGE;
 	}
@@ -438,7 +438,7 @@ int chan_read(unsigned int id, unsigned int owner, unsigned int buf_addr, unsign
 	}
 	if (n == 0)
 		return 0;
-	if (!chan_user_range_ok(buf_addr, n)) {
+	if (!CHAN_SERVICE_RANGE_OK(buf_addr, n)) {
 		chan_rejected++;
 		return CHAN_ERR_RANGE;
 	}
@@ -484,7 +484,7 @@ int chan_fsop(unsigned int op, unsigned int a_addr, unsigned int b_addr)
 		drivers_ready = 1;
 	}
 	if (op == CHAN_FS_GETCWD) {
-		if (b_addr == 0 || b_addr > 256 || !chan_user_range_ok(a_addr, b_addr))
+		if (b_addr == 0 || b_addr > 256 || !CHAN_SERVICE_RANGE_OK(a_addr, b_addr))
 			return CHAN_ERR_RANGE;
 		return win1_driver.fsop(op, (const char *) a_addr, (const char *) b_addr);
 	}
@@ -500,7 +500,7 @@ int chan_fsop(unsigned int op, unsigned int a_addr, unsigned int b_addr)
 		if (rc != 0)
 			return rc;
 	}
-	if (op == CHAN_FS_STAT && b_addr != 0 && !chan_user_range_ok(b_addr, 8))
+	if (op == CHAN_FS_STAT && b_addr != 0 && !CHAN_SERVICE_RANGE_OK(b_addr, 8))
 		return CHAN_ERR_RANGE;
 	for (d = 0; drivers[d] != 0; d++)
 		if (name_match(drivers[d], na))

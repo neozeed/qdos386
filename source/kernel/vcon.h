@@ -17,6 +17,7 @@
  */
 #ifndef QDOS386_VCON_H
 #define QDOS386_VCON_H
+#include "resource_config.h"
 
 #define VCON_MAX   4
 #define VCON_COLS  80
@@ -100,7 +101,11 @@ void taskmgr_console_key(int con);              /* Alt+F1..F4 (keyboard IRQ): cl
 
 #ifdef QDOS_SURFACES
 /* ---- R13: sessions beyond the four legacy consoles (docs/R13-DISPLAY-ABI.md) ---- */
+#ifdef QDOS_R4_RESOURCES
+#define VSESS_MAX QDOS_CFG_MAX_SESSIONS
+#else
 #define VSESS_MAX      20              /* sessions in all: 0..3 legacy consoles, 4..19 private sessions */
+#endif
 #define VCON_CHILD_NEW 0xfe            /* vcon_set_child: the next job the caller creates gets a new private session */
 #define VSESS_OWNER    0x7E00u         /* heap owner of session and surface blocks (never a job id) */
 #define VSESS_ERR_FULL (-5)            /* no free session */

@@ -3,6 +3,9 @@
  */
 #include "memmap.h"
 #include "platform.h"
+#ifdef QDOS_APOLLO_R6
+#include "r6boot.h"
+#endif
 
 #define MM_BOOT_TAG   (0x7C00u + 0x1CAu)    /* the QBOOT3 boot sector is still at 0x7C00 when the kernel starts */
 #define MM_END_PTR    0x0500u
@@ -28,6 +31,13 @@ void memmap_capture(void)
 
 	nraw = 0;
 	captured = 0;
+#ifdef QDOS_APOLLO_R6
+	r6_boot_capture();
+	if (r6_boot_state < 0) return;
+	if (r6_boot_state == 1) {
+		if (!(r6_boot.flags & 1u)) return;
+	} else
+#endif
 	if (tag[0] != 'Q' || tag[1] != 'B' || tag[2] != 'O' || tag[3] != 'O' || tag[4] != 'T' || tag[5] != '3')
 		return;                                    /* not the QBOOT3 loader: 0x500 is not ours */
 	end = *(const unsigned short *) MM_END_PTR;

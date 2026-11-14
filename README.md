@@ -1,3 +1,112 @@
+# R2A-DISK-FIX1: expanded development disk
+
+FIX1 restores the guest GCC toolchain, Planetfall and GW-BASIC. Build with:
+
+```sh
+make win1-dev-fix1 HOSTTOOLS=/absolute/hosttools \
+  R14B_ARCHIVE=/absolute/qdos386-R14B-GCC-ENV-SDK.tar.gz \
+  PLANETFALL=/absolute/planetfall-r37-s851003.z3
+```
+
+Default output is `../reference/qdos386/win1-dev-r2a-fix1.img`; use a fresh
+`WIN1_FIX1=/path/new.img` and `FIX1_WORK=build/new` for another generation.
+The original R2A disk remains immutable. The 70-file FIX1 image is reproducible
+and passes bounded TCG tests on 1 and 8 CPUs: native GCC compile/run, GW-BASIC
+arithmetic/exit, Planetfall Deck Nine, shell/filesystem, AP idles and IOW0.
+See `reports/r2a-disk-fix1/R2A-DISK-FIX1-HANDOFF.md` for source restoration,
+exact image hashes, manifests and test limits. The older R2A-DISK notes below
+record the previous image and its former missing-input limitations.
+
+---
+
+# R2A-DISK development volume
+
+The current local development disk is generated with:
+
+```sh
+make win1-dev HOSTTOOLS=/absolute/path/to/hosttools
+# Defaults: ../reference/qdos386/win1-dev-r2a.img; staging in build/r2a-disk/.
+# Existing images are never overwritten. Choose a fresh WIN1_DEV for another build.
+make win1-dev HOSTTOOLS=/absolute/path/to/hosttools WIN1_DEV=/absolute/new.img
+python3 tools/verify-win1-dev.py ../reference/qdos386/win1-dev-r2a.img ../reference/qdos386/win1-dev-r2a.manifest.json
+```
+
+Requires `mkfs.fat`, `fsck.fat`, Bash, GNU Make, Python 3, host `ar`, `patch`,
+and the unchanged historical toolchain (including gnulib sources). It builds
+applications in a fresh staging export, never in the production kernel tree.
+The 32 MiB FAT16 disk includes the current rich shell, SDK libraries/headers,
+editor, SuperBASIC, QLTerm, Bounce/Condemo, guest GAS, Elite, Hack and Infocom/Zork.
+Guest GCC/LD and Planetfall remain explicitly blocked by missing inputs; this
+is not a complete self-hosting compiler environment.
+
+Two independent generations match byte-for-byte. Bounded TCG runs on 1 and 8
+vCPUs pass shell/filesystem/application launch checks; eight online CPUs,
+IDL1–IDL7 and IOW0 are observed. Hack launch is not full playability acceptance.
+See `reports/r2a-disk/R2A-DISK-HANDOFF.md` for exact artifacts, inventory and
+limitations. Older R2A documents below describe their original kernel-only probes.
+
+---
+
+# QDOS/386: canonical R20 build
+
+The authoritative production tree is `source/`. The root GNU Makefile forwards
+builds to its unchanged recipes. R20 is the default; R18 is the frozen regression.
+Root `kernel/` and `platform/` are historical copies, not production inputs.
+
+On Linux x86-64, use GNU Make, Bash, Python 3 and the historical GCC 1.40 /
+GAS 1.38 / binutils 1.94 toolchain. Modern system GCC/Clang are not substitutes.
+The external tool directory must contain `bin/i386-gcc`, `bin/cccp`, `bin/cc1`,
+`bin/as`, `bin/i386-ld` and `tools/aout-to-raw.py`. It is not included in Git.
+The delivered bundle keeps it beside this worktree, at `../hosttools`.
+
+```sh
+# From this Git worktree (repository/ in the delivery bundle):
+make HOSTTOOLS="$(cd ../hosttools && pwd)"         # default R20 headless + VGA
+make r18 HOSTTOOLS="$(cd ../hosttools && pwd)"     # R18 regression
+# Or supply HOSTTOOLS=/absolute/path/to/hosttools from any checkout.
+make -B r20 r18 HOSTTOOLS=/absolute/path/to/hosttools
+make verify-identity
+make help
+```
+
+`HOSTTOOLS` defaults to `$HOME/i386vm`. Independent `I386VM` and
+`QDOS386_TOOLS` command-line/environment overrides retain their existing meanings;
+`I386VM` defaults to `HOSTTOOLS`, and `QDOS386_TOOLS` to `I386VM`.
+Keep release builds sequential: do not use `-j` with both releases, since their
+nested recipes share application and boot intermediates. Real compiler/linker
+commands remain visible. `-B` forces rebuilding rather than accepting old objects.
+
+R20 outputs are `source/build/qdos386-r20/pc/qdos386-r20.img` and
+`source/build/qdos386-r20/pc-vga/qdos386-r20-vga.img`. R18 uses corresponding
+`qdos386-r18` directories/names. `verify-identity` is a read-only check of all
+250 original R0/R1 output hashes (including 36 diagnostic objects); it does not
+build missing files. To check another build tree:
+
+```sh
+python3 scripts/verify-r2a-identity.py /absolute/export/source/build
+```
+
+The original root Makefile is preserved byte-for-byte at
+`historical/nov11-root.Makefile`. Its historical default/SMP paths have a known
+`kernel/platform.h` conflict. They were not repaired or made supported by this
+front end. Full older documentation follows below.
+
+Normal guest shell boot needs a separate WIN1 FAT16 data disk on IDE primary
+slave containing a compatible `SHELL.AOU`; the boot image is IDE primary master.
+Building the kernel does not rebuild or install that runtime shell or disk.
+The supplied `control/win1-r11f-control.img` contains a historical R11F shell and
+is explicitly test-only, not the accepted current runtime volume.
+
+R2A performed forced nested/root R18/R20 identity checks and a fresh Git-export
+build using the external toolchain. Bounded TCG kernel probes use 1 and 8 CPUs;
+without the accepted WIN1 volume, shell/application boot, online AP idle jobs
+and IOW0 runtime remain untested. See `reports/r2a/R2A-HANDOFF.md`,
+`reports/r2a/R2A-IDENTITY.md` and `reports/r2a/R2A-QEMU.md` for actual results.
+R1 ownership, limits and compiler evidence remains in `reports/r1/`.
+No R2B diagnostic separation, capacity changes or macro cleanup is included.
+
+---
+
 # QDOS/386 R11K - bigger PC boot loader and supported paged launch (opt-in)
 
 R11K (branch `r11k-integration`, from frozen R11J `f7664d7`) does two things.  **1. Boot:** a
