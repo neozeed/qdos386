@@ -35,6 +35,8 @@ for t in i386-gcc as i386-ld; do
 done
 SDK=${QDOS386_SDK:-$(cd "$(dirname "$0")/.." && pwd)}
 
+LIBDIR=${QDOS386_LIBDIR:-$SDK/lib}
+
 slot=1
 out=
 optO=
@@ -74,21 +76,21 @@ for s in $srcs; do
 done
 # Startup: crt0_libc.s flushes the libc stdout buffer when main returns; it is
 # used only when libc.a is linked (it calls _qd_flush_std).  Otherwise crt0.s.
-libc="$SDK/lib/libc.a"
+libc="$LIBDIR/libc.a"
 if [ -f "$libc" ]; then crt0src="$SDK/lib/crt0_libc.s"; else crt0src="$SDK/lib/crt0.s"; libc=; fi
 "$QDOS386_TOOLS/bin/as" -o "$work/crt0.o" "$crt0src" || die "assemble crt0"
 # Link order: crt0, the objects, libc.a (the C89 subset, R9), libqdos.a (the
 # QDOS trap wrappers that libc uses).  libc.a is optional: an R8-style program
 # that uses only qd_* still links without it, and the archive is only read for
 # the symbols it needs.
-lib="$SDK/lib/libqdos.a"
+lib="$LIBDIR/libqdos.a"
 [ -f "$lib" ] || die "missing $lib (run: make -C $SDK/lib)"
 # Math (R11C): libm.a sets errno, which is in libc.a, so it comes before libc.
 # Compiler support (R11C): the GCC 1.40 helpers for double <-> integer
 # conversions, from sdk/compiler, after libc.a and before libqdos.a.
-libm="$SDK/lib/libm.a"
+libm="$LIBDIR/libm.a"
 [ -f "$libm" ] || libm=
-gcclib="$SDK/lib/libgcc-qd.a"
+gcclib="$LIBDIR/libgcc-qd.a"
 [ -f "$gcclib" ] || gcclib=
 "$QDOS386_TOOLS/bin/i386-ld" -N -T "$SDK/ld/slot$slot.ld" -e _start -o "$out" \
 	"$work/crt0.o" $objs $libm $libc $gcclib "$lib" || die "link failed"

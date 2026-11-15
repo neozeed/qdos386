@@ -31,11 +31,11 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     for name in ('output', 'fallback', 'package', 'apps', 'channels', 'live', 'populator'):
         ap.add_argument('--' + name, type=Path, required=True)
+    ap.add_argument('--sdk-libs', type=Path)
     a = ap.parse_args()
     root = Path(__file__).resolve().parents[2]
-    assert str(root).startswith('/tmp/')
     out = a.output.resolve()
-    assert str(out).startswith('/tmp/') and not a.output.exists()
+    assert not a.output.exists() and not a.output.is_symlink()
     out.mkdir()
 
     def run(cmd, log):
@@ -68,6 +68,12 @@ def main():
         else:
             file.parent.mkdir(parents=True, exist_ok=True)
             body = walker.read_file(volume, node)
+            if a.sdk_libs and path.startswith('/SDK/LIB/'):
+                library = {'LIBGCC.A':'libgcc-qd.a','LIBGCC~1.A':'libgcc-qd.a'}.get(Path(path).name, Path(path).name.lower())
+                fresh = a.sdk_libs / library
+                if fresh.exists():
+                    assert fresh.read_bytes() == body, 'SDK payload differs from fresh source build: ' + path
+                    body = fresh.read_bytes()
             file.write_bytes(body)
             hashes[path] = sha(body)
             manifest.append('F\t' + target + '\t' + str(file))

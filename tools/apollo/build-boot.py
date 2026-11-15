@@ -2,7 +2,7 @@
 """Build new BIOS stages with existing system binutils; legacy GAS/kernel untouched."""
 import argparse,hashlib,json,struct,subprocess
 from pathlib import Path
-ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('output',type=Path);a=ap.parse_args();a.output.mkdir(parents=True,exist_ok=False);root=Path(__file__).resolve().parents[2];files={}
+ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('output',type=Path);ap.add_argument('--rebuild',action='store_true');a=ap.parse_args();a.output.mkdir(parents=True,exist_ok=a.rebuild);root=Path(__file__).resolve().parents[2];files={}
 for name,origin in [('mbr',0x600),('vbr',0x7c00),('stage2',0x1000)]:
  src=root/'source/platform/pc/apollo'/(name+'.S');obj=a.output/(name+'.o');dest=a.output/(name+'.bin')
  subprocess.run(['/usr/bin/as','--32','-o',str(obj),str(src)],check=True)

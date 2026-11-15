@@ -5,8 +5,8 @@ Replace QDOS.SYS only in the new image; install named root-directory utilities.
 import argparse,hashlib,struct,importlib.util,json,os,stat
 from pathlib import Path
 ap=argparse.ArgumentParser();ap.add_argument('--input',required=True,type=Path);ap.add_argument('--output',required=True,type=Path);ap.add_argument('--package',required=True,type=Path);ap.add_argument('--apps',required=True,type=Path);ap.add_argument('--probe',type=Path);ap.add_argument('--probe-name',default='DTABI.AOU',choices=['DTABI.AOU','F32IO.AOU']);a=ap.parse_args()
-root=Path(__file__).resolve().parents[2];assert str(root).startswith('/tmp/')
-assert not a.output.exists() and not a.output.is_symlink() and str(a.output.resolve()).startswith('/tmp/')
+root=Path(__file__).resolve().parents[2]
+assert not a.output.exists() and not a.output.is_symlink()
 inputs=[a.input,a.package]+[a.apps/(n+'.aout') for n in ['FDISK','FORMAT','CHKDSK']]
 if a.probe:inputs.append(a.probe)
 for p in inputs:assert not p.is_symlink() and stat.S_ISREG(p.stat().st_mode)

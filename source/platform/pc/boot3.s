@@ -1,3 +1,5 @@
+/* Canonical R7 transfer address; matches kernel/appmap.h. */
+.set QDOS_TRANSFER_BASE, 0x340000
 /*
  * QDOS/386 R17 Apollo 13 (PC) - 512-byte boot sector: the R11K multi-transfer loader (boot2.s, QBOOT2) plus a BIOS
  * INT 15h AX=E820 memory map.  Used ONLY by the opt-in R17 image (make qdos386-r17-pc, with make-image3.py); boot2.s
@@ -231,7 +233,7 @@ sumok:
 	rep
 	movsl
 	/* ESI now points at the transfer area (0x10000 + kernel bytes). */
-	movl $0x280000,%edi
+	movl $QDOS_TRANSFER_BASE,%edi
 	movl (0x7C00+0x1C4),%ecx
 	andl $0xffff,%ecx
 	shll $7,%ecx			/* transfer dwords */

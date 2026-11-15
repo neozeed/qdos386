@@ -8,7 +8,7 @@ class Guest:
   self.err=(self.log/'stderr.txt').open('w'); self.trace=(self.log/'screens.txt').open('w')
   args=['qemu-system-i386','-machine','pc','-accel','tcg','-cpu','pentium','-m','32','-smp','4','-vga','std','-display','none','-serial','none','-nic','none','-qmp','stdio','-drive',f'file={image},format=raw,if=ide,index=0','-debugcon',f'file:{self.log}/debug.txt','-global','isa-debugcon.iobase=0x402','-boot','order=c','-no-reboot',*extra]
   (self.log/'command.json').write_text(json.dumps(args,indent=2)+'\n')
-  self.p=subprocess.Popen(args,cwd=B/'stage-a-worktree',env=dict(os.environ,TMPDIR=str(B/'tmp')),stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=self.err,bufsize=0); self.buf=b''
+  self.p=subprocess.Popen(args,cwd=B,env=dict(os.environ,TMPDIR=str(B/'tmp')),stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=self.err,bufsize=0); self.buf=b''
   self.recv(); self.qmp('qmp_capabilities'); self.wait(lambda s:'Type HELP' in s,20); self.wait(self.prompt,10)
  def recv(self,timeout=5):
   end=time.monotonic()+timeout

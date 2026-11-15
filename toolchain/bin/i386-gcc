@@ -1,0 +1,37 @@
+#!/bin/bash
+set -eu
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+OUT=a.out; MODE=link; OPT=-O; RAW=0
+args=(); inputs=()
+while (($#)); do
+ case "$1" in
+ -o) OUT=$2;shift 2;;
+ -c) MODE=obj;shift;;
+ -S) MODE=asm;shift;;
+ --raw) RAW=1;shift;;
+ -O|-O0) OPT=$1;shift;;
+ -I*|-D*|-U*) args+=("$1");shift;;
+ *.c|*.s|*.o|*.a) inputs+=("$1");shift;;
+ *) echo "unsupported option: $1" >&2;exit 2;;
+ esac
+done
+TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+objects=(); n=0
+for input in "${inputs[@]}"; do
+ n=$((n+1));base="$TMP/$n"
+ case "$input" in
+ *.c)
+ "$ROOT/bin/cccp" -nostdinc -undef -Di386 -D__i386__ "${args[@]}" "$input" "$base.i"
+ ccargs=(-quiet); if [ "$OPT" != -O0 ];then ccargs+=(-O);fi
+ "$ROOT/bin/cc1" "${ccargs[@]}" "$base.i" -o "$base.s"
+ if [ "$MODE" = asm ];then cp "$base.s" "$OUT";continue;fi
+ "$ROOT/bin/as" -o "$base.o" "$base.s";;
+ *.s) "$ROOT/bin/as" -o "$base.o" "$input";;
+ *) objects+=("$input");continue;;
+ esac
+ if [ "$MODE" = obj ];then cp "$base.o" "$OUT";else objects+=("$base.o");fi
+done
+if [ "$MODE" = link ];then
+ echo "i386-gcc: use source/sdk/bin/qdos386-gcc for SDK linking, or i386-ld explicitly" >&2
+ exit 2
+fi

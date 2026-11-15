@@ -37,3 +37,9 @@ source/sdk/lib/*.o
 source/sdk/lib/*.a
 source/sdk/compiler/*.o
 SHA256SUMS
+
+# Historical linker source headers are inputs, despite their directory name.
+!toolchain/src-guest-staged/binutils-1.94/include/aout/
+!toolchain/src-guest-staged/binutils-1.94/include/aout/**
+!toolchain/src-guest-staged/binutils-1.94/tests/
+!toolchain/src-guest-staged/binutils-1.94/tests/**
