@@ -1,0 +1,151 @@
+{
+  "status": "R7A disk tools accepted within documented limits",
+  "branch": "r7-native-disk-tools",
+  "baseline": "da9d217dacbfa2d1c02590aae87d1a95ca15678f",
+  "workspace": "/tmp/qdos386-r7-1wn7185l",
+  "inputs_and_artifact": {
+    "inputs": {
+      "/tmp/qdos386-r7-1wn7185l/checkpoint/fat16-fallback.img": "3b3ceb41210c9726af2cd65c55225a5571f9df7193c96d722ce017506560396a",
+      "/tmp/qdos386-r7-1wn7185l/stage-a-worktree/source/build/apollo-r7/pc-vga/qdos386-vga.img": "8ca3cffd79800da92e1ed34c33111e84007513fe16477e1200bd5d973397de80",
+      "/tmp/qdos386-r7-1wn7185l/stage-a-worktree/source/apps/disktools/FDISK.aout": "1a01414178efe69192ec130820071af04dd9ae82399bc24bacc9d30d608e2741",
+      "/tmp/qdos386-r7-1wn7185l/stage-a-worktree/source/apps/disktools/FORMAT.aout": "daddb149fd2565b984c45f5890f3e1f82c66a10c49554749f7d45ecdd122b959",
+      "/tmp/qdos386-r7-1wn7185l/stage-a-worktree/source/apps/disktools/CHKDSK.aout": "12603c5d1106e322fa37311fba159a803baed586c80ded262b3d35873d1cf941"
+    },
+    "output": "/tmp/qdos386-r7-1wn7185l/products/r7a-tools-qualified.img",
+    "sha256": "0b42d9d1503a37f3695b47a4be99b083a5e6450a7133d383de1a286a37397edc",
+    "boot_gap_and_vbr_preserved": true
+  },
+  "host_invocations": 44,
+  "native_commands": [
+    {
+      "command": "RUN /FDISK.AOU --image ide0",
+      "exit": 0
+    },
+    {
+      "command": "RUN /FDISK.AOU --image ide1",
+      "exit": 0
+    },
+    {
+      "command": "RUN /FORMAT.AOU --image ide0 --partition 1 --fat 16 --test-disposable",
+      "exit": 1
+    },
+    {
+      "command": "RUN /FORMAT.AOU --image ide1 --partition 1 --fat 16 --test-disposable",
+      "exit": 0
+    },
+    {
+      "command": "RUN /FORMAT.AOU --image ide1 --partition 2 --fat 32 --test-disposable",
+      "exit": 0
+    },
+    {
+      "command": "RUN /CHKDSK.AOU --image ide1 --partition 1",
+      "exit": 0
+    },
+    {
+      "command": "RUN /CHKDSK.AOU --image ide1 --partition 2",
+      "exit": 0
+    },
+    {
+      "command": "RUN R20T",
+      "exit": 0
+    },
+    {
+      "command": "RUN GCC -o /TMP/R7AHI.AOU /HOME/HI.C",
+      "exit": 0
+    },
+    {
+      "command": "RUN /TMP/R7AHI.AOU",
+      "exit": 0
+    }
+  ],
+  "native_prompt_cases": [
+    {
+      "answer": "N",
+      "exit": 1,
+      "before": "7a162af0d27a8d2cd243e9ba0e48d8ad440c563dfe806fec3669b3c733c40708",
+      "after": "7a162af0d27a8d2cd243e9ba0e48d8ad440c563dfe806fec3669b3c733c40708",
+      "fsck": "corruption deliberately unchanged"
+    },
+    {
+      "answer": "Q",
+      "exit": 1,
+      "before": "7a162af0d27a8d2cd243e9ba0e48d8ad440c563dfe806fec3669b3c733c40708",
+      "after": "7a162af0d27a8d2cd243e9ba0e48d8ad440c563dfe806fec3669b3c733c40708",
+      "fsck": "corruption deliberately unchanged"
+    },
+    {
+      "answer": "DEFAULT",
+      "exit": 1,
+      "before": "7a162af0d27a8d2cd243e9ba0e48d8ad440c563dfe806fec3669b3c733c40708",
+      "after": "7a162af0d27a8d2cd243e9ba0e48d8ad440c563dfe806fec3669b3c733c40708",
+      "fsck": "corruption deliberately unchanged"
+    },
+    {
+      "answer": "EOF",
+      "exit": 1,
+      "before": "7a162af0d27a8d2cd243e9ba0e48d8ad440c563dfe806fec3669b3c733c40708",
+      "after": "7a162af0d27a8d2cd243e9ba0e48d8ad440c563dfe806fec3669b3c733c40708",
+      "fsck": "corruption deliberately unchanged"
+    },
+    {
+      "answer": "Y",
+      "exit": 2,
+      "before": "7a162af0d27a8d2cd243e9ba0e48d8ad440c563dfe806fec3669b3c733c40708",
+      "after": "c0c984a7e9a98d0e83a9f2836b00764a0ec989dd13b86357af5eca82d2cfe60a",
+      "fsck": 0
+    },
+    {
+      "answer": "A",
+      "exit": 2,
+      "before": "7a162af0d27a8d2cd243e9ba0e48d8ad440c563dfe806fec3669b3c733c40708",
+      "after": "c0c984a7e9a98d0e83a9f2836b00764a0ec989dd13b86357af5eca82d2cfe60a",
+      "fsck": 0
+    }
+  ],
+  "final_binary_qualification": {
+    "status": "PASS",
+    "abi": "11 positive/negative checks",
+    "fat32_linux_hint_scan": "PASS",
+    "fat32_no_writes": true,
+    "mbr_unchanged": true,
+    "fsck": [
+      0,
+      0
+    ],
+    "bounce_shown": 45,
+    "bounce_hidden": 135
+  },
+  "r5_r6a_oracle_matches": 19,
+  "intentional_baseline_edits": [
+    "Makefile",
+    "source/Makefile",
+    "source/kernel/jobs.c",
+    "source/mk/current.mk",
+    "source/platform/pc/disk.c"
+  ],
+  "source_additions": [
+    "reports/r7/GATE0-HANDOVER.md",
+    "source/apps/disktools/Makefile",
+    "source/apps/disktools/README.md",
+    "source/apps/disktools/main.c",
+    "source/kernel/disktool.h",
+    "source/kernel/fatmeta.c",
+    "source/kernel/fatmeta.h",
+    "validation/r7/disk-abi.c",
+    "validation/r7/guest.py",
+    "validation/r7/host-checks.py",
+    "validation/r7/host-preservation.py",
+    "validation/r7/install-image.py",
+    "validation/r7/native-checks.py",
+    "validation/r7/native-repair.py"
+  ],
+  "historical_payloads_preserved": true,
+  "limitations": [
+    "Only unmounted primary IDE secondary disk mutations; entire live disk refused",
+    "MBR FAT16/FAT32 only; no GPT/extended/LBA48/non512 sectors",
+    "CHKDSK ownership map limited to 262144 clusters and depth32",
+    "Repair only validated advisory FSInfo; ambiguous data/chain repair refused",
+    "Power-loss atomicity and arbitrary recovery not claimed",
+    "FAT32 kernel mounting not yet implemented"
+  ]
+}

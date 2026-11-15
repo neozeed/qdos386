@@ -280,3 +280,80 @@ int disk_flush(unsigned int *err)
 }
 #endif
 #endif
+
+#ifdef QDOS_APOLLO_R7
+#include "disktool.h"
+#include "channel.h"
+#include "jobs.h"
+#if !defined(QDOS_APOLLO_R6) || !defined(QDOS_R20) || !defined(QDOS_SYNC)
+#error "R7 maintenance requires R6 boot identity, R20 ownership and flush"
+#endif
+/* Calls execute under the BKL. Waiting for the worker's controller claim is
+ * mandatory before any select. No mounted volume exists on the other device.
+ * That device deliberately bypasses the boot device's physical-LBA cache.
+ * Restore the boot selection/state on EVERY exit before releasing the BKL. */
+static unsigned int dt_owner[2];
+static unsigned int dt_identity[2];
+static unsigned int dt_hash(const unsigned char *id, unsigned int unit)
+{
+ unsigned int h = 2166136261u, i;
+ for (i = 20; i < 40; i++) h = (h ^ id[i]) * 16777619u;
+ for (i = 54; i < 94; i++) h = (h ^ id[i]) * 16777619u;
+ for (i = 120; i < 124; i++) h = (h ^ id[i]) * 16777619u;
+ h = (h ^ unit) * 16777619u;
+ return h ? h : 1u;
+}
+int disktool_trap(unsigned int op, unsigned int addr, unsigned int owner)
+{
+ struct dt_request *q;
+ unsigned char id[512];
+ unsigned int saved_sel, hash, count, unit, err;
+ unsigned long saved_count;
+ int saved_state, rc = DT_ERR_IO, boot;
+ if (op > DT_RELEASE || !chan_user_range_ok(addr, sizeof(struct dt_request))) return DT_ERR_ARG;
+ q = (struct dt_request *)addr; unit = q->unit;
+ if (unit > 1u || r6_boot_state != 1) return DT_ERR_ARG;
+ if (r20c_wait_dev() != 0) return DT_ERR_BUSY;
+ saved_sel = ide_selected; saved_state = ide_state; saved_count = ide_sectors;
+ boot = unit == ((saved_sel >> 4) & 1u);
+ ide_selected = 0xe0u | (unit << 4); ide_state = 0; ide_sectors = 0;
+ outb(IDE_DRIVE, ide_selected);
+ /* ATA select settling: four alternate-status reads (400 ns). */
+ inb(0x3f6); inb(0x3f6); inb(0x3f6); inb(0x3f6);
+ if (ide_wait_ready() <= 0 || inb(IDE_STATUS) == 0xff) goto done;
+ outb(IDE_COUNT,0); outb(IDE_LBA0,0); outb(IDE_LBA1,0); outb(IDE_LBA2,0);
+ outb(IDE_COMMAND,IDE_CMD_IDENTIFY);
+ if (ide_wait_drq() != 0) goto done;
+ ide_read_words(id,256);
+ count = boot_word(id+120); hash = dt_hash(id,unit);
+ /* LBA28 only, 512-byte logical sectors; reject newer non-512 geometry. */
+ if (!(id[99] & 2u) || !count || count > 0x0fffffffu ||
+     ((id[213] & 0xc0u) == 0x40u && (id[213] & 0x10u))) { rc=DT_ERR_ARG; goto done; }
+ ide_state=1; ide_sectors=count;
+ if (dt_owner[unit] && job_lookup(dt_owner[unit]) < 0) dt_owner[unit]=0;
+ if (dt_owner[unit] && dt_owner[unit]!=owner) { rc=DT_ERR_BUSY; goto done; }
+ if (op==DT_INFO) {
+  q->identity=hash; q->sectors=count; q->flags=boot ? DT_BOOT : 0;
+  rc=0; goto done;
+ }
+ if (q->identity!=hash || q->sectors!=count) { rc=DT_ERR_ID; goto done; }
+ if (op==DT_READ) {
+  if (q->lba>=count) { rc=DT_ERR_RANGE; goto done; }
+  rc=disk_read_body(q->lba,q->data); goto done;
+ }
+ /* Refuse the WHOLE live disk, including unused partitions. */
+ if (boot) { rc=DT_ERR_LIVE; goto done; }
+ if (op==DT_CLAIM) { dt_owner[unit]=owner; dt_identity[unit]=hash; rc=0; goto done; }
+ if (dt_owner[unit]!=owner || dt_identity[unit]!=hash) { rc=DT_ERR_BUSY; goto done; }
+ if (op==DT_RELEASE) { dt_owner[unit]=0; rc=0; goto done; }
+ if (op==DT_WRITE) {
+  if (q->lba>=count) { rc=DT_ERR_RANGE; goto done; }
+  rc=disk_write_body(q->lba,q->data);
+ } else if (op==DT_FLUSH) rc=disk_flush_body(&err);
+ done:
+ ide_selected=saved_sel; ide_state=saved_state; ide_sectors=saved_count;
+ outb(IDE_DRIVE,saved_sel);
+ inb(0x3f6); inb(0x3f6); inb(0x3f6); inb(0x3f6);
+ return rc;
+}
+#endif

@@ -884,6 +884,9 @@ void job_run(void)
 	job_exit();
 }
 
+#ifdef QDOS_APOLLO_R7
+#include "disktool.h"
+#endif
 /* Service traps.  EAX/EBX/ECX/EDX are in the interrupt frame: see context.s. */
 unsigned int trap_dispatch(unsigned int sp)
 {
@@ -1332,6 +1335,11 @@ unsigned int trap_dispatch(unsigned int sp)
 #endif
 
 #ifdef QDOS_R20
+#ifdef QDOS_APOLLO_R7
+	case QT_DISKTOOL:
+		result = disktool_trap(a, b, jobs[job_current].id);
+		break;
+#endif
 	case QT_R20_SUBMIT: case QT_R20_WAIT: case QT_R20_TAKE: case QT_R20_INFO: case QT_R20_DONE: case QT_R20_STAT:
 	{
 		/* R20: the internal worker protocol (kernel/r20w.c).  A sleeping caller is scheduled from here, as QT_CON_WAIT does. */

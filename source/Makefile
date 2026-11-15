@@ -42,6 +42,15 @@ KCORE = kernel/region.c $(KMAIN) kernel/jobs.c kernel/clock.c kernel/clock_boot.
 all: production
 r6-images: i386vm pc
 
+# Apollo R7 native utilities. Run in an isolated /tmp filesystem copy.
+.PHONY: disk-tools
+disk-tools:
+	$(MAKE) -C sdk/lib QDOS386_TOOLS="$(QDOS386_TOOLS)"
+	$(MAKE) -C sdk/libc QDOS386_TOOLS="$(QDOS386_TOOLS)"
+	$(MAKE) -C sdk/libm QDOS386_TOOLS="$(QDOS386_TOOLS)"
+	$(MAKE) -C sdk/compiler QDOS386_TOOLS="$(QDOS386_TOOLS)"
+	$(MAKE) -C apps/disktools QDOS386_TOOLS="$(QDOS386_TOOLS)"
+
 # ---- applications (independently linked; the kernel never links them) ------
 APPS = build/apps/hello.aout build/apps/prep.aout build/apps/hello1.aout build/apps/shell.aout build/apps/shellt.aout build/apps/args.aout
 
