@@ -1,0 +1,351 @@
+{
+  "status": "C4 NOT ACCEPTED: Elite quit/runtime completion unresolved",
+  "compiler_candidate": "06371b4e8765b296c0082f89eecea73df441a831550dd7e294c8780981abfafc",
+  "production_builds": [
+    {
+      "args": [
+        "make",
+        "production",
+        "HOSTTOOLS=/tmp/qdos386-r7b2-hardening-urqeomc5/repaired-hosttools"
+      ],
+      "exit": 0,
+      "seconds": 2.8302173569973093
+    },
+    {
+      "args": [
+        "make",
+        "current-shell",
+        "HOSTTOOLS=/tmp/qdos386-r7b2-hardening-urqeomc5/repaired-hosttools"
+      ],
+      "exit": 0,
+      "seconds": 0.13988601899472997
+    },
+    {
+      "args": [
+        "make",
+        "production64",
+        "HOSTTOOLS=/tmp/qdos386-r7b2-hardening-urqeomc5/repaired-hosttools"
+      ],
+      "exit": 0,
+      "seconds": 2.7585812530014664
+    },
+    {
+      "args": [
+        "make",
+        "apollo-r6",
+        "HOSTTOOLS=/tmp/qdos386-r7b2-hardening-urqeomc5/repaired-hosttools"
+      ],
+      "exit": 0,
+      "seconds": 2.7670104179996997
+    },
+    {
+      "args": [
+        "make",
+        "apollo-r7",
+        "HOSTTOOLS=/tmp/qdos386-r7b2-hardening-urqeomc5/repaired-hosttools"
+      ],
+      "exit": 0,
+      "seconds": 2.763561327003117
+    },
+    {
+      "args": [
+        "make",
+        "apollo-r7-ro",
+        "HOSTTOOLS=/tmp/qdos386-r7b2-hardening-urqeomc5/repaired-hosttools"
+      ],
+      "exit": 0,
+      "seconds": 2.8169576069994946
+    },
+    {
+      "args": [
+        "make",
+        "disk-tools",
+        "HOSTTOOLS=/tmp/qdos386-r7b2-hardening-urqeomc5/repaired-hosttools"
+      ],
+      "exit": 0,
+      "seconds": 1.1561091690018657
+    }
+  ],
+  "compared_files": 630,
+  "differences": 0,
+  "selected_outputs": [
+    {
+      "file": "source/apps/disktools/CHKDSK.aout",
+      "old": "12603c5d1106e322fa37311fba159a803baed586c80ded262b3d35873d1cf941",
+      "new": "12603c5d1106e322fa37311fba159a803baed586c80ded262b3d35873d1cf941"
+    },
+    {
+      "file": "source/apps/disktools/FDISK.aout",
+      "old": "1a01414178efe69192ec130820071af04dd9ae82399bc24bacc9d30d608e2741",
+      "new": "1a01414178efe69192ec130820071af04dd9ae82399bc24bacc9d30d608e2741"
+    },
+    {
+      "file": "source/apps/disktools/FORMAT.aout",
+      "old": "daddb149fd2565b984c45f5890f3e1f82c66a10c49554749f7d45ecdd122b959",
+      "new": "daddb149fd2565b984c45f5890f3e1f82c66a10c49554749f7d45ecdd122b959"
+    },
+    {
+      "file": "source/build/apollo-r6/pc/kernel.aout",
+      "old": "4b27f4e409e6d87a2aaa0fd7eef28f561fe273edbd7bbf9c5fd6cec35b212b28",
+      "new": "4b27f4e409e6d87a2aaa0fd7eef28f561fe273edbd7bbf9c5fd6cec35b212b28"
+    },
+    {
+      "file": "source/build/apollo-r6/pc/qdos386.img",
+      "old": "9ae6db0189ecf61fbed9913883d592ca058e0ee3c3e4029f7b6c9513c79e6bcd",
+      "new": "9ae6db0189ecf61fbed9913883d592ca058e0ee3c3e4029f7b6c9513c79e6bcd"
+    },
+    {
+      "file": "source/build/apollo-r6/pc-vga/kernel.aout",
+      "old": "b22cf69aac5c1d43155d02334c7c579013f83121040f3a5cc2dff5d346e65de2",
+      "new": "b22cf69aac5c1d43155d02334c7c579013f83121040f3a5cc2dff5d346e65de2"
+    },
+    {
+      "file": "source/build/apollo-r6/pc-vga/qdos386-vga.img",
+      "old": "447b29fe0e08d052961cdff33e44233cec8ab9a1c8e94d6a40158fe12b658c1d",
+      "new": "447b29fe0e08d052961cdff33e44233cec8ab9a1c8e94d6a40158fe12b658c1d"
+    },
+    {
+      "file": "source/build/apollo-r6-shell/sh.aout",
+      "old": "c5d6b6e46b7448226615e6965c1e8cb25536cfee6cff90989b944e86efedefd4",
+      "new": "c5d6b6e46b7448226615e6965c1e8cb25536cfee6cff90989b944e86efedefd4"
+    },
+    {
+      "file": "source/build/apollo-r6-shell/shell.aout",
+      "old": "81514cdb781c991d949e91719335c2329eea8ab5ae5e77e2102ad874d298d24e",
+      "new": "81514cdb781c991d949e91719335c2329eea8ab5ae5e77e2102ad874d298d24e"
+    },
+    {
+      "file": "source/build/apollo-r7/pc/kernel.aout",
+      "old": "03031c9f081533b648d4811df2392958a69dc1744a2abf68cb5449e58551e21e",
+      "new": "03031c9f081533b648d4811df2392958a69dc1744a2abf68cb5449e58551e21e"
+    },
+    {
+      "file": "source/build/apollo-r7/pc/qdos386.img",
+      "old": "f5a4ac0ac17d0523d6c29d78a1d9594c81d36630ff99eb34e30494b588b06b9e",
+      "new": "f5a4ac0ac17d0523d6c29d78a1d9594c81d36630ff99eb34e30494b588b06b9e"
+    },
+    {
+      "file": "source/build/apollo-r7/pc-vga/kernel.aout",
+      "old": "0d3307723046a9ec0e75f17d62fcf9abd24476fa69147edbd7cc5719c0d26351",
+      "new": "0d3307723046a9ec0e75f17d62fcf9abd24476fa69147edbd7cc5719c0d26351"
+    },
+    {
+      "file": "source/build/apollo-r7/pc-vga/qdos386-vga.img",
+      "old": "e896e63189687c0a721a661950640d07b485a80841e3e61f002b9cd31a74d521",
+      "new": "e896e63189687c0a721a661950640d07b485a80841e3e61f002b9cd31a74d521"
+    },
+    {
+      "file": "source/build/apollo-r7-ro/pc/kernel.aout",
+      "old": "26eccca641fe11507bcfe47da320f23700152ea9e08182370b0ff568612c5ecc",
+      "new": "26eccca641fe11507bcfe47da320f23700152ea9e08182370b0ff568612c5ecc"
+    },
+    {
+      "file": "source/build/apollo-r7-ro/pc/qdos386.img",
+      "old": "1577eee69bc9df0dc60134cfc209edef91e62bcc321b1965fb6dad0671248423",
+      "new": "1577eee69bc9df0dc60134cfc209edef91e62bcc321b1965fb6dad0671248423"
+    },
+    {
+      "file": "source/build/apollo-r7-ro/pc-vga/kernel.aout",
+      "old": "4066515e35adaa1a30e1f4525b0d173518b5938b084fc276a2a1645e22556d86",
+      "new": "4066515e35adaa1a30e1f4525b0d173518b5938b084fc276a2a1645e22556d86"
+    },
+    {
+      "file": "source/build/apollo-r7-ro/pc-vga/qdos386-vga.img",
+      "old": "e7b5737f6426c8b8255e4e4092e538bf11952a19d1c90227cba7c9e98e06c1fb",
+      "new": "e7b5737f6426c8b8255e4e4092e538bf11952a19d1c90227cba7c9e98e06c1fb"
+    },
+    {
+      "file": "source/build/apollo-r7-ro-shell/sh.aout",
+      "old": "c5d6b6e46b7448226615e6965c1e8cb25536cfee6cff90989b944e86efedefd4",
+      "new": "c5d6b6e46b7448226615e6965c1e8cb25536cfee6cff90989b944e86efedefd4"
+    },
+    {
+      "file": "source/build/apollo-r7-ro-shell/shell.aout",
+      "old": "81514cdb781c991d949e91719335c2329eea8ab5ae5e77e2102ad874d298d24e",
+      "new": "81514cdb781c991d949e91719335c2329eea8ab5ae5e77e2102ad874d298d24e"
+    },
+    {
+      "file": "source/build/apollo-r7-shell/sh.aout",
+      "old": "c5d6b6e46b7448226615e6965c1e8cb25536cfee6cff90989b944e86efedefd4",
+      "new": "c5d6b6e46b7448226615e6965c1e8cb25536cfee6cff90989b944e86efedefd4"
+    },
+    {
+      "file": "source/build/apollo-r7-shell/shell.aout",
+      "old": "81514cdb781c991d949e91719335c2329eea8ab5ae5e77e2102ad874d298d24e",
+      "new": "81514cdb781c991d949e91719335c2329eea8ab5ae5e77e2102ad874d298d24e"
+    },
+    {
+      "file": "source/build/apps/args.aout",
+      "old": "766ee2d8f5b20b38891bd4a413ef3feb10ae5608360f23f63ea294437f2c9a5b",
+      "new": "766ee2d8f5b20b38891bd4a413ef3feb10ae5608360f23f63ea294437f2c9a5b"
+    },
+    {
+      "file": "source/build/apps/hello.aout",
+      "old": "8ac28b07ba5fbc7c851df6e98eaf9ed40026d20b187f555f2cbf4bdb97b6d9e9",
+      "new": "8ac28b07ba5fbc7c851df6e98eaf9ed40026d20b187f555f2cbf4bdb97b6d9e9"
+    },
+    {
+      "file": "source/build/apps/hello1.aout",
+      "old": "134a48413262028145ff211adcb0b80a9cb735bd37d8fcf3d0d420bea30251f1",
+      "new": "134a48413262028145ff211adcb0b80a9cb735bd37d8fcf3d0d420bea30251f1"
+    },
+    {
+      "file": "source/build/apps/prep.aout",
+      "old": "caac8231a193e5a98d95d066cd7c4202ebd2066016cbcb5a3c166720f433cda7",
+      "new": "caac8231a193e5a98d95d066cd7c4202ebd2066016cbcb5a3c166720f433cda7"
+    },
+    {
+      "file": "source/build/apps/shell.aout",
+      "old": "3d2aaddaba18d95594036ef6abeed2f3449523a8de65cd4d41c0b16ae3239ddf",
+      "new": "3d2aaddaba18d95594036ef6abeed2f3449523a8de65cd4d41c0b16ae3239ddf"
+    },
+    {
+      "file": "source/build/apps/shellt.aout",
+      "old": "ba3c5b2ddd34c26023bef8eaaf06b67859685ef97549a329ca43b0df24897107",
+      "new": "ba3c5b2ddd34c26023bef8eaaf06b67859685ef97549a329ca43b0df24897107"
+    },
+    {
+      "file": "source/build/canonical/pc/kernel.aout",
+      "old": "3bb83b8722b908748c8c19a37819acd73635164b1db178b3b8886437f260bf19",
+      "new": "3bb83b8722b908748c8c19a37819acd73635164b1db178b3b8886437f260bf19"
+    },
+    {
+      "file": "source/build/canonical/pc/qdos386.img",
+      "old": "97362f377c527be15030bb6b2cffc7629a54e889d2bbe8e03ec3d26a6dc9fd44",
+      "new": "97362f377c527be15030bb6b2cffc7629a54e889d2bbe8e03ec3d26a6dc9fd44"
+    },
+    {
+      "file": "source/build/canonical/pc-vga/kernel.aout",
+      "old": "33fdd8a2fe31e50833bffb6a2c8eb64c5adb0615be5ff5e5bcc18b7d3dabe051",
+      "new": "33fdd8a2fe31e50833bffb6a2c8eb64c5adb0615be5ff5e5bcc18b7d3dabe051"
+    },
+    {
+      "file": "source/build/canonical/pc-vga/qdos386-vga.img",
+      "old": "2c65933c9b62a04ea52f3760071bedf465394240cf5d0ecc9475e64e6fb5ea64",
+      "new": "2c65933c9b62a04ea52f3760071bedf465394240cf5d0ecc9475e64e6fb5ea64"
+    },
+    {
+      "file": "source/build/canonical-shell/sh.aout",
+      "old": "9c751af13a3a85531d840eb011da9dc2e8f75283321d80da01d6099dbe7f120d",
+      "new": "9c751af13a3a85531d840eb011da9dc2e8f75283321d80da01d6099dbe7f120d"
+    },
+    {
+      "file": "source/build/canonical-shell/shell.aout",
+      "old": "d2c16cafeec8005af1b8c2faf391bf592b18ed1481dbea154d0b9d60f5722991",
+      "new": "d2c16cafeec8005af1b8c2faf391bf592b18ed1481dbea154d0b9d60f5722991"
+    },
+    {
+      "file": "source/build/jobs64/pc/kernel.aout",
+      "old": "ba401896809868d3777d3fa74e2fd6530e2bc181267bf6a0980e43262d86d6b9",
+      "new": "ba401896809868d3777d3fa74e2fd6530e2bc181267bf6a0980e43262d86d6b9"
+    },
+    {
+      "file": "source/build/jobs64/pc/qdos386.img",
+      "old": "5f7ec28e705594eb5fba8cccd9fc2a5235608ddb018f655d1b262737e591de06",
+      "new": "5f7ec28e705594eb5fba8cccd9fc2a5235608ddb018f655d1b262737e591de06"
+    },
+    {
+      "file": "source/build/jobs64/pc-vga/kernel.aout",
+      "old": "3416974a76a906c0758920af63f6024a9e1adb810b06752e42fb10e3a8f65132",
+      "new": "3416974a76a906c0758920af63f6024a9e1adb810b06752e42fb10e3a8f65132"
+    },
+    {
+      "file": "source/build/jobs64/pc-vga/qdos386-vga.img",
+      "old": "337ebcca25b45d0a553a46083243d4e4aa69305a13ef95eec0fc4ce3f975ba63",
+      "new": "337ebcca25b45d0a553a46083243d4e4aa69305a13ef95eec0fc4ce3f975ba63"
+    },
+    {
+      "file": "source/build/jobs64-shell/sh.aout",
+      "old": "c5d6b6e46b7448226615e6965c1e8cb25536cfee6cff90989b944e86efedefd4",
+      "new": "c5d6b6e46b7448226615e6965c1e8cb25536cfee6cff90989b944e86efedefd4"
+    },
+    {
+      "file": "source/build/jobs64-shell/shell.aout",
+      "old": "81514cdb781c991d949e91719335c2329eea8ab5ae5e77e2102ad874d298d24e",
+      "new": "81514cdb781c991d949e91719335c2329eea8ab5ae5e77e2102ad874d298d24e"
+    },
+    {
+      "file": "source/build/pc-r17/boot3.aout",
+      "old": "1eeb58cc5a65f4571747f1f2b35c0317fd75ebd7a88928f72926a8b869f4608a",
+      "new": "1eeb58cc5a65f4571747f1f2b35c0317fd75ebd7a88928f72926a8b869f4608a"
+    },
+    {
+      "file": "source/build/pc-r17/boot3.bin",
+      "old": "74544eb0c64244a4484a21da866ecbd03a281838e5100fffa846786c927b2f19",
+      "new": "74544eb0c64244a4484a21da866ecbd03a281838e5100fffa846786c927b2f19"
+    },
+    {
+      "file": "source/build/xfer.bin",
+      "old": "26905898c64114758c87cfa51bf5131f04533991eb0ae457abd3046a196bab16",
+      "new": "26905898c64114758c87cfa51bf5131f04533991eb0ae457abd3046a196bab16"
+    },
+    {
+      "file": "source/platform/pc/boot.bin",
+      "old": "5baf2572d1a169618d97e35d8c7fc8be446ead8a91efd322cd55bc4cff733e5f",
+      "new": "5baf2572d1a169618d97e35d8c7fc8be446ead8a91efd322cd55bc4cff733e5f"
+    },
+    {
+      "file": "source/sdk/lib/libc.a",
+      "old": "c452d6b6f419529b82671a87715839dae147e0790c56d653009c0bedd6fef069",
+      "new": "c452d6b6f419529b82671a87715839dae147e0790c56d653009c0bedd6fef069"
+    },
+    {
+      "file": "source/sdk/lib/libgcc-qd.a",
+      "old": "fb1ee345ae6a301dfcf947608320c93828417b75df1b645aefad1f46f9e15ac1",
+      "new": "fb1ee345ae6a301dfcf947608320c93828417b75df1b645aefad1f46f9e15ac1"
+    },
+    {
+      "file": "source/sdk/lib/libm.a",
+      "old": "ad9bd7afa2352a1632d89c7822c4fd7bf0d63ac27c6b1d3d066f2c870bcb32af",
+      "new": "ad9bd7afa2352a1632d89c7822c4fd7bf0d63ac27c6b1d3d066f2c870bcb32af"
+    },
+    {
+      "file": "source/sdk/lib/libqdos.a",
+      "old": "07767878a7661e60d36c748f70d624774d10f5bb3412730bcf2afb800a3ea531",
+      "new": "07767878a7661e60d36c748f70d624774d10f5bb3412730bcf2afb800a3ea531"
+    }
+  ],
+  "sdk_examples_and_apps_build": "PASS; logs/sdk-apps.log",
+  "historical_application_builds": [
+    {
+      "fresh_build": "build/r7b2-hack/src/HACK.AOU",
+      "guest_path": "/GAMES/HACK/HACK.AOU",
+      "sha256": "18c4ab6c89916ea28207b802186034ddb7444bd529c33c377026fd35f45f0d0e",
+      "matches_existing_payload": true
+    },
+    {
+      "fresh_build": "third_party/eliteql-i386/build/aout/ELITE.AOU",
+      "guest_path": "/GAMES/ELITE.AOU",
+      "sha256": "5c63e59814a8d9dac482fb52340252a06dd2ffb0b99c90996dc69a6459283dad",
+      "matches_existing_payload": true
+    }
+  ],
+  "runtime": {
+    "R20T": "PASS: 40 requests, 300 race pairs, stale/full checks",
+    "SH": "PASS: interactive ECHO and EXIT; initial unsupported -c harness assumption corrected",
+    "GCC_HI": "PASS: actual native compile/link/run; fsck 0/0",
+    "Bounce": "PASS: frames=180 shown=43 hidden=137 errors=0 model=checksum",
+    "Hack": "PASS: fresh binary matches runtime payload; start, movement and quit status 0",
+    "Elite": "INCOMPLETE: commander screen reached, backslash/Y did not return to shell within bounded wait; no fault diagnostic"
+  },
+  "fat32_partition_unchanged": true,
+  "part_II": "NOT STARTED",
+  "runtime_images_fsck": {
+    "native-hi.json": [
+      0,
+      0
+    ],
+    "c4-runtime.json": [
+      0,
+      0
+    ],
+    "elite-smoke.json": [
+      0,
+      0
+    ],
+    "elite-prompt-smoke.json": [
+      0,
+      0
+    ]
+  }
+}
