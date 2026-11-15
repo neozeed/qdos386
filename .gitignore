@@ -39,3 +39,5 @@ source/sdk/compiler/*.o
 SHA256SUMS
 instructions/
 validation/
+reports/
+instructions/
