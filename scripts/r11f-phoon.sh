@@ -14,6 +14,6 @@ mkdir -p "$SRC" "$ROOT/build/apps"
 cp third_party/phoon/orig/* "$SRC/"
 patch -d "$SRC" -p1 -s < third_party/phoon/r11f-portability.patch
 # -DOS_SYSV selects the existing SYSV branch of date_parse.c (timezone UTC, see the patch).
-( cd "$SRC" && "$ROOT/sdk/bin/qdos386-gcc" -DOS_SYSV -o "$ROOT/build/apps/PHOON.aout" \
+( cd "$SRC" && "$ROOT/source/sdk/bin/qdos386-gcc" -DOS_SYSV -o "$ROOT/build/apps/PHOON.aout" \
 	phoon.c astro.c date_parse.c )
 ls -l "$ROOT/build/apps/PHOON.aout"

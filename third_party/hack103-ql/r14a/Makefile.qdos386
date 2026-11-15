@@ -11,11 +11,12 @@
 #     and kill(), which the shim provides with the same no-op effect
 #   - output: an i386 a.out at the canonical process origin (slot1.ld), with a link map
 Q = $(QDOS386)
+SDK ?= $(Q)/source/sdk
 CC = $(QDOS386_TOOLS)/bin/i386-gcc
 AS = $(QDOS386_TOOLS)/bin/as
 LD = $(QDOS386_TOOLS)/bin/i386-ld
-CFLAGS = -DQDOS -DMSDOS -O -I$(Q)/sdk/qlcompat/include -I$(Q)/sdk/include -I$(Q)/port/include
-LIBS = $(Q)/sdk/lib/libc68.a $(Q)/sdk/lib/libm.a $(Q)/sdk/lib/libc.a $(Q)/sdk/lib/libgcc-qd.a $(Q)/sdk/lib/libqdos.a
+CFLAGS = -DQDOS -DMSDOS -O -I$(SDK)/qlcompat/include -I$(SDK)/include -I$(Q)/source/port/include
+LIBS = $(SDK)/lib/libc68.a $(SDK)/lib/libm.a $(SDK)/lib/libc.a $(SDK)/lib/libgcc-qd.a $(SDK)/lib/libqdos.a
 
 GAME = HACK.AOU
 
@@ -41,13 +42,13 @@ LIB5 = wizard.o worm.o worn.o zap.o\
 OBJ = $(LIB1) $(LIB2) $(LIB3) $(LIB4) $(LIB5)
 
 $(GAME): crt0.o main.o $(OBJ) $(LIBS)
-	$(LD) -N -T $(Q)/sdk/ld/slot1.ld -e _start -M -o $(GAME) crt0.o main.o $(OBJ) $(LIBS) > hack.map
+	$(LD) -N -T $(SDK)/ld/slot1.ld -e _start -M -o $(GAME) crt0.o main.o $(OBJ) $(LIBS) > hack.map
 
-crt0.o: $(Q)/sdk/lib/crt0_libc.s
-	$(AS) -o $@ $(Q)/sdk/lib/crt0_libc.s
+crt0.o: $(SDK)/lib/crt0_libc.s
+	$(AS) -o $@ $(SDK)/lib/crt0_libc.s
 
-c68vt.o: $(Q)/sdk/qlcompat/c68/c68vt.c $(Q)/sdk/qlcompat/include/ansicondef.h
-	$(CC) -c $(CFLAGS) $(Q)/sdk/qlcompat/c68/c68vt.c -o $@
+c68vt.o: $(SDK)/qlcompat/c68/c68vt.c $(SDK)/qlcompat/include/ansicondef.h
+	$(CC) -c $(CFLAGS) $(SDK)/qlcompat/c68/c68vt.c -o $@
 
 %.o: %.c
 	$(CC) -c $(CFLAGS) $< -o $@
