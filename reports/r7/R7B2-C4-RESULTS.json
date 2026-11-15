@@ -1,5 +1,5 @@
 {
-  "status": "C4 NOT ACCEPTED: Elite quit/runtime completion unresolved",
+  "status": "C4 PASS: existing automated build/runtime evidence plus user-confirmed manual Elite run/quit",
   "compiler_candidate": "06371b4e8765b296c0082f89eecea73df441a831550dd7e294c8780981abfafc",
   "production_builds": [
     {
@@ -326,7 +326,7 @@
     "GCC_HI": "PASS: actual native compile/link/run; fsck 0/0",
     "Bounce": "PASS: frames=180 shown=43 hidden=137 errors=0 model=checksum",
     "Hack": "PASS: fresh binary matches runtime payload; start, movement and quit status 0",
-    "Elite": "INCOMPLETE: commander screen reached, backslash/Y did not return to shell within bounded wait; no fault diagnostic"
+    "Elite": "PASS (manual user acceptance): START ELITE /new; switch to the Elite window; backslash, Q, Y; user confirms it runs and quits"
   },
   "fat32_partition_unchanged": true,
   "part_II": "NOT STARTED",
@@ -347,5 +347,14 @@
       0,
       0
     ]
-  }
+  },
+  "elite_manual_acceptance": {
+    "receipt": "reports/r7/R7B2-ELITE-MANUAL-ACCEPTANCE.json",
+    "evidence_source": "user statement in this conversation",
+    "automated_retest": false,
+    "prior_automated_result": "INCOMPLETE: commander screen reached, backslash/Y did not return to shell within bounded wait; no fault diagnostic",
+    "prior_automated_evidence_preserved": true,
+    "post_manual_run_fsck_or_disk_hash": "not supplied; prior automated disk checks are unchanged historical evidence"
+  },
+  "compiler_checkpoint_tag": "apollo-r7b2-compiler"
 }

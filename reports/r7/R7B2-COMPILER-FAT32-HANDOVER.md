@@ -1,11 +1,11 @@
-# R7B2 handover — compiler repair verified; stop at C4
+# R7B2 handover — compiler accepted; FAT32 writer pending
 
-**The two-part mission is incomplete.** The aggregate compiler crash is repaired
-and the native differential tests pass. C4 is not accepted because the bounded
-Elite runtime test did not complete its documented quit sequence. Part II has
-not started; the FAT32 write guard and accepted filesystem source are unchanged.
-This stop follows the mission's mandatory compiler gate and first-unaccepted-gate
-rule. It is not a claim that the compiler repair caused an Elite regression.
+**Part I is accepted; the two-part mission remains incomplete.** The aggregate
+compiler crash is repaired and the native differential tests pass. The user
+confirmed Elite runs and quits with the sequence below, closing the sole
+remaining C4 runtime item. Part II has not started; the FAT32 write guard and
+accepted filesystem source are unchanged. Manual acceptance supplements the
+existing evidence; the earlier automation timeouts remain recorded as timeouts.
 
 | Gate | Status and evidence |
 | --- | --- |
@@ -13,16 +13,17 @@ rule. It is not a claim that the compiler repair caused an Elite regression.
 | C1 causal diagnosis | PASS for immediate cause: malformed legacy call supplies one argument to a four-argument function. Same fault on LP64 and configured ILP32 hosts. Stock-GCC versus later legacy-edit attribution remains unresolved. |
 | C2 minimal repair | PASS: two parentheses corrected in isolated compiler source; native minimal executables exit 0 at no optimization and `-O`. |
 | C3 bounded ABI suite | PASS: 131 aggregate/ABI plus 110 representation checks per setting in QDOS; exact modern i386 GCC/Clang agreement; native GCC/HI also passes. |
-| C4 compiler acceptance | FAIL / NOT ACCEPTED: production compatibility and most runtime checks pass, but Elite quit completion is unresolved. No accepted compiler tag or production toolchain replacement. |
-| F0–F5 FAT32 implementation/acceptance | NOT TESTED / NOT STARTED, pending C4. No writable FAT32 candidate or combined FAT32 system disk. |
+| C4 compiler acceptance | PASS: existing production/runtime checks plus user-confirmed manual Elite run/quit. Compiler-only checkpoint: `apollo-r7b2-compiler`. Original external toolchain retained for rollback. |
+| F0–F5 FAT32 implementation/acceptance | NOT TESTED / NOT STARTED. C4 prerequisite satisfied; no writable FAT32 candidate or combined FAT32 system disk. |
 
 ## Source and compiler identity
 
 Project baseline `bd6f55f51acfb75acfd728a74484f30323ba335e`; safety ref
 `r7b2-safety-bd6f55f`; current branch `r7b2-compiler-hardening`. Project receipts:
-`3132cc0` (C0) and `71fe379` (repair/tests). The final handoff commit is the tip
-of this branch (`git rev-parse HEAD`). Accepted tags are unchanged:
-`apollo-r7a-disk-tools` → `3e49154`, `apollo-r7b1-readonly` → `3aa5998`.
+`3132cc0` (C0), `71fe379` (repair/tests), and `f9a3878` (initial C4 stop).
+The manual-acceptance commit is frozen by new tag `apollo-r7b2-compiler`.
+Existing tags remain unchanged: `apollo-r7a-disk-tools` → `3e49154`,
+`apollo-r7b1-readonly` → `3aa5998`.
 
 Separate compiler source history: baseline
 `48929349e96e5401ef891d321f4958c64e46ed1f`, repair
@@ -30,10 +31,10 @@ Separate compiler source history: baseline
 `8186c252b318c6df1742d1de5af147840f8ca68fc92e197486b8ce5e3a0590e0`.
 Original cc1 remains
 `1dd52eeb51191b0f1e6f92fcc9ed0be9e5fb80a97f28e41ddddb479f7399effb`;
-fresh candidate cc1 is
+accepted repaired cc1 is
 `06371b4e8765b296c0082f89eecea73df441a831550dd7e294c8780981abfafc`.
 Target remains i386 a.out/C89 with historical assembler/linker and SDK ABI.
-The candidate is built by installed host GCC 15.3; original host GCC 13.3 is
+The repaired compiler is built by installed host GCC 15.3; original host GCC 13.3 is
 unavailable. `tools/r7b2-build-cc1.py` is the checked standalone build recipe.
 
 The exact patch and permanent regressions are under
@@ -42,7 +43,7 @@ The exact patch and permanent regressions are under
 normalization provenance and unrelated pre-existing UBSan signed-overflow
 findings. Those are not silently called sanitizer-clean or repaired here.
 
-## C4 results and precise blocker
+## C4 results and manual acceptance
 
 Fresh sequential R5 24/64, R6A, R7A and R7B1 builds pass. **630 comparable
 files, zero SHA-256 differences**, including accepted kernels, shells,
@@ -58,15 +59,16 @@ assets and the existing guest GCC executable are identified as reused; no
 claim is made that every historical payload or the guest compiler was rebuilt.
 Runtime kernel/game bytes match freshly rebuilt outputs where compared.
 
-Elite starts and reaches its commander screen. Initial automation assumptions
-were corrected using observed prompts (SH is interactive, and Elite requests
-Space after N). A further bounded run using N, Space, backslash and Y still
-fails to return to the shell within ten seconds after the sequence. No kernel
-fault appears in the debug log. Screenshots, exact keys, timing and the actual
-run disk are retained; input handling versus automation remains unresolved.
-Because kernel and Elite hashes match the accepted bytes exactly, a compiler
-regression is **not demonstrated**. All examined runtime partitions pass
-`fsck.fat -n`; FAT32 partitions remain byte-identical.
+The user confirmed Elite runs and quits: **`START ELITE /new`, switch to the
+Elite window, then backslash, Q, Y**. This is manual user acceptance, recorded
+verbatim in [the acceptance receipt](R7B2-ELITE-MANUAL-ACCEPTANCE.json); it is
+not a new automated test. The earlier attempts used different startup/input
+sequences and timed out after reaching the commander screen. Their logs,
+screenshots and disk remain intact. The exact reason for those automation
+timeouts is not asserted as proven. No kernel fault was recorded, and kernel
+and Elite hashes match accepted bytes. Prior automated runtime partitions
+passed `fsck.fat -n`, with FAT32 unchanged; no new post-manual-run fsck or disk
+hash was supplied or inferred.
 
 ## Artifacts, preservation and next step
 
@@ -75,13 +77,16 @@ Durable private candidate/evidence directory:
 `/data/reference/qdos386/r7b2-compiler-candidate-20261115-urqeomc5/`.
 It contains the complete compiler source Git bundle, original/candidate
 hosttools, build recipe, tests, compact logs/screenshots/receipts and SHA-256
-manifest. Large raw test disks and object files remain in the temporary
-workspace; this is a compiler candidate checkpoint, not an accepted release.
+manifest. This original candidate archive remains an immutable historical
+record of the C4 stop. The new compiler-only acceptance receipt is stored under
+`/data/reference/qdos386/r7b2-compiler-accepted/`; it binds the same verified
+compiler/source hashes to the acceptance commit without altering that archive.
+Large raw test disks and object files remain in the temporary workspace.
 
 Exact rebuild: clone the private `compiler-source.bundle` to a new directory
 under `/tmp`, select `aggregate-call-repair`, then run
 `python3 tools/r7b2-build-cc1.py /tmp/<source-copy> /tmp/<new-output>`.
-For the blocking test, the durable evidence includes `elite-prompt-smoke.py`
+For the earlier automation timeout, durable evidence includes `elite-prompt-smoke.py`
 and `guest.py`; the recorded QEMU invocation, source disk hash, key sequence,
 screenshots and timeout are under `logs/elite-prompt-smoke/` and
 `evidence/elite-prompt-smoke.json`. Start from a new copy of the accepted R7B1
@@ -93,8 +98,8 @@ Only reviewed additive tests, compiler patch/build recipe and reports are
 committed; pre-existing untracked instructions remain untouched. No network,
 package installation, public export, push or destructive cleanup occurred.
 
-**Next step:** resolve and independently verify Elite's QEMU input/quit path,
-then finish C4 and freeze an accepted compiler-only checkpoint. Resume at this
-runtime blocker, not C0 or the passing build/ABI tests. Only afterward begin
-F0's mutation ledger and FAT32 writer. The previous high-cluster corruption
-and its bytes remain negative evidence, not fixed by this compiler repair.
+**Next step:** begin Part II at F0's mutation ledger with the explicitly selected
+accepted repaired compiler. Do not restart C0–C4 or repeat passing tests without
+new cause. Retain the FAT32 write guard until the writer is independently
+qualified. The previous high-cluster corruption remains negative evidence,
+not fixed by the compiler repair or this manual acceptance.

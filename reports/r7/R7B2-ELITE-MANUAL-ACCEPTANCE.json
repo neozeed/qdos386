@@ -1,0 +1,24 @@
+{
+  "status": "PASS - manual user acceptance",
+  "gate": "C4 Elite runtime completion",
+  "reported_by": "user",
+  "user_statement": "start elite /new ... then to the windows \\ q y  ... it runs and quits for me, so you can mark that working",
+  "sequence": {
+    "command": "START ELITE /new",
+    "focus": "switch to the Elite window",
+    "keys": [
+      "\\",
+      "Q",
+      "Y"
+    ]
+  },
+  "scope": "Elite runs and quits; closes the sole remaining C4 runtime acceptance item",
+  "evidence_source": "conversation; no agent automated retest",
+  "referenced_image": "/data/reference/qdos386/r7b2-compiler-candidate-20261115-urqeomc5/elite-runtime-failure.img",
+  "reference_image_sha256_from_existing_manifest": "c19902b9e1c8d9f6928810364d1890e88a89524b08e138b84e7c935b68e3f8df",
+  "manual_run_image_hash_or_fsck": "not supplied or claimed",
+  "accepted_cc1_sha256": "06371b4e8765b296c0082f89eecea73df441a831550dd7e294c8780981abfafc",
+  "compiler_source_commit": "9491134ab6696591fc726dc1d81446d65b8de502",
+  "prior_automation": "Timeout evidence retained unchanged; not relabelled as a passing automated test",
+  "fat32_writer": "Not implemented or accepted by this confirmation"
+}

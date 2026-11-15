@@ -34,8 +34,10 @@ C3 PASS for representation/aggregate matrix: each guest setting passes 131
 aggregate/ABI checks and 110 representation checks. Aggregate output matches
 GCC 15.3 and Clang 22.1 i386 at O0/O exactly. Representation output matches the
 previous actual historical-target output exactly. No guest fault; image hash
-unchanged. Native GCC/HI path has a separate evidence receipt. Production
-compatibility acceptance is still C4, not implied by this receipt.
+unchanged. Native GCC/HI path has a separate evidence receipt. C4 production
+compatibility and subsequent manual Elite acceptance are recorded separately
+in `R7B2-C4-RESULTS.json` and `R7B2-ELITE-MANUAL-ACCEPTANCE.json`; the accepted
+compiler-only checkpoint is `apollo-r7b2-compiler`.
 
 Sanitizer comparison: the reconstructed broken compiler reports invalid RTL
 member access at the known call and exits nonzero; repaired sanitizer build
