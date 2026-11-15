@@ -1,0 +1,24 @@
+{
+  "minimal_guest_exits": [
+    0,
+    0
+  ],
+  "aggregate_checks_per_setting": 131,
+  "representation_checks_per_setting": 110,
+  "guest_settings": [
+    "no optimization",
+    "O"
+  ],
+  "modern_i386_compilers": [
+    "GCC15.3",
+    "Clang22.1"
+  ],
+  "modern_settings": [
+    "O0",
+    "O"
+  ],
+  "all_exact_outputs_match": true,
+  "guest_faults": false,
+  "native_disk_unchanged": true,
+  "compiler_sha256": "06371b4e8765b296c0082f89eecea73df441a831550dd7e294c8780981abfafc"
+}

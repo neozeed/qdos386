@@ -1,0 +1,15 @@
+diff --git a/gcc-1.40/expr.c b/gcc-1.40/expr.c
+index 4f906ea..e62e37f 100644
+--- a/gcc-1.40/expr.c
++++ b/gcc-1.40/expr.c
+@@ -1302,8 +1302,8 @@ emit_push_insn (x, mode, size, align, partial, reg, extra, args_addr, args_so_fa
+ //	move_by_pieces (gen_rtx (MEM, BLKmode, gen_push_operand ()), xinner,
+ //			INTVAL (size) - used, align);
+ //
+-	move_by_pieces (gen_rtx (MEM, BLKmode, gen_push_operand (), xinner,
+-			INTVAL (size) - used, align));
++	move_by_pieces (gen_rtx (MEM, BLKmode, gen_push_operand ()), xinner,
++			INTVAL (size) - used, align);
+       else
+ #endif /* PUSH_ROUNDING */
+ 	{
