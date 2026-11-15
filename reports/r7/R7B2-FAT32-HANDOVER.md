@@ -1,3 +1,5 @@
+> Historical F2 stop record. Superseded by the accepted [final handover](R7B2-COMPILER-FAT32-HANDOVER.md); the counterexample and original checker logs remain unchanged.
+
 # R7B2 Part II — stopped at F2, not accepted
 
 The candidate writer is on `r7b2-fat32-writer`; source checkpoint

@@ -1,105 +1,81 @@
-# R7B2 handover — compiler accepted; FAT32 writer pending
+# Apollo R7B2 — compiler and FAT32 writer accepted
 
-**Part I is accepted; the two-part mission remains incomplete.** The aggregate
-compiler crash is repaired and the native differential tests pass. The user
-confirmed Elite runs and quits with the sequence below, closing the sole
-remaining C4 runtime item. Part II has not started; the FAT32 write guard and
-accepted filesystem source are unchanged. Manual acceptance supplements the
-existing evidence; the earlier automation timeouts remain recorded as timeouts.
+**C0–C4 and F0–F5 PASS.** Branch: `r7b2-fat32-writer`. The final freeze tag is
+`apollo-r7b2-fat32`; code is frozen at F4 `a8c0706` / `apollo-r7b2-fat32-system`,
+with F5 documentation and preservation receipts added afterward. No push or
+publication occurred. All generated FAT32 artifacts remain under `/tmp` as
+required by the latest instructions.
 
-| Gate | Status and evidence |
+| Gate | Acceptance |
 | --- | --- |
-| C0 provenance/reproducer | PASS: accepted binary pinned to R14B archive; all 289 normalized sources and 13 generated inputs verified; original failure reproduced from C and .i at both settings. |
-| C1 causal diagnosis | PASS for immediate cause: malformed legacy call supplies one argument to a four-argument function. Same fault on LP64 and configured ILP32 hosts. Stock-GCC versus later legacy-edit attribution remains unresolved. |
-| C2 minimal repair | PASS: two parentheses corrected in isolated compiler source; native minimal executables exit 0 at no optimization and `-O`. |
-| C3 bounded ABI suite | PASS: 131 aggregate/ABI plus 110 representation checks per setting in QDOS; exact modern i386 GCC/Clang agreement; native GCC/HI also passes. |
-| C4 compiler acceptance | PASS: existing production/runtime checks plus user-confirmed manual Elite run/quit. Compiler-only checkpoint: `apollo-r7b2-compiler`. Original external toolchain retained for rollback. |
-| F0–F5 FAT32 implementation/acceptance | NOT TESTED / NOT STARTED. C4 prerequisite satisfied; no writable FAT32 candidate or combined FAT32 system disk. |
+| C0–C4 | Previously accepted at `84cf893` / `apollo-r7b2-compiler`; not restarted. 131 aggregate/ABI plus 110 representation checks per setting passed; earlier 630-file production comparison had zero differences. |
+| F0–F1 | Mutation audit and separately gated full-width writer: `bb35cd8`, `29e6464`; obsolete unsafe writer remains prohibited. |
+| F2 | `90f5754` / `apollo-r7b2-fat32-host`: high clusters, fragmentation, exhaustion, malformed chains, one/two FATs, varied clusters, root growth, active FAT1, exact contents/ownership and 1320 failure cases. |
+| F3 | `4ad51a7` / `apollo-r7b2-fat32-native`: native secondary-volume writes and reboot on 1/4/8 CPUs, 116 exact host/native injected-error comparisons, eight-reader contention and cleanup. |
+| F4 | `a8c0706` / `apollo-r7b2-fat32-system`: one-disk writable FAT32 WIN1, read-only FAT16 WIN0, fallback on mount failure, GCC/HI, SH, Bounce/Hack/Elite, public channels/cache, recovery and independent checks. |
+| F5 | Fresh Git extraction, sequential historical builds and 13 exact SHA-256 comparisons, including the entire 129 MiB disk. Existing read-only profile remains byte-identical. |
 
-## Source and compiler identity
-
-Project baseline `bd6f55f51acfb75acfd728a74484f30323ba335e`; safety ref
-`r7b2-safety-bd6f55f`; current branch `r7b2-compiler-hardening`. Project receipts:
-`3132cc0` (C0), `71fe379` (repair/tests), and `f9a3878` (initial C4 stop).
-The manual-acceptance commit is frozen by new tag `apollo-r7b2-compiler`.
-Existing tags remain unchanged: `apollo-r7a-disk-tools` → `3e49154`,
-`apollo-r7b1-readonly` → `3aa5998`.
-
-Separate compiler source history: baseline
-`48929349e96e5401ef891d321f4958c64e46ed1f`, repair
-`9491134ab6696591fc726dc1d81446d65b8de502`. The recovery archive SHA-256 is
-`8186c252b318c6df1742d1de5af147840f8ca68fc92e197486b8ce5e3a0590e0`.
-Original cc1 remains
-`1dd52eeb51191b0f1e6f92fcc9ed0be9e5fb80a97f28e41ddddb479f7399effb`;
-accepted repaired cc1 is
+Compiler source repair: `9491134ab6696591fc726dc1d81446d65b8de502` in the
+separate preserved compiler history. Two parentheses repair a malformed legacy
+call passing one argument to a four-argument function; attribution to stock GCC
+versus later editing remains unresolved. Target remains i386 a.out/C89.
+Accepted repaired cc1 SHA-256:
 `06371b4e8765b296c0082f89eecea73df441a831550dd7e294c8780981abfafc`.
-Target remains i386 a.out/C89 with historical assembler/linker and SDK ABI.
-The repaired compiler is built by installed host GCC 15.3; original host GCC 13.3 is
-unavailable. `tools/r7b2-build-cc1.py` is the checked standalone build recipe.
+Original rollback cc1 SHA-256:
+`1dd52eeb51191b0f1e6f92fcc9ed0be9e5fb80a97f28e41ddddb479f7399effb`.
+Original and repaired binaries/source bundle remain in the existing private
+compiler references; no compiler investigation or 630-file matrix was repeated.
+[Compiler details](R7B2-COMPILER-REPAIR.md) preserve provenance and known unrelated
+sanitizer findings.
 
-The exact patch and permanent regressions are under
-`toolchain/provenance/r7b2/` and `validation/r7/compiler/`.
-[Compiler diagnosis and qualification details](R7B2-COMPILER-REPAIR.md) record
-normalization provenance and unrelated pre-existing UBSan signed-overflow
-findings. Those are not silently called sanitizer-clean or repaired here.
+The writer changes are confined to `source/kernel/fat16.c/.h`; the F4 mount
+selection is in `source/kernel/win1.c`, selected by `make apollo-r7-rw`.
+The audit covers 28-bit FAT writes, reserved upper bits, both directory cluster
+words, allocation/free/truncate, growable roots, zero initialization, mirroring,
+active FAT and unknown FSInfo counters. Public SDK/filesystem ABIs are unchanged.
+The original 70010 → 4474 truncation and `0000ffff` EOC are corrected: the
+retained active-FAT example has directory cluster 70010 and FAT1 `afffffff`,
+including preserved upper nibble; inactive FAT0 stays `a0000000`.
 
-## C4 results and manual acceptance
+`BPB_ExtFlags=0081` selects FAT1 with mirroring disabled. The specification and
+independent decoder support the narrow checker compatibility exception; both
+original `fsck.fat` results remain **exit 1**, unchanged. All five changed sectors
+are explained. Ordinary valid mirrored volumes require Linux exit 0 and clean
+independent allocation/content checks. See [active-FAT decision](R7B2-ACTIVE-FAT-DECISION.md),
+[mutation audit](R7B2-FAT32-MUTATION-AUDIT.md), [F2](R7B2-F2-ACCEPTANCE.md),
+[F3](R7B2-F3-ACCEPTANCE.md) and [F4](R7B2-F4-ACCEPTANCE.md).
 
-Fresh sequential R5 24/64, R6A, R7A and R7B1 builds pass. **630 comparable
-files, zero SHA-256 differences**, including accepted kernels, shells,
-libraries and objects. SDK examples and base application targets build.
-Fresh Hack and Elite also exactly match the private volume's existing binaries.
-[Machine-readable comparisons](R7B2-C4-RESULTS.json) retain selected hashes and
-full gate results; all 630 comparisons remain in the private evidence.
+The combined disk passed 1 CPU/16 MiB, 4 CPUs/32 MiB and 8 CPUs/256 MiB.
+Native HI exactly matches accepted C4 output; reboot verifies it and all 700
+process-exit-flushed bytes. Eight readers plus a mounted FAT32 writer recover
+exact heap/frame/process counts and zero held cache/worker resources. FAT16 is
+unchanged by normal FAT32 runs. With FAT32's signature deliberately invalid,
+FAT16 recovery runs GCC/HI and channel tests without changing the bad partition.
+Existing historical applications/assets are reused byte-for-byte. Fresh shells
+match their payload copies. Elite's polled input requires sufficiently long
+key holds in automation; exact observed prompts and successful quit are recorded.
+No historical application sources were changed.
 
-Native four-CPU/32-MiB checks pass for actual GCC compile/link/run of HI,
-interactive SH/EXIT, storage worker requests/races/stale/full cases, Bounce
-visible/hidden rendering, and Hack startup/movement/quit. Reused private game
-assets and the existing guest GCC executable are identified as reused; no
-claim is made that every historical payload or the guest compiler was rebuilt.
-Runtime kernel/game bytes match freshly rebuilt outputs where compared.
+**Accepted pristine disk:**
+`/tmp/qdos386-r7b2-fat32-glru8dtm/f5-freeze/combined/qdos386-r7b2-fat32.disposable.img`
 
-The user confirmed Elite runs and quits: **`START ELITE /new`, switch to the
-Elite window, then backslash, Q, Y**. This is manual user acceptance, recorded
-verbatim in [the acceptance receipt](R7B2-ELITE-MANUAL-ACCEPTANCE.json); it is
-not a new automated test. The earlier attempts used different startup/input
-sequences and timed out after reaching the commander screen. Their logs,
-screenshots and disk remain intact. The exact reason for those automation
-timeouts is not asserted as proven. No kernel fault was recorded, and kernel
-and Elite hashes match accepted bytes. Prior automated runtime partitions
-passed `fsck.fat -n`, with FAT32 unchanged; no new post-manual-run fsck or disk
-hash was supplied or inferred.
+SHA-256: `34ec7a9a0fc8dbb4f43bedf72de9fb2672d4193b3e5b725cdeab2ecde4d56074`.
+This is the complete 129 MiB MBR disk, not the kernel package. Fresh VGA kernel
+package SHA-256: `cc3466efd94699f1e61ccd7d6b5a99a10a0aeb55d9f1d2e5f95d088223305059`.
+Use a new copy or QEMU `-snapshot` for manual testing. [F5 reproduction and
+manifest details](R7B2-F5-FREEZE.md) give exact build/boot commands.
 
-## Artifacts, preservation and next step
+Evidence root: `/tmp/qdos386-r7b2-fat32-glru8dtm/`, with `f2-resume-jcqdsh61/`,
+`f3-native/`, `f4-system/` and `f5-freeze/`. Source bundle, Git graph, accepted
+artifact hashes and final preservation receipt are under `f5-freeze/`.
+The original active-FAT counterexample/checker outputs and accepted R7A/R7B1/R6A
+images are byte-identical. Existing accepted refs, private resources and the three
+pre-existing untracked instruction files are preserved.
 
-Temporary workspace: `/tmp/qdos386-r7b2-hardening-urqeomc5/`.
-Durable private candidate/evidence directory:
-`/data/reference/qdos386/r7b2-compiler-candidate-20261115-urqeomc5/`.
-It contains the complete compiler source Git bundle, original/candidate
-hosttools, build recipe, tests, compact logs/screenshots/receipts and SHA-256
-manifest. This original candidate archive remains an immutable historical
-record of the C4 stop. The new compiler-only acceptance receipt is stored under
-`/data/reference/qdos386/r7b2-compiler-accepted/`; it binds the same verified
-compiler/source hashes to the acceptance commit without altering that archive.
-Large raw test disks and object files remain in the temporary workspace.
-
-Exact rebuild: clone the private `compiler-source.bundle` to a new directory
-under `/tmp`, select `aggregate-call-repair`, then run
-`python3 tools/r7b2-build-cc1.py /tmp/<source-copy> /tmp/<new-output>`.
-For the earlier automation timeout, durable evidence includes `elite-prompt-smoke.py`
-and `guest.py`; the recorded QEMU invocation, source disk hash, key sequence,
-screenshots and timeout are under `logs/elite-prompt-smoke/` and
-`evidence/elite-prompt-smoke.json`. Start from a new copy of the accepted R7B1
-image; no real or accepted disk is ever a writable test target.
-
-All original project file contents and modes, private resources, external
-original toolchain, and accepted/evidence image hashes were checked unchanged.
-Only reviewed additive tests, compiler patch/build recipe and reports are
-committed; pre-existing untracked instructions remain untouched. No network,
-package installation, public export, push or destructive cleanup occurred.
-
-**Next step:** begin Part II at F0's mutation ledger with the explicitly selected
-accepted repaired compiler. Do not restart C0–C4 or repeat passing tests without
-new cause. Retain the FAT32 write guard until the writer is independently
-qualified. The previous high-cluster corruption remains negative evidence,
-not fixed by the compiler repair or this manual acceptance.
+Limits: this is not a journaled filesystem. Injected torn writes can leave
+structural damage (715 host cases explicitly recorded), and the implementation
+returns/latches I/O failure instead of claiming success or repairing silently.
+FSInfo free count/hint can remain unknown. Very large near-maximum 28-bit volumes
+and physical hardware are not qualified. Earlier failed image assemblies and
+script timeouts remain evidence. **No unresolved correctness blocker remains in
+the defined gates. Stop here; no R8, export, installation, cleanup or push.**
