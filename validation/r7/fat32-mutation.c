@@ -20,6 +20,30 @@ int mutation_test(struct fat16_vol *v, const char *test, unsigned int hint)
  char name[32]; int rc;
  for(i=0;i<sizeof payload;i++)payload[i]=(unsigned char)(i*37u+19u);
  v->next_free=hint;
+ if(!strcmp(test,"badchain")) {
+  rc=fat16_open_ex(v,"FRAG.BIN",FAT_O_READ,&f);
+  REQUIRE("bad-chain-refused",rc==FAT_ERR_CHAIN||rc==FAT_ERR_SIZE);
+  return 0;
+ }
+ if(!strcmp(test,"nearfull")) {
+  TRY("create",open_new(v,"/NEAR.DAT",&f));
+  rc=fat16_write(&f,payload,9000,&put);
+  REQUIRE("nearfull-error",rc==FAT_ERR_FULL&&put==1024);
+  TRY("nearfull-flush",fat16_flush(&f));
+  TRY("nearfull-reopen",fat16_open_ex(v,"NEAR.DAT",FAT_O_READ,&g));
+  TRY("nearfull-read",fat16_read(&g,readback,1024,&got));
+  REQUIRE("nearfull-content",got==1024&&!memcmp(payload,readback,1024));
+  TRY("nearfull-remove",fat16_remove(v,"NEAR.DAT"));
+  TRY("nearfull-free",fat16_free_clusters(v,&after));
+  REQUIRE("nearfull-recovery",after==2);return 0;
+ }
+ if(!strcmp(test,"longname")) {
+  TRY("long-create",open_new(v,"/Long File Name.txt",&f));
+  TRY("long-write",fat16_write(&f,payload,600,&put));
+  TRY("long-flush",fat16_flush(&f));
+  TRY("long-rename",fat16_rename_path(v,0,"/Long File Name.txt","/Renamed Long File.txt",FATP_CI));
+  return 0;
+ }
  if(!strcmp(test,"fragment")) {
   TRY("fragment-open",fat16_open_ex(v,"FRAG.BIN",FAT_O_READ|FAT_O_WRITE,&f));
   TRY("fragment-read",fat16_read(&f,readback,1703,&got));
@@ -111,13 +135,18 @@ int mutation_test(struct fat16_vol *v, const char *test, unsigned int hint)
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdlib.h>
-static int fd;static unsigned int writes,fail_at,partial,read_only;
+static int fd;static FILE *trace;static unsigned int writes,fail_at,partial,read_only;
 static int rd(void *ctx,unsigned int l,unsigned char *b)
 { (void)ctx;return pread(fd,b,512,(off_t)l*512)==512?0:-1; }
 static int wr(void *ctx,unsigned int l,const unsigned char *b)
 {
  unsigned int take=512;int fail;
  (void)ctx;writes++;fail=read_only||writes==fail_at;
+ if(trace) {
+  unsigned char head[4]; unsigned int i;
+  for(i=0;i<4;i++)head[i]=(unsigned char)(l>>(8*i));
+  if(fwrite(head,1,4,trace)!=4||fwrite(b,1,512,trace)!=512||fflush(trace))return -1;
+ }
  if(fail)take=read_only?0:partial;
  printf("WRITE %u LBA %u BYTES %u RESULT %d\n",writes,l,take,fail?-1:0);
  if(take&&pwrite(fd,b,take,(off_t)l*512)!=(int)take)return -1;
@@ -135,6 +164,13 @@ int main(int argc,char **argv)
  if(fd<0||fstat(fd,&st)||!S_ISREG(st.st_mode)||st.st_nlink!=1||st.st_dev!=lst.st_dev||st.st_ino!=lst.st_ino)return 2;
  fail_at=(unsigned int)strtoul(argv[5],0,0);partial=(unsigned int)strtoul(argv[6],0,0);
  read_only=(unsigned int)strtoul(argv[7],0,0);if(partial>512)return 2;
+ if(getenv("QDOS_F2_TRACE")) {
+  const char *t=getenv("QDOS_F2_TRACE");int tf;
+  if(strncmp(t,"/tmp/",5))return 2;
+  tf=open(t,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW,0600);
+  if(tf<0)return 2;
+  trace=fdopen(tf,"wb");if(!trace)return 2;
+ }
  memset(&v,0,sizeof v);rc=fat16_mount(&v,rd,0,(unsigned long)(st.st_size/512));
  printf("MOUNT %d\n",rc);if(rc){close(fd);return 3;}
  fat16_set_writer(&v,wr);
@@ -143,7 +179,11 @@ int main(int argc,char **argv)
   memset(&f,0,sizeof f);f.vol=&v;f.mode=FAT_O_WRITE;
   post=fat16_flush(&f);printf("LATCH flush=%d state=%d\n",post,v.wstate);
   if(post==0)rc=-999;
+  { unsigned int was=writes;int next=open_new(&v,"/AFTERERR.DAT",&f);
+    printf("LATCH next=%d further-writes=%u\n",next,writes-was);
+    if(next==0||writes!=was)rc=-999;
+  }
  }
- printf("RESULT rc=%d writes=%u\n",rc,writes);fsync(fd);close(fd);return rc?1:0;
+ printf("RESULT rc=%d writes=%u\n",rc,writes);fsync(fd);close(fd);if(trace)fclose(trace);return rc?1:0;
 }
 #endif
