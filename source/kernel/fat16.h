@@ -30,6 +30,11 @@
 typedef char fat32_uint_must_be_32_bits[(sizeof(unsigned int) == 4) ? 1 : -1];
 #endif
 
+/* System selection is a distinct qualified profile, never the old unsafe flag. */
+#if defined(QDOS_APOLLO_FAT32_SYSTEM) && !defined(QDOS_APOLLO_FAT32_MUTATION)
+#error "FAT32 system selection requires the qualified mutation implementation"
+#endif
+
 #define FAT_SECTOR_BYTES 512u
 
 /* Errors, negative.  Returned directly to channel users (see win1.c). */

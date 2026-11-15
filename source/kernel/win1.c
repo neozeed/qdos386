@@ -43,6 +43,17 @@ static unsigned int dev_count = 0;      /* physical device sector count, for the
 #ifdef QDOS_APOLLO_FAT32
 static struct fat16_vol r6_extra;
 static struct { unsigned int start, count; } r6_extra_part;
+#ifdef QDOS_APOLLO_FAT32_SYSTEM
+/* A large aggregate assignment makes GCC 1.40 call the hosted memcpy runtime.
+ * The kernel is freestanding; copy object bytes through an explicit pointer API. */
+static void r7_volume_copy(struct fat16_vol *to, const struct fat16_vol *from)
+{
+ unsigned int i;
+ unsigned char *d = (unsigned char *)to;
+ const unsigned char *s = (const unsigned char *)from;
+ for(i=0;i<sizeof(*to);i++) d[i]=s[i];
+}
+#endif
 static int r6_extra_read(void *ctx, unsigned int lba, unsigned char *buf)
 {
  (void)ctx;
@@ -89,7 +100,11 @@ static int r6_mount_extra(void)
  rc=fat16_mount(&r6_extra,r6_extra_read,0,count);
  if(rc || r6_extra.fat_bits!=32u) return rc ? rc:FAT_ERR_TYPE;
  fat16_set_writer(&r6_extra,0);
+#ifdef QDOS_APOLLO_FAT32_SYSTEM
+ con_puts("R7FAT32: validated system partition start=");con_putdec(begin);
+#else
  con_puts("R6FAT32: WIN0 read-only start=");con_putdec(begin);
+#endif
  con_puts(" sectors=");con_putdec(count);con_putc('\n');
  return FAT_OK;
 }
@@ -367,6 +382,26 @@ int win1_mount(void)
 #ifdef QDOS_APOLLO_FAT32
 		{ int extra_rc=r6_mount_extra();
     if(extra_rc) { r6_extra.mounted=0;con_puts("R7FAT32: refused optional volume, error=");con_putdec((unsigned int)(-extra_rc));con_putc('\n'); }
+#ifdef QDOS_APOLLO_FAT32_SYSTEM
+    if (!extra_rc && r6_extra.mounted) {
+     struct fat16_vol recovery;
+     unsigned int recovery_start = part_lba, recovery_count = part_count;
+     /* Boot-time switch, before any channel exists. Callbacks continue to
+      * translate volume-relative sectors to physical LBAs before caching.
+      * Keep the BIOS-selected device and FAT16 boot/recovery data intact. */
+     r7_volume_copy(&recovery, &vol);
+     r7_volume_copy(&vol, &r6_extra);
+     vol.read = disk_thunk;
+     part_lba = r6_extra_part.start; part_count = r6_extra_part.count;
+     r7_volume_copy(&r6_extra, &recovery);
+     r6_extra.read = r6_extra_read;
+     r6_extra_part.start = recovery_start; r6_extra_part.count = recovery_count;
+     fat16_set_writer(&r6_extra, 0);
+     con_puts("R7FAT32: WIN1 writable system, WIN0 read-only FAT16 recovery\n");
+    } else {
+     con_puts("R7FAT32: using FAT16 recovery as WIN1\n");
+    }
+#endif
    }
 #endif
 		mounted = 1;

@@ -4,7 +4,7 @@ Replace QDOS.SYS only in the new image; install named root-directory utilities.
 """
 import argparse,hashlib,struct,importlib.util,json,os,stat
 from pathlib import Path
-ap=argparse.ArgumentParser();ap.add_argument('--input',required=True,type=Path);ap.add_argument('--output',required=True,type=Path);ap.add_argument('--package',required=True,type=Path);ap.add_argument('--apps',required=True,type=Path);ap.add_argument('--probe',type=Path);a=ap.parse_args()
+ap=argparse.ArgumentParser();ap.add_argument('--input',required=True,type=Path);ap.add_argument('--output',required=True,type=Path);ap.add_argument('--package',required=True,type=Path);ap.add_argument('--apps',required=True,type=Path);ap.add_argument('--probe',type=Path);ap.add_argument('--probe-name',default='DTABI.AOU',choices=['DTABI.AOU','F32IO.AOU']);a=ap.parse_args()
 root=Path(__file__).resolve().parents[2];assert str(root).startswith('/tmp/')
 assert not a.output.exists() and not a.output.is_symlink() and str(a.output.resolve()).startswith('/tmp/')
 inputs=[a.input,a.package]+[a.apps/(n+'.aout') for n in ['FDISK','FORMAT','CHKDSK']]
@@ -34,7 +34,7 @@ def install(name,body,replace=False):
 package=a.package.read_bytes();assert package[0x1ca:0x1d0]==b'QBOOT3';ks,xs=struct.unpack_from('<HH',package,0x1c2);assert len(package)==512*(1+ks+xs)
 install('QDOS.SYS',package,True)
 for n in ['FDISK','FORMAT','CHKDSK']:install(n+'.AOU',(a.apps/(n+'.aout')).read_bytes())
-if a.probe:install('DTABI.AOU',a.probe.read_bytes())
+if a.probe:install(a.probe_name,a.probe.read_bytes())
 for i in range(2):v[(res+i*spf)*512:(res+(i+1)*spf)*512]=fat
 disk[start*512:]=v
 with a.output.open('xb') as f:f.write(disk)
