@@ -20,7 +20,8 @@ def geometry(p):
  return dict(spc=b[13],nf=b[16],res=struct.unpack_from('<H',b,14)[0],spf=struct.unpack_from('<I',b,36)[0],total=struct.unpack_from('<I',b,32)[0],ext=struct.unpack_from('<H',b,40)[0],root=struct.unpack_from('<I',b,44)[0])
 def diff(before,after,log=None):
  g=geometry(before);changed=[];written=set(int(x) for x in re.findall(r'WRITE \d+ LBA (\d+)',log or ''))
- with before.open('rb') as f,after.open('rb') as h,mmap.mmap(f.fileno(),0,access=mmap.ACCESS_READ) as a,mmap.mmap(h.fileno(),0,access=mmap.ACCESS_READ) as b:
+ with before.open('rb') as f,after.open('rb') as h:
+  a=dec.DiskBytes(f);b=dec.DiskBytes(h)
   for i in range(len(a)//512):
    if a[i*512:(i+1)*512]!=b[i*512:(i+1)*512]:changed.append(i)
   active=g['ext']&15;inactive=[]

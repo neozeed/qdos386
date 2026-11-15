@@ -1,13 +1,25 @@
 #!/usr/bin/env python3
 """Independent read-only FAT32 ownership/content judge (no kernel code)."""
-import hashlib, json, mmap, struct, sys
+import hashlib, json, os, struct, sys
 from pathlib import Path
+
+class DiskBytes:
+    """Read sparse files without mmap faults allocating their tmpfs holes."""
+    def __init__(self, f):
+        self.fd=f.fileno(); self.size=os.fstat(self.fd).st_size
+    def __len__(self): return self.size
+    def __getitem__(self, key):
+        if isinstance(key,int):return os.pread(self.fd,1,key)[0]
+        start,stop,step=key.indices(self.size)
+        assert step==1
+        return os.pread(self.fd,max(0,stop-start),start)
 
 def inspect(path):
     errors=[]; files={}; dirs={}; owners={}
-    with open(path,'rb') as f, mmap.mmap(f.fileno(),0,access=mmap.ACCESS_READ) as d:
-        u16=lambda o:struct.unpack_from('<H',d,o)[0]
-        u32=lambda o:struct.unpack_from('<I',d,o)[0]
+    with open(path,'rb') as f:
+        d=DiskBytes(f)
+        u16=lambda o:struct.unpack('<H',d[o:o+2])[0]
+        u32=lambda o:struct.unpack('<I',d[o:o+4])[0]
         assert d[510:512]==b'\x55\xaa' and u16(11)==512
         spc=d[13]; nf=d[16]; res=u16(14); spf=u32(36); total=u32(32)
         root=u32(44); ext=u16(40); active=(ext&15) if ext&128 else 0
@@ -43,6 +55,16 @@ def inspect(path):
                 e=raw[off:off+32]
                 if not e[0]:
                     if lfn:errors.append(path+': orphan LFN')
+                    # Namespace traversal ends here, but qualification must also
+                    # report partially published entries beyond the end marker.
+                    # Linux fsck scans these slots and can find hidden aliases.
+                    for later in range(off+32,len(raw),32):
+                        q=raw[later:later+32]
+                        if q[0] in (0,229):continue
+                        who=(path or '/')+f': unpublished entry at slot {later//32}'
+                        errors.append(who)
+                        if q[11]!=15 and not q[11]&8 and first(q):
+                            chain(first(q),who)
                     break
                 if e[0]==229:lfn=[];continue
                 if e[11]==15:lfn.append(e);continue

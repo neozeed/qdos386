@@ -20,6 +20,12 @@ int mutation_test(struct fat16_vol *v, const char *test, unsigned int hint)
  char name[32]; int rc;
  for(i=0;i<sizeof payload;i++)payload[i]=(unsigned char)(i*37u+19u);
  v->next_free=hint;
+ if(!strcmp(test,"verify")) {
+  TRY("remount-open",fat16_open_ex(v,"HIGH.DAT",FAT_O_READ,&f));
+  TRY("remount-read",fat16_read(&f,readback,512,&got));
+  REQUIRE("remount-content",got==512&&!memcmp(payload,readback,512));
+  REQUIRE("remount-cluster",f.first==hint);return 0;
+ }
  if(!strcmp(test,"badchain")) {
   rc=fat16_open_ex(v,"FRAG.BIN",FAT_O_READ,&f);
   REQUIRE("bad-chain-refused",rc==FAT_ERR_CHAIN||rc==FAT_ERR_SIZE);
@@ -150,6 +156,7 @@ static int wr(void *ctx,unsigned int l,const unsigned char *b)
  if(fail)take=read_only?0:partial;
  printf("WRITE %u LBA %u BYTES %u RESULT %d\n",writes,l,take,fail?-1:0);
  if(take&&pwrite(fd,b,take,(off_t)l*512)!=(int)take)return -1;
+ if(fail&&getenv("QDOS_F2_CANCEL")) { fsync(fd);fflush(stdout);_exit(77); }
  return read_only?-2:fail?-1:0;
 }
 int main(int argc,char **argv)
