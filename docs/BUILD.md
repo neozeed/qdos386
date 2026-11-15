@@ -90,7 +90,8 @@ qemu-system-i386 -machine pc -accel tcg -cpu pentium -m 32 -smp 4 \
 ```
 
 `RUN F32IO` verifies actual FAT32 channel operations and process cleanup on a
-fresh disposable disk. `RUN SH` / `EXIT` tests the native shell. On the full
+fresh disposable disk. F32LIVE additionally requires the PAT2 regression fixture
+from the private payload. `RUN SH` / `EXIT` tests the native shell. On the full
 private disk, `RUN GCC -o /TMP/HI.AOU /HOME/HI.C`, then `RUN /TMP/HI.AOU`,
 uses the existing native compiler. `START ELITE /new` starts Elite; select its
 window with Ctrl+Esc and use the game's prompts/quit controls. Automated
