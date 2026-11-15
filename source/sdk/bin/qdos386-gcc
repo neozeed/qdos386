@@ -19,7 +19,8 @@
 # Environment:
 #   QDOS386_TOOLS   the historical tree: $QDOS386_TOOLS/bin has i386-gcc, as,
 #                   i386-ld (required; no default, so no path is assumed)
-#   QDOS386_SDK     this SDK directory (default: the directory above bin/)
+#   QDOS386_SDK     this SDK source directory (default: directory above bin/)
+#   QDOS386_LIBDIR  generated libraries (default: root build/current/sdk/lib)
 #
 # Refused, because the historical compiler cannot honour them and a silent
 # difference would produce a wrong image: -m* (other machine models), -std=c99
@@ -35,7 +36,7 @@ for t in i386-gcc as i386-ld; do
 done
 SDK=${QDOS386_SDK:-$(cd "$(dirname "$0")/.." && pwd)}
 
-LIBDIR=${QDOS386_LIBDIR:-$SDK/lib}
+LIBDIR=${QDOS386_LIBDIR:-$SDK/../../build/current/sdk/lib}
 
 slot=1
 out=
