@@ -10,10 +10,12 @@
 #define FAT16_MAX_CLUSTERS 65524u    /* above this it is not FAT16 */
 #ifdef QDOS_APOLLO_FAT32
 #define FAT_EOC_MIN (v->fat_bits == 32u ? 0x0ffffff8u : 0xfff8u)
+#define FAT_EOC (v->fat_bits == 32u ? 0x0fffffffu : 0xffffu)
 #define FAT_WIDTH(v) ((v)->fat_bits == 32u ? 4u : 2u)
 #else
 #define FAT_WIDTH(v) 2u
 #define FAT_EOC_MIN        0xfff8u   /* end-of-chain markers */
+#define FAT_EOC            0xffffu
 #endif
 #define FAT_BAD            0xfff7u
 
@@ -61,12 +63,20 @@ static int rd_sector(struct fat16_vol *v, unsigned int lba, unsigned char *buf)
 		int rc = v->read(v->ctx, lba, buf);
 		if (rc == FAT_ERR_MISS)
 			return FAT_ERR_MISS;          /* probe: the caller restarts the whole operation */
-		if (rc != 0)
+		if (rc != 0) {
+#ifdef QDOS_APOLLO_FAT32_MUTATION
+			if (v->mounted && v->fat_bits == 32u && v->wstate > 0) v->wstate = -2;
+#endif
 			return FAT_ERR_IO;
+		}
 	}
 #else
-	if (v->read(v->ctx, lba, buf) != 0)
+	if (v->read(v->ctx, lba, buf) != 0) {
+#ifdef QDOS_APOLLO_FAT32_MUTATION
+		if (v->mounted && v->fat_bits == 32u && v->wstate > 0) v->wstate = -2;
+#endif
 		return FAT_ERR_IO;
+	}
 #endif
 	return FAT_OK;
 }
@@ -133,7 +143,14 @@ static int mount32(struct fat16_vol *v, const unsigned char *b, unsigned long de
   unsigned int j;
   rc=rd_sector(v,reserved+i,s);if(rc)return rc;
   rc=rd_sector(v,reserved+spf+i,other);if(rc)return rc;
-  for(j=0;j<512u;j++) if(s[j]!=other[j])return FAT_ERR_BPB;
+  for(j=0;j<512u;j++) {
+#ifdef QDOS_APOLLO_FAT32_MUTATION
+   if ((j & 3u) == 3u) {
+    if ((s[j]&15u)!=(other[j]&15u)) return FAT_ERR_BPB;
+   } else
+#endif
+   if(s[j]!=other[j])return FAT_ERR_BPB;
+  }
  }
  c=root;
  for(i=0;i<4096u/spc;i++) {
@@ -265,7 +282,7 @@ static int chain_check(struct fat16_vol *v, unsigned int first, unsigned long si
 	#ifdef QDOS_APOLLO_FAT32
  unsigned long need = size/cbytes + (size%cbytes != 0);
 #else
- unsigned long need = (size + cbytes - 1) / cbytes;
+ unsigned long need = size / cbytes + (size % cbytes != 0);
 #endif
 	unsigned long len = 0;
 	unsigned int c = first, n = 0;
@@ -536,6 +553,49 @@ static void wr32(unsigned char *p, unsigned long v)
 	p[3] = (unsigned char) ((v >> 24) & 0xff);
 }
 
+/* The on-disk cluster field is split, not a truncated unsigned short. */
+static void entry_set_first(struct fat16_vol *v, unsigned char *p, unsigned int c)
+{
+#ifdef QDOS_APOLLO_FAT32
+	if (v->fat_bits == 32u)
+		wr16(p + 20, (c >> 16) & 0x0fffu);
+#else
+	(void) v;
+#endif
+	wr16(p + 26, c);
+}
+
+static int wr_sector(struct fat16_vol *, unsigned int, const unsigned char *);
+static int cluster_zero(struct fat16_vol *, unsigned int);
+
+#ifdef QDOS_APOLLO_FAT32_MUTATION
+/* Unknown counts/hints are legal FSInfo values. Invalidate both copies before
+ * changing allocation, rather than leave a plausible but false free count.
+ * Never use these advisory fields to decide whether a cluster is free. */
+static int fsinfo_unknown(struct fat16_vol *v)
+{
+	unsigned char sec[FAT_SECTOR_BYTES];
+	unsigned int lba = v->fsinfo, i;
+	int rc;
+	if (lba == 0xffffu)
+		return FAT_OK;
+	for (i = 0; i < 2u; i++) {
+		rc = rd_sector(v, lba, sec);
+		if (rc != FAT_OK)
+			return rc;
+		wr32(sec + 488, 0xffffffffUL);
+		wr32(sec + 492, 0xffffffffUL);
+		rc = wr_sector(v, lba, sec);
+		if (rc != FAT_OK)
+			return rc;
+		if (!v->backup_boot || v->backup_boot == 0xffffu)
+			break;
+		lba = v->backup_boot + v->fsinfo;
+	}
+	return FAT_OK;
+}
+#endif
+
 void fat16_set_writer(struct fat16_vol *v, fat_write_fn w)
 {
 	v->write = w;
@@ -553,8 +613,20 @@ static int probe_write(struct fat16_vol *v)
 	unsigned char sec[FAT_SECTOR_BYTES];
 	int rc;
 
-#if defined(QDOS_APOLLO_FAT32) && !defined(QDOS_APOLLO_FAT32_WRITE)
+#if defined(QDOS_APOLLO_FAT32) && !defined(QDOS_APOLLO_FAT32_MUTATION)
  if(v->fat_bits==32u) return FAT_ERR_WPROT;
+#endif
+
+#ifdef QDOS_APOLLO_FAT32_MUTATION
+	if (v->fat_bits == 32u) {
+		if (v->wstate == -2) return FAT_ERR_WIO;
+		if (!v->write || v->wstate == -1) return FAT_ERR_WPROT;
+		if (v->wstate == 1) return FAT_OK;
+		rc = fsinfo_unknown(v);
+		if (rc != FAT_OK) return rc;
+		v->wstate = 1;
+		return FAT_OK;
+	}
 #endif
 
 	if (v->write == 0)
@@ -582,8 +654,13 @@ static int probe_write(struct fat16_vol *v)
 static int wr_sector(struct fat16_vol *v, unsigned int lba, const unsigned char *buf)
 {
 	int rc;
-#if defined(QDOS_APOLLO_FAT32) && !defined(QDOS_APOLLO_FAT32_WRITE)
+#if defined(QDOS_APOLLO_FAT32) && !defined(QDOS_APOLLO_FAT32_MUTATION)
  if(v->fat_bits==32u) return FAT_ERR_WPROT;
+#endif
+
+#ifdef QDOS_APOLLO_FAT32_MUTATION
+	if (v->fat_bits == 32u && v->wstate < 0)
+		return v->wstate == -2 ? FAT_ERR_WIO : FAT_ERR_WPROT;
 #endif
 
 	if (lba >= v->total_sectors)
@@ -591,6 +668,12 @@ static int wr_sector(struct fat16_vol *v, unsigned int lba, const unsigned char 
 	if (v->write == 0)
 		return FAT_ERR_WPROT;
 	rc = v->write(v->ctx, lba, buf);
+#ifdef QDOS_APOLLO_FAT32_MUTATION
+	/* A device error may mean a torn sector. Do not retry metadata writes
+	 * or let close report success. Recovery requires inspection/remount. */
+	if (v->fat_bits == 32u && rc != 0)
+		v->wstate = rc == -2 ? -1 : -2;
+#endif
 	if (rc == -2)
 		return FAT_ERR_WPROT;
 	if (rc != 0)
@@ -617,6 +700,28 @@ static int fat_set(struct fat16_vol *v, unsigned int c, unsigned int val)
 	unsigned long off = (unsigned long) c * FAT_WIDTH(v);
 	unsigned int idx = (unsigned int) (off / FAT_SECTOR_BYTES);
 	int rc;
+
+#ifdef QDOS_APOLLO_FAT32_MUTATION
+	if (v->fat_bits == 32u) {
+		unsigned int copy, first, end, lba;
+		unsigned char *p;
+		if (c < 2u || c > v->clusters + 1u || val > 0x0fffffffu)
+			return FAT_ERR_CHAIN;
+		if (idx >= v->fat_sectors) return FAT_ERR_CHAIN;
+		first = v->mirrored ? 0u : v->active_fat;
+		end = v->mirrored ? v->fat_copies : first + 1u;
+		for (copy = first; copy < end; copy++) {
+			lba = v->fat_base + copy * v->fat_sectors + idx;
+			rc = rd_sector(v, lba, sec);
+			if (rc != FAT_OK) return rc;
+			p = sec + off % FAT_SECTOR_BYTES;
+			wr32(p, (rd32(p) & 0xf0000000UL) | val);
+			rc = wr_sector(v, lba, sec);
+			if (rc != FAT_OK) return rc;
+		}
+		return FAT_OK;
+	}
+#endif
 
 	if (idx >= v->fat_sectors)
 		return FAT_ERR_CHAIN;
@@ -696,6 +801,31 @@ static int chain_free(struct fat16_vol *v, unsigned int c)
 	unsigned int steps = 0;
 	int rc = FAT_OK, rc2;
 
+#ifdef QDOS_APOLLO_FAT32_MUTATION
+	if (v->fat_bits == 32u) {
+		unsigned int head = c, nx;
+		/* Validate before freeing, including cycles and reserved/bad links. */
+		for (steps = 0; steps < v->clusters; steps++) {
+			if (c < 2u || c > v->clusters + 1u) return FAT_ERR_CHAIN;
+			rc = fat_next(v, c, &nx);
+			if (rc != FAT_OK) return rc;
+			if (nx >= FAT_EOC_MIN) break;
+			c = nx;
+		}
+		if (steps == v->clusters) return FAT_ERR_CHAIN;
+		c = head;
+		for (;;) {
+			rc = fat_next(v, c, &nx);
+			if (rc != FAT_OK) return rc;
+			rc = fat_set(v, c, 0u);
+			if (rc != FAT_OK) return rc;
+			if (c < v->next_free) v->next_free = c;
+			if (nx >= FAT_EOC_MIN) return FAT_OK;
+			c = nx;
+		}
+	}
+#endif
+
 	for (;;) {
 		unsigned long off;
 		unsigned int idx, nx;
@@ -755,7 +885,7 @@ static int dir_update(struct fat16_vol *v, unsigned int lba, unsigned int off,
 	int rc = rd_sector(v, lba, sec);
 	if (rc != FAT_OK)
 		return rc;
-	wr16(sec + off + 26, first);
+	entry_set_first(v, sec + off, first);
 	wr32(sec + off + 28, size);
 	stamp(sec + off);
 	return wr_sector(v, lba, sec);
@@ -764,6 +894,10 @@ static int dir_update(struct fat16_vol *v, unsigned int lba, unsigned int off,
 int fat16_flush(struct fat16_file *f)
 {
 	int rc;
+#ifdef QDOS_APOLLO_FAT32_MUTATION
+	if (f->vol->fat_bits == 32u && (f->mode & FAT_O_WRITE) && f->vol->wstate < 0)
+		return f->vol->wstate == -2 ? FAT_ERR_WIO : FAT_ERR_WPROT;
+#endif
 	if (f->is_dir || !(f->mode & FAT_O_WRITE) || !f->dirty)
 		return FAT_OK;
 	rc = dir_update(f->vol, (unsigned int) f->dir_lba, f->dir_off, f->first, f->size);
@@ -831,6 +965,17 @@ int fat16_lookup(struct fat16_vol *v, const char *name, unsigned int *lba, unsig
 	unsigned int flba = 0, foff = 0;
 	int found, havefree, rc;
 
+#ifdef QDOS_APOLLO_FAT32_MUTATION
+	if (v->fat_bits == 32u) {
+		struct fat16_info info;
+		rc = fat16_name83(name, want);
+		if (rc != FAT_OK) return rc;
+		rc = fat16_stat_path(v, 0, name, 0, &info);
+		if (rc != FAT_OK) return rc;
+		if (info.attr & 0x18u) return FAT_ERR_EXIST;
+		*lba = info.lba; *off = info.off; return FAT_OK;
+	}
+#endif
 	if (!v->mounted)
 		return FAT_ERR_BPB;
 	rc = fat16_name83(name, want);
@@ -848,6 +993,13 @@ int fat16_open_ex(struct fat16_vol *v, const char *name, unsigned int flags, str
 	unsigned int lba = 0, off = 0, flba = 0, foff = 0, i;
 	int found, havefree, rc;
 
+#ifdef QDOS_APOLLO_FAT32_MUTATION
+	if (v->fat_bits == 32u) {
+		rc = fat16_name83(name, want);
+		if (rc != FAT_OK) return rc;
+		return fat16_open_path(v, 0, name, 0, flags, f);
+	}
+#endif
 	if (!v->mounted)
 		return FAT_ERR_BPB;
 	if (!(flags & (FAT_O_READ | FAT_O_WRITE)))
@@ -966,10 +1118,16 @@ static int append_cluster(struct fat16_file *f, unsigned long k, const unsigned 
 	rc = fat_find_free(v, &nc);
 	if (rc != FAT_OK)
 		return rc;
+#ifdef QDOS_APOLLO_FAT32_MUTATION
+	if (v->fat_bits == 32u) {
+		rc = cluster_zero(v, nc);
+		if (rc != FAT_OK) return rc;
+	}
+#endif
 	rc = wr_sector(v, v->data_start + (unsigned int) (nc - 2u) * v->spc, secbuf);
 	if (rc != FAT_OK)
 		return rc;
-	rc = fat_set(v, nc, 0xffff);
+	rc = fat_set(v, nc, FAT_EOC);
 	if (rc != FAT_OK)
 		return rc;
 	if (k > 0) {
@@ -1001,12 +1159,20 @@ int fat16_write(struct fat16_file *f, const unsigned char *src, unsigned int n, 
 		f->pos = f->size;
 	if (f->pos > f->size)
 		return FAT_ERR_RANGE;
+#ifdef QDOS_APOLLO_FAT32_MUTATION
+	if (v->fat_bits == 32u) {
+		if (f->pos > 0xffffffffUL || (unsigned long)n > 0xffffffffUL - f->pos)
+			return FAT_ERR_RANGE;
+		rc = probe_write(v);
+		if (rc != FAT_OK) return rc;
+	}
+#endif
 
 	while (n > 0) {
 		unsigned long k = f->pos / cbytes;
 		unsigned long within = f->pos % cbytes;
 		unsigned long off = f->pos % FAT_SECTOR_BYTES;
-		unsigned long have = (f->size + cbytes - 1) / cbytes;   /* clusters in the file now */
+		unsigned long have = f->size / cbytes + (f->size % cbytes != 0);   /* clusters in the file now */
 		unsigned long take = FAT_SECTOR_BYTES - off;
 		unsigned long i;
 		unsigned long sec_start = f->pos - off;
@@ -1015,7 +1181,13 @@ int fat16_write(struct fat16_file *f, const unsigned char *src, unsigned int n, 
 
 		if (take > n)
 			take = n;
-		if (k >= 0x10000ul) {
+		if (k >=
+#ifdef QDOS_APOLLO_FAT32_MUTATION
+		    (v->fat_bits == 32u ? (unsigned long)v->clusters : 0x10000ul)
+#else
+		    0x10000ul
+#endif
+		) {
 			rc = FAT_ERR_FULL;
 			break;
 		}
@@ -1081,6 +1253,9 @@ int fat16_write(struct fat16_file *f, const unsigned char *src, unsigned int n, 
 		}
 	}
 	*put = total;
+#ifdef QDOS_APOLLO_FAT32_MUTATION
+	if (v->fat_bits == 32u && rc != FAT_OK) return rc;
+#endif
 	if (total != 0)
 		return FAT_OK;               /* short write: the error is reported by the next call */
 	return rc;
@@ -1094,6 +1269,13 @@ int fat16_truncate(struct fat16_file *f, unsigned long size)
 
 	if (f->is_dir || !(f->mode & FAT_O_WRITE) || v->write == 0)
 		return FAT_ERR_WPROT;
+#ifdef QDOS_APOLLO_FAT32_MUTATION
+	if (v->fat_bits == 32u) {
+		if (size > 0xffffffffUL) return FAT_ERR_RANGE;
+		rc = probe_write(v);
+		if (rc != FAT_OK) return rc;
+	}
+#endif
 	if (size == f->size)
 		return FAT_OK;
 
@@ -1127,7 +1309,7 @@ int fat16_truncate(struct fat16_file *f, unsigned long size)
 
 	/* shrink */
 	{
-		unsigned long need = (size + cbytes - 1) / cbytes;
+		unsigned long need = size / cbytes + (size % cbytes != 0);
 		unsigned int tail = 0, keep_last = 0, oldfirst = f->first;
 
 		if (need == 0) {
@@ -1161,7 +1343,7 @@ int fat16_truncate(struct fat16_file *f, unsigned long size)
 		if (f->pos > size)
 			f->pos = size;
 		if (tail < FAT_EOC_MIN) {
-			rc = fat_set(v, keep_last, 0xffff);
+			rc = fat_set(v, keep_last, FAT_EOC);
 			if (rc != FAT_OK)
 				return rc;
 			return chain_free(v, tail);
@@ -1177,6 +1359,13 @@ int fat16_remove(struct fat16_vol *v, const char *name)
 	unsigned long size;
 	int found, havefree, rc;
 
+#ifdef QDOS_APOLLO_FAT32_MUTATION
+	if (v->fat_bits == 32u) {
+		rc = fat16_name83(name, want);
+		if (rc != FAT_OK) return rc;
+		return fat16_remove_path(v, 0, name, 0);
+	}
+#endif
 	if (!v->mounted)
 		return FAT_ERR_BPB;
 	rc = probe_write(v);
@@ -1215,6 +1404,15 @@ int fat16_rename(struct fat16_vol *v, const char *from, const char *to)
 	unsigned int lba = 0, off = 0, flba = 0, foff = 0, l2 = 0, o2 = 0, i;
 	int found, havefree, rc;
 
+#ifdef QDOS_APOLLO_FAT32_MUTATION
+	if (v->fat_bits == 32u) {
+		rc = fat16_name83(from, wf);
+		if (rc != FAT_OK) return rc;
+		rc = fat16_name83(to, wt);
+		if (rc != FAT_OK) return rc;
+		return fat16_rename_path(v, 0, from, to, 0);
+	}
+#endif
 	if (!v->mounted)
 		return FAT_ERR_BPB;
 	rc = probe_write(v);
@@ -1439,6 +1637,7 @@ static int cluster_zero(struct fat16_vol *v, unsigned int c)
 	unsigned char z[FAT_SECTOR_BYTES];
 	unsigned int i;
 	int rc;
+	if (c < 2u || c > v->clusters + 1u) return FAT_ERR_CHAIN;
 
 	for (i = 0; i < FAT_SECTOR_BYTES; i++)
 		z[i] = 0;
@@ -1458,6 +1657,9 @@ static int dir_grow(struct fat16_vol *v, unsigned int dir)
 	unsigned long steps = 0, cap = 0;
 	int rc;
 
+#ifdef QDOS_APOLLO_FAT32_MUTATION
+	if (v->fat_bits == 32u && dir == 0) c = dir = v->root_cluster;
+#endif
 	if (dir == 0)
 		return FAT_ERR_DIRFULL;
 	rc = dir_capacity(v, dir, &cap);
@@ -1481,7 +1683,7 @@ static int dir_grow(struct fat16_vol *v, unsigned int dir)
 	rc = cluster_zero(v, nc);
 	if (rc != FAT_OK)
 		return rc;
-	rc = fat_set(v, nc, 0xffff);
+	rc = fat_set(v, nc, FAT_EOC);
 	if (rc != FAT_OK)
 		return rc;
 	return fat_set(v, c, nc);
@@ -1539,8 +1741,6 @@ static int dir_alloc_run(struct fat16_vol *v, unsigned int dir, unsigned int n, 
 	if (rc != FAT_OK)
 		return rc;
 	while (run_start + n > cap) {
-		if (dir == 0)
-			return FAT_ERR_DIRFULL;
 		rc = dir_grow(v, dir);
 		if (rc != FAT_OK)
 			return rc;
@@ -2452,7 +2652,7 @@ int fat16_dir_list_next(struct fat16_file *f, struct fat16_dirent *out)
 
 /* ---- open / create ----------------------------------------------------------------------- */
 
-static void ent_new(unsigned char *e, const unsigned char *name, unsigned int attr, unsigned int first)
+static void ent_new(struct fat16_vol *v, unsigned char *e, const unsigned char *name, unsigned int attr, unsigned int first)
 {
 	unsigned int i;
 	for (i = 0; i < 32; i++)
@@ -2461,7 +2661,7 @@ static void ent_new(unsigned char *e, const unsigned char *name, unsigned int at
 		e[i] = name[i];
 	e[11] = (unsigned char) attr;
 	stamp(e);
-	wr16(e + 26, first);
+	entry_set_first(v, e, first);
 }
 
 int fat16_open_path(struct fat16_vol *v, unsigned int cwd, const char *path, unsigned int pf,
@@ -2545,7 +2745,7 @@ int fat16_open_path(struct fat16_vol *v, unsigned int cwd, const char *path, uns
 		rc = dir_alloc_run(v, p.dir, pl.nlfn + 1, &idx);
 		if (rc != FAT_OK)
 			return rc;
-		ent_new(ent, pl.alias, 0x20, 0);
+		ent_new(v, ent, pl.alias, 0x20, 0);
 		rc = vcommit(v, p.dir, idx, &pl, p.lname, p.llen, ent, &lba, &eoff);
 		if (rc != FAT_OK)
 			return rc;
@@ -2566,7 +2766,7 @@ int fat16_open_path(struct fat16_vol *v, unsigned int cwd, const char *path, uns
 		rc = dir_alloc_run(v, p.dir, 1, &idx);
 		if (rc != FAT_OK)
 			return rc;
-		ent_new(ent, p.name, 0x20, 0);
+		ent_new(v, ent, p.name, 0x20, 0);
 		cur.cl = 0;
 		cur.k = 0;
 		rc = dir_read_entry_sec(v, p.dir, &cur, idx, sec, &lba, &eoff);
@@ -2642,10 +2842,10 @@ int fat16_mkdir(struct fat16_vol *v, unsigned int cwd, const char *path, unsigne
 		dot[0] = '.';
 		dotdot[0] = '.';
 		dotdot[1] = '.';
-		ent_new(ent, dot, 0x10, nc);
+		ent_new(v, ent, dot, 0x10, nc);
 		for (i = 0; i < 32; i++)
 			sec[i] = ent[i];
-		ent_new(ent, dotdot, 0x10, parent);
+		ent_new(v, ent, dotdot, 0x10, parent);
 		for (i = 0; i < 32; i++)
 			sec[32 + i] = ent[i];
 	}
@@ -2655,14 +2855,14 @@ int fat16_mkdir(struct fat16_vol *v, unsigned int cwd, const char *path, unsigne
 	rc = wr_sector(v, v->data_start + (unsigned int) (nc - 2u) * v->spc, sec);
 	if (rc != FAT_OK)
 		return rc;
-	rc = fat_set(v, nc, 0xffff);
+	rc = fat_set(v, nc, FAT_EOC);
 	if (rc != FAT_OK)
 		return rc;
 #ifdef QDOS_VFAT
-	ent_new(ent, pl.alias, 0x10, nc);
+	ent_new(v, ent, pl.alias, 0x10, nc);
 	return vcommit(v, parent, idx, &pl, p.lname, p.llen, ent, 0, 0);
 #else
-	ent_new(ent, p.name, 0x10, nc);
+	ent_new(v, ent, p.name, 0x10, nc);
 	return dir_put_entry(v, parent, idx, ent);
 #endif
 }

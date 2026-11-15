@@ -22,6 +22,14 @@
 #error "FAT32 writes are not implemented safely; see reports/r7/B2-WRITER-BLOCKER.md"
 #endif
 
+/* Candidate writer qualification; the historical unsafe flag stays forbidden. */
+#ifdef QDOS_APOLLO_FAT32_MUTATION
+#if !defined(QDOS_APOLLO_FAT32) || !defined(QDOS_FS_WRITE)
+#error "FAT32 mutation requires the FAT32 reader and filesystem write support"
+#endif
+typedef char fat32_uint_must_be_32_bits[(sizeof(unsigned int) == 4) ? 1 : -1];
+#endif
+
 #define FAT_SECTOR_BYTES 512u
 
 /* Errors, negative.  Returned directly to channel users (see win1.c). */
