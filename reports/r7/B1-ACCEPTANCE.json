@@ -1,0 +1,102 @@
+{
+  "status": "B1 read-only guest accepted; B2/B3 incomplete",
+  "source_baseline": "3e49154",
+  "workspace": "/tmp/qdos386-r7-1wn7185l",
+  "b0": {
+    "status": "PASS",
+    "commands": [
+      "read/seek/close/reopen",
+      "owner exit",
+      "reopen after owner exit",
+      "reject NULL close callback"
+    ],
+    "entire_image_unchanged": true,
+    "image_sha256": "8d71933ea261f9f2e0e07dfe08d8768787a6173ad57302b9f8e903d42dea548c",
+    "fat32_sha256": "ff28bcb92d5645d689b979620d8727aec9a2eabb024f0b4fdf1e9875f9e0c37e"
+  },
+  "b1": [
+    {
+      "case": "linux-spc1",
+      "status": "PASS",
+      "kernel_mode": "read-only",
+      "host": "ok",
+      "fat32_unchanged": true,
+      "fsck": [
+        0,
+        0
+      ],
+      "image_sha256": "49b211df1686e7f4f07a8b24f331e5c9e80b95997ead97cfab39b117fc4b888c",
+      "fat32_sha256": "7884346d52c477ea320185b6fe87694a8ded63c2b6a43857edec962c312a342e"
+    },
+    {
+      "case": "linux-spc2",
+      "status": "PASS",
+      "kernel_mode": "read-only",
+      "host": "ok",
+      "fat32_unchanged": true,
+      "fsck": [
+        0,
+        0
+      ],
+      "image_sha256": "6fe3f1b7624ae9f866e95608f7c349c469ea95071831b74802df19ad92b83e94",
+      "fat32_sha256": "3dffe615b88051fc986e632714575791b75e63d2426f201c0c45a2cc2e753c62"
+    },
+    {
+      "case": "root7",
+      "status": "PASS",
+      "kernel_mode": "read-only",
+      "host": "ok",
+      "fat32_unchanged": true,
+      "fsck": [
+        0,
+        0
+      ],
+      "image_sha256": "2b030c06dae5446dc5144148ebf5574327257e24b885999bed76b275c8dd31e0",
+      "fat32_sha256": "ff28bcb92d5645d689b979620d8727aec9a2eabb024f0b4fdf1e9875f9e0c37e"
+    },
+    {
+      "case": "active-fat1",
+      "status": "PASS with independent fsck diagnostic",
+      "fat32_unchanged": true,
+      "fsck": [
+        0,
+        1
+      ],
+      "independent_parser": "zero errors, active FAT1 honored",
+      "note": "Deliberately stale inactive FAT0; fsck reports FAT copies differ despite disabled mirroring. Not counted as fsck-clean. Full image equals pre-run constructor hash.",
+      "image_sha256": "723250adca84642cdcb28466dc41800146d3a9e1ce71abdce7e3bbd68403c534"
+    },
+    {
+      "case": "bad-chain",
+      "status": "PASS",
+      "kernel_mode": "read-only",
+      "host": "bad-file",
+      "fat32_unchanged": true,
+      "fsck": [
+        0,
+        1
+      ],
+      "image_sha256": "30ada906abe59ccf1a08b848644dad03789e05781bc8bbadfc2a67da7794f3c7",
+      "fat32_sha256": "40a0ee5a4824f9818451f4591e7cc59cfd7880e8249cb3cb6f322cf60a052e07"
+    },
+    {
+      "case": "bad-info",
+      "status": "PASS",
+      "kernel_mode": "read-only",
+      "host": "bad-mount",
+      "fat32_unchanged": true,
+      "fsck": [
+        0,
+        1
+      ],
+      "image_sha256": "f5771e69b7f5bdc17351c69aecd6a0376cfd66ab8fed151b78df71cc77a154ed",
+      "fat32_sha256": "70dc5aa793b20a9eff028d87079272fe7454b1fc96d98f91cfc502334e15fb45"
+    }
+  ],
+  "production_kernel_package": "e7b5737f6426c8b8255e4e4092e538bf11952a19d1c90227cba7c9e98e06c1fb",
+  "probe_sha256": "017b014c84bf405851c84c054565fa58c0eff2845eab96a3ae1e10b6ca35eaf7",
+  "archive_evidence": "/data/projects/qdos386.old/reference/qdos386/r6-single-disk-internal/stage-b/b1-from-accepted-a.patch",
+  "archive_sha256": "798596c2e3678e1b37151efda3d8a0b0232256725a7246b59e4a5710fe61d4d3",
+  "accepted_write_modes": "FAT16 existing engine; secondary unmounted FORMAT FAT16/FAT32 and advisory FSInfo repair only",
+  "fat32_file_writes": false
+}

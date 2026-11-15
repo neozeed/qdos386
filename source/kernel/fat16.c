@@ -8,7 +8,13 @@
 
 #define FAT16_MIN_CLUSTERS 4085u     /* below this the volume is FAT12 */
 #define FAT16_MAX_CLUSTERS 65524u    /* above this it is not FAT16 */
+#ifdef QDOS_APOLLO_FAT32
+#define FAT_EOC_MIN (v->fat_bits == 32u ? 0x0ffffff8u : 0xfff8u)
+#define FAT_WIDTH(v) ((v)->fat_bits == 32u ? 4u : 2u)
+#else
+#define FAT_WIDTH(v) 2u
 #define FAT_EOC_MIN        0xfff8u   /* end-of-chain markers */
+#endif
 #define FAT_BAD            0xfff7u
 
 static unsigned int rd16(const unsigned char *p)
@@ -21,6 +27,20 @@ static unsigned long rd32(const unsigned char *p)
 	return (unsigned long) p[0] | ((unsigned long) p[1] << 8) |
 	       ((unsigned long) p[2] << 16) | ((unsigned long) p[3] << 24);
 }
+
+#ifdef QDOS_APOLLO_FAT32
+static unsigned int entry_first(struct fat16_vol *v, const unsigned char *p)
+{
+ unsigned int n = rd16(p + 26);
+ if (v->fat_bits == 32u) n |= (rd16(p + 20) & 0xfffu) << 16;
+ return n;
+}
+#define ENTRY_FIRST(v,p) entry_first((v),(p))
+#define FAT_VALUE(v,p) ((v)->fat_bits == 32u ? (unsigned int)(rd32(p)&0x0fffffffu) : rd16(p))
+#else
+#define ENTRY_FIRST(v,p) rd16((p) + 26)
+#define FAT_VALUE(v,p) rd16(p)
+#endif
 
 static int same11(const unsigned char *a, const unsigned char *b)
 {
@@ -55,7 +75,7 @@ static int rd_sector(struct fat16_vol *v, unsigned int lba, unsigned char *buf)
 static int fat_next(struct fat16_vol *v, unsigned int c, unsigned int *next)
 {
 	unsigned char sec[FAT_SECTOR_BYTES];
-	unsigned long off = (unsigned long) c * 2u;
+	unsigned long off = (unsigned long) c * FAT_WIDTH(v);
 	unsigned int lba = v->fat_start + (unsigned int) (off / FAT_SECTOR_BYTES);
 	int rc;
 
@@ -64,9 +84,67 @@ static int fat_next(struct fat16_vol *v, unsigned int c, unsigned int *next)
 	rc = rd_sector(v, lba, sec);
 	if (rc != FAT_OK)
 		return rc;
-	*next = rd16(sec + (off % FAT_SECTOR_BYTES));
+	*next = FAT_VALUE(v, sec + (off % FAT_SECTOR_BYTES));
 	return FAT_OK;
 }
+
+#ifdef QDOS_APOLLO_FAT32
+static int mount32(struct fat16_vol *v, const unsigned char *b, unsigned long device)
+{
+ unsigned int total = rd32(b+32), reserved = rd16(b+14), nf = b[16];
+ unsigned int spf = rd32(b+36), spc = b[13], ext = rd16(b+40);
+ unsigned int root = rd32(b+44), fi = rd16(b+48), backup = rd16(b+50);
+ unsigned int meta, clusters, i, c, nx;
+ unsigned char s[512], other[512];
+ int rc;
+ if (rd16(b+11)!=512u || !spc || spc>128u || (spc&(spc-1u)) ||
+     !reserved || (nf!=1u && nf!=2u) || !spf || rd16(b+17) || rd16(b+19) ||
+     rd16(b+22) || rd16(b+42) || !total || total>device || reserved>=total ||
+     spf>(total-reserved)/nf || (ext&~0x8fu)) return FAT_ERR_BPB;
+ meta = reserved + spf*nf;
+ if (meta>=total) return FAT_ERR_BPB;
+ clusters = (total-meta)/spc;
+ if (clusters<65525u || clusters>0x0fffffedu || spf<(clusters+2u+127u)/128u)
+  return FAT_ERR_TYPE;
+ if (root<2u || root>clusters+1u || ((ext&0x80u) && (ext&15u)>=nf) ||
+     (fi!=0xffffu && (!fi || fi>=reserved)) ||
+     (backup!=0u && backup!=0xffffu && backup>=reserved)) return FAT_ERR_BPB;
+ v->fat_bits=32u; v->root_cluster=root; v->fat_base=reserved; v->fat_copies=nf;
+ v->mirrored=(ext&0x80u)?0u:1u; v->active_fat=v->mirrored?0u:(ext&15u);
+ v->fat_start=reserved+v->active_fat*spf; v->fat_sectors=spf;
+ v->root_start=0; v->root_sectors=0; v->data_start=meta; v->spc=spc;
+ v->clusters=clusters; v->total_sectors=total; v->fsinfo=fi; v->backup_boot=backup;
+ if (backup && backup!=0xffffu) {
+  rc=rd_sector(v,backup,s); if(rc) return rc;
+  if (s[510]!=0x55 || s[511]!=0xaa) return FAT_ERR_BPB;
+  for(i=11;i<90;i++) if(s[i]!=b[i]) return FAT_ERR_BPB;
+ }
+ if (fi!=0xffffu) {
+  rc=rd_sector(v,fi,s); if(rc) return rc;
+  if(rd32(s)!=0x41615252u || rd32(s+484)!=0x61417272u || rd32(s+508)!=0xaa550000u) return FAT_ERR_BPB;
+  /* Counts/hints are advisory and are never modified on read. */
+  if(backup && backup!=0xffffu) {
+   if(fi>=reserved-backup) return FAT_ERR_BPB;
+   rc=rd_sector(v,backup+fi,s);if(rc)return rc;
+   if(rd32(s)!=0x41615252u || rd32(s+484)!=0x61417272u || rd32(s+508)!=0xaa550000u) return FAT_ERR_BPB;
+  }
+ }
+ if(v->mirrored && nf==2u) for(i=0;i<spf;i++) {
+  unsigned int j;
+  rc=rd_sector(v,reserved+i,s);if(rc)return rc;
+  rc=rd_sector(v,reserved+spf+i,other);if(rc)return rc;
+  for(j=0;j<512u;j++) if(s[j]!=other[j])return FAT_ERR_BPB;
+ }
+ c=root;
+ for(i=0;i<4096u/spc;i++) {
+  rc=fat_next(v,c,&nx); if(rc) return rc;
+  if(nx>=FAT_EOC_MIN) { v->mounted=1; return FAT_OK; }
+  if(nx<2u || nx>clusters+1u) return FAT_ERR_CHAIN;
+  c=nx;
+ }
+ return FAT_ERR_CHAIN;
+}
+#endif
 
 int fat16_mount(struct fat16_vol *v, fat_read_fn read, void *ctx,
                 unsigned long device_sectors)
@@ -77,6 +155,13 @@ int fat16_mount(struct fat16_vol *v, fat_read_fn read, void *ctx,
 	int rc;
 
 	v->mounted = 0;
+#ifdef QDOS_APOLLO_FAT32
+ v->fat_bits=16u; v->root_cluster=0; v->fat_copies=2u; v->active_fat=0;
+ v->mirrored=1u; v->fsinfo=0xffffu; v->backup_boot=0;
+#ifdef QDOS_FS_WRITE
+ v->write=0; v->wstate=0;
+#endif
+#endif
 	v->read = read;
 	v->ctx = ctx;
 	if (read == 0 || device_sectors == 0 || device_sectors > 0xffffffu)
@@ -100,6 +185,9 @@ int fat16_mount(struct fat16_vol *v, fat_read_fn read, void *ctx,
 		return FAT_ERR_BPB;
 	if (spc == 0 || spc > 128 || (spc & (spc - 1)) != 0)
 		return FAT_ERR_BPB;
+#ifdef QDOS_APOLLO_FAT32
+	if (rootent==0 && spf==0) return mount32(v, sec, device_sectors);
+#endif
 	if (reserved == 0 || nfats != 2 || spf == 0)
 		return FAT_ERR_BPB;
 	if (rootent == 0 || (rootent * 32u) % FAT_SECTOR_BYTES != 0)
@@ -174,11 +262,19 @@ int fat16_name83(const char *name, unsigned char out[11])
 static int chain_check(struct fat16_vol *v, unsigned int first, unsigned long size)
 {
 	unsigned long cbytes = (unsigned long) v->spc * FAT_SECTOR_BYTES;
-	unsigned long need = (size + cbytes - 1) / cbytes;
+	#ifdef QDOS_APOLLO_FAT32
+ unsigned long need = size/cbytes + (size%cbytes != 0);
+#else
+ unsigned long need = (size + cbytes - 1) / cbytes;
+#endif
 	unsigned long len = 0;
 	unsigned int c = first, n = 0;
 	int rc;
 
+#ifdef QDOS_APOLLO_FAT32
+	if (need>v->clusters) return FAT_ERR_SIZE;
+ if(v->fat_bits==32u && !need && first) return FAT_ERR_CHAIN;
+#endif
 	if (need == 0)
 		return FAT_OK;
 	for (;;) {
@@ -231,7 +327,7 @@ int fat16_open_root(struct fat16_vol *v, const char *name, struct fat16_file *f)
 			f->vol = v;
 			f->is_dir = 0;
 			f->dir_next = 0;
-			f->first = rd16(p + 26);
+			f->first = ENTRY_FIRST(v, p);
 			f->size = rd32(p + 28);
 			f->dir_lba = v->root_start + s;
 			f->dir_off = 32 * e;
@@ -457,6 +553,10 @@ static int probe_write(struct fat16_vol *v)
 	unsigned char sec[FAT_SECTOR_BYTES];
 	int rc;
 
+#if defined(QDOS_APOLLO_FAT32) && !defined(QDOS_APOLLO_FAT32_WRITE)
+ if(v->fat_bits==32u) return FAT_ERR_WPROT;
+#endif
+
 	if (v->write == 0)
 		return FAT_ERR_WPROT;
 	if (v->wstate > 0)
@@ -482,6 +582,10 @@ static int probe_write(struct fat16_vol *v)
 static int wr_sector(struct fat16_vol *v, unsigned int lba, const unsigned char *buf)
 {
 	int rc;
+#if defined(QDOS_APOLLO_FAT32) && !defined(QDOS_APOLLO_FAT32_WRITE)
+ if(v->fat_bits==32u) return FAT_ERR_WPROT;
+#endif
+
 	if (lba >= v->total_sectors)
 		return FAT_ERR_RANGE;
 	if (v->write == 0)
@@ -510,7 +614,7 @@ static int fat_put_sector(struct fat16_vol *v, unsigned int idx, const unsigned 
 static int fat_set(struct fat16_vol *v, unsigned int c, unsigned int val)
 {
 	unsigned char sec[FAT_SECTOR_BYTES];
-	unsigned long off = (unsigned long) c * 2u;
+	unsigned long off = (unsigned long) c * FAT_WIDTH(v);
 	unsigned int idx = (unsigned int) (off / FAT_SECTOR_BYTES);
 	int rc;
 
@@ -538,7 +642,7 @@ static int fat_find_free(struct fat16_vol *v, unsigned int *out)
 		start = 2;
 	c = start;
 	for (n = 0; n < v->clusters; n++) {
-		unsigned long off = (unsigned long) c * 2u;
+		unsigned long off = (unsigned long) c * FAT_WIDTH(v);
 		unsigned int idx = (unsigned int) (off / FAT_SECTOR_BYTES);
 		if (idx != loaded) {
 			rc = rd_sector(v, v->fat_start + idx, sec);
@@ -546,7 +650,7 @@ static int fat_find_free(struct fat16_vol *v, unsigned int *out)
 				return rc;
 			loaded = idx;
 		}
-		if (rd16(sec + (off % FAT_SECTOR_BYTES)) == 0) {
+		if (FAT_VALUE(v, sec + (off % FAT_SECTOR_BYTES)) == 0) {
 			*out = c;
 			v->next_free = (c == last) ? 2 : c + 1;
 			return FAT_OK;
@@ -566,7 +670,7 @@ int fat16_free_clusters(struct fat16_vol *v, unsigned long *nfree)
 	if (!v->mounted)
 		return FAT_ERR_BPB;
 	for (c = 2; c <= v->clusters + 1; c++) {
-		unsigned long off = (unsigned long) c * 2u;
+		unsigned long off = (unsigned long) c * FAT_WIDTH(v);
 		unsigned int idx = (unsigned int) (off / FAT_SECTOR_BYTES);
 		if (idx != loaded) {
 			rc = rd_sector(v, v->fat_start + idx, sec);
@@ -574,7 +678,7 @@ int fat16_free_clusters(struct fat16_vol *v, unsigned long *nfree)
 				return rc;
 			loaded = idx;
 		}
-		if (rd16(sec + (off % FAT_SECTOR_BYTES)) == 0)
+		if (FAT_VALUE(v, sec + (off % FAT_SECTOR_BYTES)) == 0)
 			cnt++;
 	}
 	*nfree = cnt;
@@ -600,7 +704,7 @@ static int chain_free(struct fat16_vol *v, unsigned int c)
 			rc = FAT_ERR_CHAIN;
 			break;
 		}
-		off = (unsigned long) c * 2u;
+		off = (unsigned long) c * FAT_WIDTH(v);
 		idx = (unsigned int) (off / FAT_SECTOR_BYTES);
 		if (idx != loaded) {
 			if (dirty) {
@@ -614,7 +718,7 @@ static int chain_free(struct fat16_vol *v, unsigned int c)
 				return rc;
 			loaded = idx;
 		}
-		nx = rd16(sec + (off % FAT_SECTOR_BYTES));
+		nx = FAT_VALUE(v, sec + (off % FAT_SECTOR_BYTES));
 		if (nx == 0) {                /* already free: a malformed chain */
 			rc = FAT_ERR_CHAIN;
 			break;
@@ -775,7 +879,7 @@ int fat16_open_ex(struct fat16_vol *v, const char *name, unsigned int flags, str
 	if (found) {
 		if ((flags & FAT_O_CREATE) && (flags & FAT_O_EXCL))
 			return FAT_ERR_EXIST;
-		f->first = rd16(ent + 26);
+		f->first = ENTRY_FIRST(v, ent);
 		f->size = rd32(ent + 28);
 		f->cur = f->first;
 		f->dir_lba = lba;
@@ -1086,7 +1190,7 @@ int fat16_remove(struct fat16_vol *v, const char *name)
 		return rc;
 	if (!found)
 		return FAT_ERR_NOFILE;
-	first = rd16(ent + 26);
+	first = ENTRY_FIRST(v, ent);
 	size = rd32(ent + 28);
 	if (size != 0 && (first < 2 || first > v->clusters + 1))
 		return FAT_ERR_CHAIN;
@@ -1166,6 +1270,9 @@ static int dir_sector(struct fat16_vol *v, unsigned int dir, struct dircur *cur,
 	unsigned long k;
 	int rc;
 
+#ifdef QDOS_APOLLO_FAT32
+	if (dir==0 && v->fat_bits==32u) dir=v->root_cluster;
+#endif
 	if (dir == 0) {
 		if (sidx >= v->root_sectors)
 			return 1;
@@ -1219,6 +1326,9 @@ static int dir_capacity(struct fat16_vol *v, unsigned int dir, unsigned long *ca
 	unsigned long s = 0;
 	int rc;
 
+#ifdef QDOS_APOLLO_FAT32
+	if (dir==0 && v->fat_bits==32u) dir=v->root_cluster;
+#endif
 	if (dir == 0) {
 		*cap = (unsigned long) v->root_sectors * DIR_PER_SEC;
 		return FAT_OK;
@@ -1233,6 +1343,9 @@ static int dir_capacity(struct fat16_vol *v, unsigned int dir, unsigned long *ca
 		if (rc == 1)
 			break;
 		s += v->spc;
+#ifdef QDOS_APOLLO_FAT32
+		if(s>DIR_MAX_ENTRIES/DIR_PER_SEC) return FAT_ERR_CHAIN;
+#endif
 	}
 	*cap = s * DIR_PER_SEC;
 	return FAT_OK;
@@ -1522,7 +1635,7 @@ static int dir_parent(struct fat16_vol *v, unsigned int dir, unsigned int *paren
 			return FAT_ERR_CHAIN;
 	if ((sec[eoff + 11] & 0x10) == 0)
 		return FAT_ERR_CHAIN;
-	p = rd16(sec + eoff + 26);
+	p = ENTRY_FIRST(v, sec + eoff);
 	if (p != 0 && (p < 2 || p > v->clusters + 1))
 		return FAT_ERR_CHAIN;
 	*parent = p;
@@ -2068,7 +2181,7 @@ int fat16_resolve(struct fat16_vol *v, unsigned int cwd, const char *path, unsig
 					return FAT_ERR_NOFILE;
 				if (!(r.ent[11] & 0x10))
 					return FAT_ERR_NOTDIR;
-				first = rd16(r.ent + 26);
+				first = ENTRY_FIRST(v, r.ent);
 				if (first < 2 || first > v->clusters + 1)
 					return FAT_ERR_CHAIN;
 				dir = first;
@@ -2102,7 +2215,7 @@ int fat16_stat_path(struct fat16_vol *v, unsigned int cwd, const char *path, uns
 	if (!r.found)
 		return FAT_ERR_NOFILE;
 	info->attr = r.ent[11];
-	info->first = rd16(r.ent + 26);
+	info->first = ENTRY_FIRST(v, r.ent);
 	info->size = rd32(r.ent + 28);
 	info->lba = r.lba;
 	info->off = r.off;
@@ -2389,7 +2502,7 @@ int fat16_open_path(struct fat16_vol *v, unsigned int cwd, const char *path, uns
 	f->lflags = 0;
 
 	if (r.found) {
-		unsigned int first = rd16(r.ent + 26);
+		unsigned int first = ENTRY_FIRST(v, r.ent);
 		if (r.ent[11] & 0x10) {          /* a directory */
 			if (flags & FAT_O_WRITE)
 				return FAT_ERR_ISDIR;
@@ -2615,7 +2728,7 @@ int fat16_rmdir(struct fat16_vol *v, unsigned int cwd, const char *path, unsigne
 		return FAT_ERR_NOFILE;
 	if (!(r.ent[11] & 0x10))
 		return FAT_ERR_NOTDIR;
-	first = rd16(r.ent + 26);
+	first = ENTRY_FIRST(v, r.ent);
 	if (first < 2 || first > v->clusters + 1)
 		return FAT_ERR_CHAIN;
 	rc = dir_is_empty(v, first, &empty);
@@ -2656,7 +2769,7 @@ int fat16_remove_path(struct fat16_vol *v, unsigned int cwd, const char *path, u
 		return FAT_ERR_ISDIR;
 	if (p.trailing_slash)
 		return FAT_ERR_NOTDIR;
-	first = rd16(r.ent + 26);
+	first = ENTRY_FIRST(v, r.ent);
 	size = rd32(r.ent + 28);
 	if (size != 0 && (first < 2 || first > v->clusters + 1))
 		return FAT_ERR_CHAIN;
@@ -2846,7 +2959,7 @@ static int dir_name_of(struct fat16_vol *v, unsigned int dir, unsigned int child
 #endif
 		if (p[0] == 0xe5 || p[11] == 0x0f || !(p[11] & 0x10) || p[0] == '.')
 			continue;
-		if (rd16(p + 26) != child)
+		if (ENTRY_FIRST(v, p) != child)
 			continue;
 		blen = 8;
 		elen = 3;

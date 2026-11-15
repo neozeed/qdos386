@@ -9,3 +9,4 @@ CURRENT_CTX = kctx17.o
 CURRENT_FLAGS += $(if $(filter 1,$(APOLLO_R6)),-DQDOS_APOLLO_R6)
 CURRENT_EXTRA_OBJS += $(if $(filter 1,$(APOLLO_R6)),r6boot.o)
 CURRENT_FLAGS += $(if $(filter 1,$(APOLLO_R7)),-DQDOS_APOLLO_R7)
+CURRENT_FLAGS += $(if $(filter 1,$(APOLLO_FAT32)),-DQDOS_APOLLO_FAT32)

@@ -23,6 +23,10 @@ apollo-r6:
 apollo-r7:
 	$(MAKE) -C source production current-shell CURRENT_D=apollo-r7 QDOS_CFG_MAX_JOBS=64 APOLLO_R6=1 APOLLO_R7=1 I386VM="$(I386VM)" QDOS386_TOOLS="$(QDOS386_TOOLS)"
 
+.PHONY: apollo-r7-ro
+apollo-r7-ro:
+	$(MAKE) -C source production current-shell CURRENT_D=apollo-r7-ro QDOS_CFG_MAX_JOBS=64 APOLLO_R6=1 APOLLO_R7=1 APOLLO_FAT32=1 I386VM="$(I386VM)" QDOS386_TOOLS="$(QDOS386_TOOLS)"
+
 r20: production
 
 r18:
@@ -30,7 +34,7 @@ r18:
 
 # Keep other source/ targets accessible without duplicating their recipes here.
 # Explicit requested goals avoid pattern rules that try to rebuild this Makefile.
-FORWARDED_GOALS := $(filter-out all production production64 apollo-r6 apollo-r7 current-shell diagnostic r20 r18 help,$(MAKECMDGOALS))
+FORWARDED_GOALS := $(filter-out all production production64 apollo-r6 apollo-r7 apollo-r7-ro current-shell diagnostic r20 r18 help,$(MAKECMDGOALS))
 ifneq ($(strip $(FORWARDED_GOALS)),)
 .PHONY: $(FORWARDED_GOALS)
 $(FORWARDED_GOALS):
@@ -42,6 +46,7 @@ help:
 	  'make [production] HOSTTOOLS=/path/to/tools  Build current 24-job serial/VGA kernels' \
 	  'make apollo-r6 HOSTTOOLS=/path/to/tools     Build R6A 64-job kernels and matching shells' \
 	  'make apollo-r7 HOSTTOOLS=/path/to/tools     Build R7 maintenance kernels and matching shells' \
+	  'make apollo-r7-ro HOSTTOOLS=/path/to/tools  Build R7 with optional read-only FAT32 WIN0' \
 	  'make disk-tools HOSTTOOLS=/path/to/tools    Build native FDISK, FORMAT and CHKDSK' \
 	  'make production64 HOSTTOOLS=/path/to/tools Build R5 64-job kernels and matching shells' \
 	  'make current-shell HOSTTOOLS=/path/to/tools Build matching native shell/SH' \

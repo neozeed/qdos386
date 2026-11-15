@@ -162,7 +162,17 @@ static struct chan_driver con_driver;
 extern struct chan_driver win1n_driver;  /* win1.c: the "WIN1:" native path prefix (R11M) */
 #ifdef QDOS_R14
 extern struct chan_driver ser_driver;    /* R14 uart.c: SER1, SER2 */
+#ifdef QDOS_APOLLO_FAT32
+extern struct chan_driver r6_ro_driver, r6_ron_driver;
+#ifdef QDOS_R7_CHANNEL_NEGATIVE
+static struct chan_driver r7_bad_driver={"R7BAD",0,con_drv_open,0,0,0,0,0,0};
+static struct chan_driver *drivers[8];
+#else
+static struct chan_driver *drivers[7];
+#endif
+#else
 static struct chan_driver *drivers[5];
+#endif
 #else
 static struct chan_driver *drivers[4];
 #endif
@@ -188,7 +198,18 @@ static void drivers_init(void)
 	drivers[2] = &win1n_driver;
 #ifdef QDOS_R14
 	drivers[3] = &ser_driver;
+#ifdef QDOS_APOLLO_FAT32
+	drivers[4] = &r6_ro_driver;
+	drivers[5] = &r6_ron_driver;
+#ifdef QDOS_R7_CHANNEL_NEGATIVE
+ drivers[6] = &r7_bad_driver;
+ drivers[7] = 0;
+#else
+ drivers[6] = 0;
+#endif
+#else
 	drivers[4] = 0;
+#endif
 #else
 	drivers[3] = 0;
 #endif
@@ -323,6 +344,12 @@ int chan_open(unsigned int owner, unsigned int name_addr)
 			break;
 	if (drivers[d] == 0)
 		return CHAN_ERR_NAME;
+#ifdef QDOS_APOLLO_R7
+	/* Reject incomplete driver contracts before allocating/publishing a channel.
+	 * Both explicit close and owner reaping require close, even for read-only. */
+	if (drivers[d]->open == 0 || drivers[d]->close == 0)
+		return CHAN_ERR_NOTSUP;
+#endif
 
 	for (slot = 0; slot < CHAN_MAX; slot++)
 		if (slots[slot].obj == 0)

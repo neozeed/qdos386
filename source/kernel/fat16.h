@@ -15,6 +15,13 @@
 #ifndef QDOS386_FAT16_H
 #define QDOS386_FAT16_H
 
+/* B1 is read-only. The old experimental switch is NOT a complete FAT32
+ * writer: its narrow stores/end markers corrupt high-cluster files. Keep it
+ * impossible to enable accidentally until the writer/recovery gate passes. */
+#ifdef QDOS_APOLLO_FAT32_WRITE
+#error "FAT32 writes are not implemented safely; see reports/r7/B2-WRITER-BLOCKER.md"
+#endif
+
 #define FAT_SECTOR_BYTES 512u
 
 /* Errors, negative.  Returned directly to channel users (see win1.c). */
@@ -76,6 +83,10 @@ struct fat16_vol {
 	unsigned int spc;                /* sectors per cluster */
 	unsigned int clusters;           /* data clusters: valid numbers 2..clusters+1 */
 	int mounted;
+#ifdef QDOS_APOLLO_FAT32
+	unsigned int fat_bits, root_cluster, fat_base, fat_copies, active_fat, mirrored;
+	unsigned int fsinfo, backup_boot;
+#endif
 #ifdef QDOS_FS_WRITE
 	fat_write_fn write;              /* 0: read-only volume */
 	unsigned int next_free;          /* allocation hint (cluster number) */

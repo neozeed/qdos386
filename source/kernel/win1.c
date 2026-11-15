@@ -40,6 +40,60 @@ static int mounted = 0;
 static unsigned int part_lba = 0;
 static unsigned int part_count = 0;
 static unsigned int dev_count = 0;      /* physical device sector count, for the final bounds check */
+#ifdef QDOS_APOLLO_FAT32
+static struct fat16_vol r6_extra;
+static struct { unsigned int start, count; } r6_extra_part;
+static int r6_extra_read(void *ctx, unsigned int lba, unsigned char *buf)
+{
+ (void)ctx;
+ if(lba>=r6_extra_part.count || r6_extra_part.start>=dev_count ||
+    lba>=dev_count-r6_extra_part.start) return FAT_ERR_RANGE;
+ return disk_read_sector(r6_extra_part.start+lba,buf);
+}
+static unsigned int r6_rd32(const unsigned char *p)
+{ return (unsigned int)p[0]|((unsigned int)p[1]<<8)|((unsigned int)p[2]<<16)|((unsigned int)p[3]<<24); }
+static int r6_mount_extra(void)
+{
+ unsigned char s[512]; unsigned int i, j, active=0, n=0, begin=0, count=0; int rc;
+ if(r6_boot_state!=1) return FAT_OK;
+ if(disk_read_sector(0,s)) return FAT_ERR_IO;
+ if(s[510]!=85 || s[511]!=170)return FAT_ERR_BPB;
+ for(i=0;i<4u;i++) {
+  const unsigned char *e=s+446u+16u*i;
+  unsigned int a=r6_rd32(e+8), c=r6_rd32(e+12);
+  if(!e[4]) { if(e[0] || a || c)return FAT_ERR_BPB;continue; }
+  if(e[4]!=4 && e[4]!=6 && e[4]!=14 && e[4]!=11 && e[4]!=12)return FAT_ERR_TYPE;
+  if(e[0]!=0 && e[0]!=128)return FAT_ERR_BPB;
+  if(e[0])active++;
+  if(!a || !c || a>=dev_count || c>dev_count-a)return FAT_ERR_BPB;
+  for(j=0;j<i;j++) {
+   const unsigned char *f=s+446u+16u*j;
+   unsigned int b=r6_rd32(f+8), d=r6_rd32(f+12);
+   if(f[4] && a<b+d && b<a+c)return FAT_ERR_BPB;
+  }
+ }
+ if(active!=1)return FAT_ERR_BPB;
+ for(i=0;i<4u;i++) {
+  const unsigned char *e=s+446u+16u*i;
+  unsigned int a=r6_rd32(e+8), c=r6_rd32(e+12);
+  if(e[4]!=0x0bu && e[4]!=0x0cu) continue;
+  if(e[0] || !a || !c || a>=dev_count || c>dev_count-a ||
+     !(a>=part_lba+part_count || (a<part_lba && c<=part_lba-a))) return FAT_ERR_BPB;
+  begin=a;count=c;n++;
+ }
+ if(n==0) return FAT_OK;
+ if(n!=1) return FAT_ERR_BPB;
+ r6_extra_part.start=begin;r6_extra_part.count=count;
+ if(disk_read_sector(begin,s)) return FAT_ERR_IO;
+ if(r6_rd32(s+28)!=begin) return FAT_ERR_BPB;
+ rc=fat16_mount(&r6_extra,r6_extra_read,0,count);
+ if(rc || r6_extra.fat_bits!=32u) return rc ? rc:FAT_ERR_TYPE;
+ fat16_set_writer(&r6_extra,0);
+ con_puts("R6FAT32: WIN0 read-only start=");con_putdec(begin);
+ con_puts(" sectors=");con_putdec(count);con_putc('\n');
+ return FAT_OK;
+}
+#endif
 
 /* Decide part_lba / part_count for the device via the pure locator (kernel/mbr.c): superfloppy -> offset 0, whole
  * device; one in-range primary FAT16 partition -> that partition; anything else is refused (never treated as empty,
@@ -310,6 +364,11 @@ int win1_mount(void)
 	rc = fat16_mount(&vol, disk_thunk, 0, disk_sector_count());
 #endif
 	if (rc == FAT_OK) {
+#ifdef QDOS_APOLLO_FAT32
+		{ int extra_rc=r6_mount_extra();
+    if(extra_rc) { r6_extra.mounted=0;con_puts("R7FAT32: refused optional volume, error=");con_putdec((unsigned int)(-extra_rc));con_putc('\n'); }
+   }
+#endif
 		mounted = 1;
 #ifdef QDOS_FS_WRITE
 		fat16_set_writer(&vol, disk_thunk_w);
@@ -699,6 +758,25 @@ struct chan_driver win1_driver = {
 	win1_fsop
 #endif
 };
+
+#ifdef QDOS_APOLLO_FAT32
+/* B1 explicit read-only test/recovery namespace. WIN1 and its cwd ABI stay unchanged. */
+static int r6_ro_open(struct chan_object *ch, const char *name)
+{
+ unsigned int flags=(ch->mode & CHAN_O_DIRS) ? FATL_DIRS:0;
+ int rc;
+ if(!r6_extra.mounted) return CHAN_ERR_NOVOL;
+ if(ch->mode & (CHAN_O_WRITE|CHAN_O_CREATE|CHAN_O_TRUNC|CHAN_O_APPEND|CHAN_O_EXCL)) return FAT_ERR_WPROT;
+ rc=fat16_open_path(&r6_extra,0,name[5] ? name+5:"/",FATP_CI,FAT_O_READ,&ch->ff);
+ if(!rc && ch->ff.is_dir) ch->ff.lflags=flags;
+ return rc;
+}
+/* This namespace never registers writable WIN1 file state. Owner reaping and
+ * explicit close nevertheless require a valid callback in the channel ABI. */
+static void r6_ro_close(struct chan_object *ch) { (void)ch; }
+struct chan_driver r6_ro_driver={"WIN0_",1,r6_ro_open,r6_ro_close,0,win1_read,win1_seek,0,0};
+struct chan_driver r6_ron_driver={"WIN0:",1,r6_ro_open,r6_ro_close,0,win1_read,win1_seek,0,0};
+#endif
 
 #ifdef QDOS_FS_WRITE
 /* R11M: the native path form "WIN1:/DIR/NAME" is the same driver under a second prefix. */

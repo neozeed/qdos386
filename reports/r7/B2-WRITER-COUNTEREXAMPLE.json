@@ -1,0 +1,17 @@
+{
+  "status": "UNSAFE experimental writer; NOT ACCEPTED",
+  "host_only": true,
+  "source_image": "/tmp/qdos386-r7-1wn7185l/fat32-fixtures/independent-root7.img",
+  "source_sha256": "191dfbc8b156548e909084e5d361e063025208311c9d400c6c07f190447bc5cb",
+  "counterexample": "/tmp/qdos386-r7-1wn7185l/products/UNSAFE-WRITER-COUNTEREXAMPLE.r7-disposable.img",
+  "after_sha256": "079dc0c41d79e0c4fcb61ec30f22e828499207fb10629f97c8c30098198516ff",
+  "program_exit": 0,
+  "stdout": "mount=0\nopen=0\nwrite=0 bytes=512 first=70010\nflush=0 sector-writes=6\n",
+  "fsck_exit": 1,
+  "fsck": "fsck.fat 4.2 (2021-01-31)\n/UNSAFE.DAT\n  Contains a free cluster (4474). Assuming EOF.\n/UNSAFE.DAT\n  File size is 512 bytes, cluster chain length is 0 bytes.\n  Truncating file to 0 bytes.\nReclaimed 1 unused cluster (512 bytes).\n\nLeaving filesystem unchanged.\n/tmp/qdos386-r7-1wn7185l/products/UNSAFE-WRITER-COUNTEREXAMPLE.r7-disposable.img: 6 files, 7/129022 clusters\n",
+  "allocated_cluster": 70010,
+  "stored_directory_first": 4474,
+  "stored_fat_entry": "0xffff",
+  "expected_fat_eoc": "0x0ffffff8..0x0fffffff",
+  "guest_write_enabled": false
+}
