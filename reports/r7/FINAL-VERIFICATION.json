@@ -1,0 +1,120 @@
+{
+  "tested_source_commit": "3aa5998905d6ed989ee4edd2c7bdbfb29c56c3f5",
+  "fresh_builds": [
+    {
+      "command": [
+        "make",
+        "production",
+        "HOSTTOOLS=/tmp/qdos386-r7-1wn7185l/hosttools"
+      ],
+      "status": 0,
+      "seconds": 2.618
+    },
+    {
+      "command": [
+        "make",
+        "current-shell",
+        "HOSTTOOLS=/tmp/qdos386-r7-1wn7185l/hosttools"
+      ],
+      "status": 0,
+      "seconds": 0.164
+    },
+    {
+      "command": [
+        "make",
+        "production64",
+        "HOSTTOOLS=/tmp/qdos386-r7-1wn7185l/hosttools"
+      ],
+      "status": 0,
+      "seconds": 2.568
+    },
+    {
+      "command": [
+        "make",
+        "apollo-r6",
+        "HOSTTOOLS=/tmp/qdos386-r7-1wn7185l/hosttools"
+      ],
+      "status": 0,
+      "seconds": 2.618
+    },
+    {
+      "command": [
+        "make",
+        "apollo-r7",
+        "HOSTTOOLS=/tmp/qdos386-r7-1wn7185l/hosttools"
+      ],
+      "status": 0,
+      "seconds": 2.618
+    },
+    {
+      "command": [
+        "make",
+        "apollo-r7-ro",
+        "HOSTTOOLS=/tmp/qdos386-r7-1wn7185l/hosttools"
+      ],
+      "status": 0,
+      "seconds": 2.618
+    },
+    {
+      "command": [
+        "make",
+        "disk-tools",
+        "HOSTTOOLS=/tmp/qdos386-r7-1wn7185l/hosttools"
+      ],
+      "status": 0,
+      "seconds": 1.116
+    }
+  ],
+  "fresh_verification": {
+    "commit": "3aa5998905d6ed989ee4edd2c7bdbfb29c56c3f5",
+    "baseline_hash_matches": 19,
+    "r7_ro_kernel_package": "e7b5737f6426c8b8255e4e4092e538bf11952a19d1c90227cba7c9e98e06c1fb",
+    "native_tools_match_qualified": true,
+    "fallback_recreated_exactly": true,
+    "unsafe_write_switch_rejected": true,
+    "source_inputs": "git archive of source commit; external pinned hosttools; explicit accepted private application volume"
+  },
+  "fresh_guest": {
+    "status": "PASS",
+    "image": "/tmp/qdos386-r7-1wn7185l/products/qdos386-r7-readonly.img",
+    "image_sha256": "49b211df1686e7f4f07a8b24f331e5c9e80b95997ead97cfab39b117fc4b888c",
+    "bytes": 101711872,
+    "cpus": 4,
+    "ram_mib": 32,
+    "drives": 1,
+    "fat32_bytes_unchanged": true,
+    "fsck": [
+      0,
+      0
+    ],
+    "original_fat16_payloads_unchanged": 92,
+    "new_files": [
+      "/BOUNCE.LOG",
+      "/TMP/FINALHI.AOU"
+    ],
+    "bounce_shown": 45,
+    "bounce_hidden": 135,
+    "boot_gap_vbr_unchanged": true
+  },
+  "post_test_source_changes": "Only documentation and safety checks in the host-only negative reproducer; no production kernel, SDK, utility or build-input changes.",
+  "counterexample_wrapper_safety": [
+    {
+      "target": "/tmp/qdos386-r7-1wn7185l/products/guard-validation.r7-disposable.img",
+      "status": 4,
+      "expected": 4,
+      "output": "mount=0\nopen=-80\n"
+    },
+    {
+      "target": "/tmp/qdos386-r7-1wn7185l/products/symlink.r7-disposable.img",
+      "status": 2,
+      "expected": 2,
+      "output": ""
+    },
+    {
+      "target": "/dev/null",
+      "status": 2,
+      "expected": 2,
+      "output": ""
+    }
+  ]
+}

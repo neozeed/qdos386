@@ -1,0 +1,61 @@
+Source checkpoint graph before the final documentation/reproducer-safety receipt commit.
+The receipt commit itself is identified by git rev-parse HEAD.
+
+* 3aa5998 (HEAD -> r7-native-disk-tools, tag: apollo-r7b1-readonly, r7b1-fat32-readonly-checkpoint) Qualify native FAT32 read-only cleanup and refuse unsafe experimental writes
+* 3e49154 (tag: apollo-r7a-disk-tools, r7a-disk-tools-checkpoint) Add native R7 disk tools with bounded FAT checking and guarded secondary-disk access
+* 0f9be7f Record verified R7 baseline and preserved FAT16 fallback
+* da9d217 (origin/main, origin/HEAD, r7-safety-da9d217, main) update font script
+* edfab4b restore R3-UNRESOLVED-ENTRIES.json
+* 8852040 update third_party
+* 6145d55 add sdk examples
+* c053c9f update .gitignore
+
+Source changes from original baseline:
+ Makefile                                   |  13 +-
+ reports/r7/B1-ACCEPTANCE.json              | 102 +++++++++++
+ reports/r7/B2-WRITER-BLOCKER.md            |  53 ++++++
+ reports/r7/B2-WRITER-COUNTEREXAMPLE.json   |  17 ++
+ reports/r7/GATE0-HANDOVER.md               | 140 +++++++++++++++
+ reports/r7/R7A-ACCEPTANCE.json             | 151 ++++++++++++++++
+ reports/r7/R7A-DISK-TOOLS.md               |  63 +++++++
+ source/Makefile                            |   9 +
+ source/apps/disktools/Makefile             |  16 ++
+ source/apps/disktools/README.md            | 140 +++++++++++++++
+ source/apps/disktools/main.c               | 241 +++++++++++++++++++++++++
+ source/kernel/channel.c                    |  27 +++
+ source/kernel/disktool.h                   |  25 +++
+ source/kernel/fat16.c                      | 153 +++++++++++++---
+ source/kernel/fat16.h                      |  11 ++
+ source/kernel/fatmeta.c                    | 278 +++++++++++++++++++++++++++++
+ source/kernel/fatmeta.h                    |  46 +++++
+ source/kernel/jobs.c                       |   8 +
+ source/kernel/win1.c                       |  78 ++++++++
+ source/mk/current.mk                       |   2 +
+ source/platform/pc/disk.c                  |  77 ++++++++
+ validation/r7/b1-checks.py                 |  45 +++++
+ validation/r7/disk-abi.c                   |  21 +++
+ validation/r7/fat32-fixtures.py            |  40 +++++
+ validation/r7/fat32-native.c               |  44 +++++
+ validation/r7/fat32-read.c                 |  46 +++++
+ validation/r7/fat32-write-counterexample.c |  23 +++
+ validation/r7/guest.py                     |  64 +++++++
+ validation/r7/host-checks.py               |  70 ++++++++
+ validation/r7/host-preservation.py         |  22 +++
+ validation/r7/install-image.py             |  42 +++++
+ validation/r7/make-ro-combined.py          |  16 ++
+ validation/r7/native-checks.py             |  34 ++++
+ validation/r7/native-repair.py             |  28 +++
+ 34 files changed, 2124 insertions(+), 21 deletions(-)
+
+Git object accounting at source checkpoint (KiB):
+count: 97
+size: 468
+in-pack: 2586
+packs: 1
+size-pack: 9308
+prune-packable: 0
+garbage: 0
+size-garbage: 0
+
+Baseline loose object size: 144 KiB; packed size: 9308 KiB.
+No packs were rewritten and no binary evidence was committed.
