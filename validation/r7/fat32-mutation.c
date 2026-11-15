@@ -20,6 +20,16 @@ int mutation_test(struct fat16_vol *v, const char *test, unsigned int hint)
  char name[32]; int rc;
  for(i=0;i<sizeof payload;i++)payload[i]=(unsigned char)(i*37u+19u);
  v->next_free=hint;
+ if(!strcmp(test,"verifyfinal")) {
+  TRY("reboot-open",fat16_open_path(v,0,"/PARENT/CHILD/FINAL.DAT",FATP_CI,FAT_O_READ,&f));
+  TRY("reboot-read",fat16_read(&f,readback,2000,&got));
+  REQUIRE("reboot-count",got==2000);
+  for(i=0;i<2000;i++) {
+   unsigned char expected=i>=700?0:(i>=123&&i<140?payload[9000+i-123]:payload[i]);
+   if(readback[i]!=expected)return ck("reboot-content",-999);
+  }
+  return 0;
+ }
  if(!strcmp(test,"verify")) {
   TRY("remount-open",fat16_open_ex(v,"HIGH.DAT",FAT_O_READ,&f));
   TRY("remount-read",fat16_read(&f,readback,512,&got));
