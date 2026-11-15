@@ -1,0 +1,16 @@
+[
+  "_platform_file_open",
+  "_platform_file_transfer",
+  "_platform_file_close",
+  "_platform_keyboard_queue_pop",
+  "_platform_sound_ipc",
+  "_platform_alloc",
+  "_platform_free",
+  "_platform_mode",
+  "_platform_poll_install",
+  "_platform_free_bytes",
+  "_platform_yield50",
+  "_platform_poll_remove",
+  "_platform_exit",
+  "_platform_keyrow"
+]
